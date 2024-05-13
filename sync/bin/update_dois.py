@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 
 import argparse
 import configparser
@@ -39,12 +39,13 @@ CKEY = {"flyboy": "dois",
         "dis": "testdois"}
 CROSSREF = {}
 DATACITE = {}
+CROSSREF_CALL = {}
+DATACITE_CALL = {}
 INSERTED = {}
 UPDATED = {}
 MAX_CROSSREF_TRIES = 3
 # General
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
-         'ccalls': 0, 'dcalls': 0,
          'notfound': 0, 'noupdate': 0,
          'insert': 0, 'update': 0, 'delete': 0, 'foundfb': 0, 'flyboy': 0}
 
@@ -331,7 +332,7 @@ def get_doi_record(doi):
         else:
             try:
                 msg = call_datacite(doi)
-                COUNT['dcalls'] += 1
+                DATACITE_CALL[doi] = True
             except Exception as err:
                 LOGGER.warning(err)
     else:
@@ -341,7 +342,7 @@ def get_doi_record(doi):
         else:
             try:
                 msg = call_crossref_with_retry(doi)
-                COUNT['ccalls'] += 1
+                CROSSREF_CALL[doi] = True
             except Exception as err:
                 LOGGER.warning(err)
     return msg
@@ -618,18 +619,20 @@ def post_activities():
         Returns:
           None
     """
-    # Write files
-    timestamp = strftime("%Y%m%dT%H%M%S")
-    for ftype in ('INSERTED', 'UPDATED', 'CROSSREF', 'DATACITE'):
-        if not globals()[ftype]:
-            continue
-        fname = f"doi_{ftype.lower()}_{timestamp}.txt"
-        with open(fname, 'w', encoding='ascii') as outstream:
-            for key, val in globals()[ftype].items():
-                if ftype in ('INSERTED', 'UPDATED'):
-                    outstream.write(f"{key}\t{val}\n")
-                else:
-                    outstream.write(f"{key}\n")
+    if ARG.OUTPUT:
+        # Write files
+        timestamp = strftime("%Y%m%dT%H%M%S")
+        for ftype in ('INSERTED', 'UPDATED', 'CROSSREF', 'DATACITE',
+                      'CROSSREF_CALL', 'DATACITE_CALL'):
+            if not globals()[ftype]:
+                continue
+            fname = f"doi_{ftype.lower()}_{timestamp}.txt"
+            with open(fname, 'w', encoding='ascii') as outstream:
+                for key, val in globals()[ftype].items():
+                    if ftype in ('INSERTED', 'UPDATED'):
+                        outstream.write(f"{key}\t{val}\n")
+                    else:
+                        outstream.write(f"{key}\n")
     # Report
     if ARG.TARGET == 'dis' and (not ARG.DOI and not ARG.FILE):
         print(f"DOIs fetched from Crossref:      {COUNT['crossref']:,}")
@@ -647,8 +650,8 @@ def post_activities():
     print(f"DOIs inserted:                   {COUNT['insert']:,}")
     print(f"DOIs updated:                    {COUNT['update']:,}")
     print(f"Elapsed time: {datetime.now() - START_TIME}")
-    print(f"DOI calls to Crossref: {COUNT['ccalls']:,}")
-    print(f"DOI calls to DataCite: {COUNT['dcalls']:,}")
+    print(f"DOI calls to Crossref: {len(CROSSREF_CALL):,}")
+    print(f"DOI calls to DataCite: {len(DATACITE_CALL):,}")
 
 # -----------------------------------------------------------------------------
 
@@ -665,6 +668,8 @@ if __name__ == '__main__':
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='dev', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
+    PARSER.add_argument('--output', dest='OUTPUT', action='store_true',
+                        default=False, help='Produce output files')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
                         default=False, help='Write to database/config system')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',
