@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 
 import argparse
 import configparser
@@ -114,12 +114,12 @@ def get_dis_dois_from_mongo():
     '''
     coll = DB['dis'].dois
     result = {}
-    recs = coll.find({}, {"doi": 1, "updated": 1, "indexed": 1})
+    recs = coll.find({}, {"doi": 1, "updated": 1, "deposited": 1})
     for rec in recs:
         if "janelia" in rec['doi']:
             result[rec['doi']] = {"updated": rec['updated']}
         else:
-            result[rec['doi']] = {"indexed": {'date-time': rec['indexed']['date-time']}}
+            result[rec['doi']] = {"deposited": {'date-time': rec['deposited']['date-time']}}
     LOGGER.info(f"Got {len(result):,} DOIs from DIS Mongo")
     return result
 
@@ -403,19 +403,19 @@ def crossref_needs_update(doi, msg):
         Returns:
           True or False
     """
-    if 'indexed' not in msg or 'date-time' not in msg['indexed']:
+    if 'deposited' not in msg or 'date-time' not in msg['deposited']:
         return True
     if not doi in EXISTING:
         return True
     rec = EXISTING[doi]
-    if 'indexed' not in rec or 'date-time' not in rec['indexed']:
+    if 'deposited' not in rec or 'date-time' not in rec['deposited']:
         return True
-    stored = convert_timestamp(rec['indexed']['date-time'])
-    new = convert_timestamp(msg['indexed']['date-time'])
+    stored = convert_timestamp(rec['deposited']['date-time'])
+    new = convert_timestamp(msg['deposited']['date-time'])
     needs_update = bool(stored != new)
     if needs_update:
         LOGGER.debug(f"Update {doi} {stored} -> {new}")
-        UPDATED[doi] = f"Indexed {stored} -> {new}"
+        UPDATED[doi] = f"Deposited {stored} -> {new}"
     else:
         COUNT['noupdate'] += 1
     return needs_update
@@ -439,7 +439,7 @@ def datacite_needs_update(doi, msg):
     needs_update = bool(stored != new)
     if needs_update:
         LOGGER.debug(f"Update {doi} {stored} -> {new}")
-        UPDATED[doi] = f"Indexed {stored} -> {new}"
+        UPDATED[doi] = f"Updated {stored} -> {new}"
     else:
         COUNT['noupdate'] += 1
     return needs_update
