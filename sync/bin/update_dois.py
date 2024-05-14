@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.3'
+__version__ = '0.0.4'
 
 import argparse
 import configparser
@@ -43,7 +43,11 @@ CROSSREF_CALL = {}
 DATACITE_CALL = {}
 INSERTED = {}
 UPDATED = {}
+MISSING = {}
 MAX_CROSSREF_TRIES = 3
+# Email
+SENDER = 'svirskasr@hhmi.org'
+RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
          'notfound': 0, 'noupdate': 0,
@@ -278,6 +282,7 @@ def call_crossref(doi):
     if req:
         return req
     COUNT['notfound'] += 1
+    MISSING[f"Could not find {doi} in Crossref"] = True
     raise Exception(f"Could not find {doi} in Crossref")
 
 
@@ -295,10 +300,14 @@ def call_crossref_with_retry(doi):
             msg = call_crossref(doi)
         except Exception as err:
             raise Exception(err) from err
-        if 'title' in msg['message'] and 'author' in msg['message']:
-            break
+        if 'title' in msg['message']:
+            if 'author' in msg['message']:
+                break
+            MISSING[f"No author for {doi}"] = True
+            LOGGER.warning(f"No author for {doi}")
+            return None
         attempt -= 1
-        LOGGER.warning("Missing data from crossref.org: retrying (%d)", attempt)
+        LOGGER.warning(f"Missing data from crossref.org for {doi}: retrying ({attempt})")
         sleep(0.5)
     return msg
 
@@ -314,6 +323,7 @@ def call_datacite(doi):
     if rec:
         return rec
     COUNT['notfound'] += 1
+    MISSING[f"Could not find {doi} in DataCite"] = True
     raise Exception(f"Could not find {doi} in DataCite")
 
 
@@ -355,7 +365,7 @@ def get_crossref_year(msg):
         Returns:
           Publication year
     """
-    for sec in ('published', 'published-print', 'published-online', 'posted'):
+    for sec in ('published', 'published-print', 'published-online', 'posted', 'created'):
         if sec in msg and 'date-parts' in msg[sec]:
             return msg[sec]['date-parts'][0][0]
     return 'unknown'
@@ -370,7 +380,7 @@ def get_publishing_date(msg):
     """
     if 'DOI' in msg:
         # Crossref
-        for sec in ('published', 'published-print', 'published-online', 'posted'):
+        for sec in ('published', 'published-print', 'published-online', 'posted', 'created'):
             if sec in msg and 'date-parts' in msg[sec] and len(msg[sec]['date-parts'][0]) == 3:
                 arr = msg[sec]['date-parts'][0]
                 try:
@@ -612,6 +622,23 @@ def update_dois():
         update_mongodb(persist)
 
 
+def generate_email():
+    ''' Generate and send an email
+        Keyword arguments:
+          None
+        Returns:
+          None
+    '''
+    msg = f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
+    for doi in INSERTED:
+        msg += f"\n{doi}"
+    try:
+        LOGGER.info(f"Sending email to {RECEIVERS}")
+        JRC.send_email(msg, SENDER, RECEIVERS, "New DOIs")
+    except Exception as err:
+        LOGGER.error(err)
+
+
 def post_activities():
     """ Write output files and report on program operations
         Keyword arguments:
@@ -623,7 +650,7 @@ def post_activities():
         # Write files
         timestamp = strftime("%Y%m%dT%H%M%S")
         for ftype in ('INSERTED', 'UPDATED', 'CROSSREF', 'DATACITE',
-                      'CROSSREF_CALL', 'DATACITE_CALL'):
+                      'CROSSREF_CALL', 'DATACITE_CALL', 'MISSING'):
             if not globals()[ftype]:
                 continue
             fname = f"doi_{ftype.lower()}_{timestamp}.txt"
@@ -633,6 +660,9 @@ def post_activities():
                         outstream.write(f"{key}\t{val}\n")
                     else:
                         outstream.write(f"{key}\n")
+    # Email
+    if INSERTED and ARG.WRITE and not ARG.FILE and not ARG.DOI:
+        generate_email()
     # Report
     if ARG.TARGET == 'dis' and (not ARG.DOI and not ARG.FILE):
         print(f"DOIs fetched from Crossref:      {COUNT['crossref']:,}")
