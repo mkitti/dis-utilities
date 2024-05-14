@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.4'
+__version__ = '0.0.5'
 
 import argparse
 import configparser
@@ -579,7 +579,24 @@ def update_mongodb(persist):
             INSERTED[key] = get_publishing_date(val)
 
 
-def update_dois():
+def update_dois(specified, persist):
+    """ Persist new or updated DOIs
+        Keyword arguments:
+          specified: distinct input DOIs
+          persist: DOIs that need persisting
+        Returns:
+          None
+    """
+    if ARG.TARGET == 'flyboy':
+        update_flyboy(persist)
+        if not ARG.DOI and not ARG.FILE:
+            perform_backcheck(specified)
+        update_config_database(persist)
+    elif ARG.TARGET == 'dis':
+        update_mongodb(persist)
+
+
+def process_dois():
     """ Process a list of DOIs
         Keyword arguments:
           None
@@ -598,6 +615,14 @@ def update_dois():
             LOGGER.warning(f"{doi} appears in input more than once")
             continue
         specified[doi] = True
+        if ARG.INSERT:
+            if 'janelia' in doi:
+                if doi not in EXISTING:
+                    persist[doi] = msg['data']['attributes']
+            else:
+                if doi not in EXISTING:
+                    persist[doi] = msg['message']
+            continue
         msg = get_doi_record(doi)
         if not msg:
             continue
@@ -612,14 +637,7 @@ def update_dois():
                 persist[doi] = msg['message']
             COUNT['foundc'] += 1
         # Are we too early (https://doi.org/api/handles/10.7554/eLife.97706.1)
-    # List of DOIs has been analyzed - save them
-    if ARG.TARGET == 'flyboy':
-        update_flyboy(persist)
-        if not ARG.DOI and not ARG.FILE:
-            perform_backcheck(specified)
-        update_config_database(persist)
-    elif ARG.TARGET == 'dis':
-        update_mongodb(persist)
+    update_dois(specified, persist)
 
 
 def generate_email():
@@ -698,6 +716,8 @@ if __name__ == '__main__':
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='dev', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
+    PARSER.add_argument('--insert', dest='INSERT', action='store_true',
+                        default=False, help='Only look for new records')
     PARSER.add_argument('--output', dest='OUTPUT', action='store_true',
                         default=False, help='Produce output files')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
@@ -717,6 +737,6 @@ if __name__ == '__main__':
         EXISTING = JRC.simplenamespace_to_dict(JRC.get_config(CKEY[ARG.TARGET]))
     else:
         EXISTING = get_dis_dois_from_mongo()
-    update_dois()
+    process_dois()
     post_activities()
     terminate_program()
