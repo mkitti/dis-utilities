@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.5'
+__version__ = '0.0.6'
 
 import argparse
 import configparser
@@ -618,10 +618,14 @@ def process_dois():
         if ARG.INSERT:
             if 'janelia' in doi:
                 if doi not in EXISTING:
-                    persist[doi] = msg['data']['attributes']
+                    msg = get_doi_record(doi)
+                    if msg:
+                        persist[doi] = msg['data']['attributes']
             else:
                 if doi not in EXISTING:
-                    persist[doi] = msg['message']
+                    msg = get_doi_record(doi)
+                    if msg:
+                        persist[doi] = msg['message']
             continue
         msg = get_doi_record(doi)
         if not msg:
