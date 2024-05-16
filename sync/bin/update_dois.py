@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.6'
+__version__ = '0.0.7'
 
 import argparse
 import configparser
@@ -568,6 +568,9 @@ def update_mongodb(persist):
     for key, val in tqdm(persist.items(), desc='Update DIS Mongo'):
         val['doi'] = key
         val['jrc_publishing_date'] = get_publishing_date(val)
+        if key not in EXISTING:
+            val['jrc_inserted'] = datetime.today().replace(microsecond=0)
+        val['jrc_updated'] = datetime.today().replace(microsecond=0)
         if ARG.WRITE:
             coll.update_one({"doi": key}, {"$set": val}, upsert=True)
         if key in EXISTING:
@@ -603,6 +606,7 @@ def process_dois():
         Returns:
           None
     """
+    LOGGER.info(f"Started run (version {__version__})")
     rows = get_dois()
     if not rows:
         terminate_program("No DOIs were found")
@@ -616,16 +620,16 @@ def process_dois():
             continue
         specified[doi] = True
         if ARG.INSERT:
+            if doi in EXISTING:
+                continue
             if 'janelia' in doi:
-                if doi not in EXISTING:
-                    msg = get_doi_record(doi)
-                    if msg:
-                        persist[doi] = msg['data']['attributes']
+                msg = get_doi_record(doi)
+                if msg:
+                    persist[doi] = msg['data']['attributes']
             else:
-                if doi not in EXISTING:
-                    msg = get_doi_record(doi)
-                    if msg:
-                        persist[doi] = msg['message']
+                msg = get_doi_record(doi)
+                if msg:
+                    persist[doi] = msg['message']
             continue
         msg = get_doi_record(doi)
         if not msg:
@@ -656,7 +660,8 @@ def generate_email():
         msg += f"\n{doi}"
     try:
         LOGGER.info(f"Sending email to {RECEIVERS}")
-        JRC.send_email(msg, SENDER, RECEIVERS, "New DOIs")
+        JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
+                       "New DOIs")
     except Exception as err:
         LOGGER.error(err)
 
@@ -682,9 +687,6 @@ def post_activities():
                         outstream.write(f"{key}\t{val}\n")
                     else:
                         outstream.write(f"{key}\n")
-    # Email
-    if INSERTED and ARG.WRITE and not ARG.FILE and not ARG.DOI:
-        generate_email()
     # Report
     if ARG.TARGET == 'dis' and (not ARG.DOI and not ARG.FILE):
         print(f"DOIs fetched from Crossref:      {COUNT['crossref']:,}")
@@ -704,6 +706,9 @@ def post_activities():
     print(f"Elapsed time: {datetime.now() - START_TIME}")
     print(f"DOI calls to Crossref: {len(CROSSREF_CALL):,}")
     print(f"DOI calls to DataCite: {len(DATACITE_CALL):,}")
+    # Email
+    if INSERTED and ARG.WRITE:
+        generate_email()
 
 # -----------------------------------------------------------------------------
 
