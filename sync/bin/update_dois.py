@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.7'
+__version__ = '0.0.8'
 
 import argparse
 import configparser
@@ -22,6 +22,7 @@ import MySQLdb
 import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
+import doi_lib as DL
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
 
@@ -358,43 +359,6 @@ def get_doi_record(doi):
     return msg
 
 
-def get_crossref_year(msg):
-    """ Return the publication year
-        Keyword arguments:
-          msg: Crossref record
-        Returns:
-          Publication year
-    """
-    for sec in ('published', 'published-print', 'published-online', 'posted', 'created'):
-        if sec in msg and 'date-parts' in msg[sec]:
-            return msg[sec]['date-parts'][0][0]
-    return 'unknown'
-
-
-def get_publishing_date(msg):
-    """ Return the publication date
-        Keyword arguments:
-          msg: Crossref or DataCite record
-        Returns:
-          Publication date
-    """
-    if 'DOI' in msg:
-        # Crossref
-        for sec in ('published', 'published-print', 'published-online', 'posted', 'created'):
-            if sec in msg and 'date-parts' in msg[sec] and len(msg[sec]['date-parts'][0]) == 3:
-                arr = msg[sec]['date-parts'][0]
-                try:
-                    return '-'.join([str(arr[0]), f"{arr[1]:02}", f"{arr[2]:02}"])
-                except Exception as err:
-                    print(arr)
-                    terminate_program(err)
-    else:
-        # DataCite
-        if 'registered' in msg:
-            return msg['registered'].split('T')[0]
-    return 'unknown'
-
-
 def convert_timestamp(stamp):
     """ Convert a Crossref or DataCite stamp to a standard format
         Keyword arguments:
@@ -465,13 +429,14 @@ def get_flyboy_attributes(msg):
           date: publication year
     """
     title = author = None
+    date = DL.get_publishing_date(msg)
     if 'DOI' in msg:
         # Crossref
         if 'title' in msg:
             title = msg['title'][0]
         if 'author' in msg:
             author = msg['author'][0]['family']
-        date = get_crossref_year(msg)
+        date = date.split('-')[0] if '-' in date else date
     else:
         # DataCite
         if 'titles' in msg:
@@ -481,7 +446,7 @@ def get_flyboy_attributes(msg):
         if 'publicationYear' in msg:
             date = str(msg['publicationYear'])
         else:
-            date = 'unknown'
+            date = date.split('-')[0] if '-' in date else date
     return title, author, date
 
 
@@ -567,7 +532,7 @@ def update_mongodb(persist):
     coll = DB['dis'].dois
     for key, val in tqdm(persist.items(), desc='Update DIS Mongo'):
         val['doi'] = key
-        val['jrc_publishing_date'] = get_publishing_date(val)
+        val['jrc_publishing_date'] = DL.get_publishing_date(val)
         if key not in EXISTING:
             val['jrc_inserted'] = datetime.today().replace(microsecond=0)
         val['jrc_updated'] = datetime.today().replace(microsecond=0)
@@ -579,7 +544,7 @@ def update_mongodb(persist):
                 UPDATED[key] = "Unknown"
         else:
             COUNT['insert'] += 1
-            INSERTED[key] = get_publishing_date(val)
+            INSERTED[key] = DL.get_publishing_date(val)
 
 
 def update_dois(specified, persist):
