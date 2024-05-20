@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.0.8'
+__version__ = '0.0.9'
 
 import argparse
 import configparser
@@ -22,7 +22,7 @@ import MySQLdb
 import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
-import doi_lib as DL
+import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
 
