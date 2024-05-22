@@ -46,6 +46,17 @@ table.property {
   padding-right: 10px;
 }
 
+.flexcontainer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+}
+
+.flexitem {
+  flex-basis:  | auto;
+}
+
 .flexrow {
   display: flex;
   flex-direction: row;

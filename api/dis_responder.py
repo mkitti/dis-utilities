@@ -22,10 +22,11 @@ __version__ = "0.0.1"
 # Database
 DB = {}
 # Navigation
-NAV = {"DOIs" : {"Lookup": "home",
-                },
-       "ORCID": {"Lookup": "orcid"
-                }
+NAV = {"Home": "",
+       #"DOIs" : {"Lookup": "home",
+       #         },
+       #"ORCID": {"Lookup": "orcid"
+       #         }
       }
 
 # ******************************************************************************
@@ -295,11 +296,21 @@ def show_doi(doi):
     doi = doi.lstrip('/')
     doi = doi.rstrip('/')
     result = initialize_result()
+    coll = DB['dis'].dois
+    row = coll.find_one({"doi": doi})
+    if row:
+        row['_id'] = str(row['_id'])
+        result['rest']['row_count'] = 1
+        result['rest']['source'] = 'mongo'
+        result['data'] = row
+        return generate_response(result)
     if 'janelia' in doi:
         resp = JRC.call_datacite(doi)
+        result['rest']['source'] = 'datacite'
         result['data'] = resp['data'] if 'data' in resp else {}
     else:
         resp = JRC.call_crossref(doi)
+        result['rest']['source'] = 'crossref'
         result['data'] = resp['message'] if 'message' in resp else {}
     if result['data']:
         result['rest']['row_count'] = 1
@@ -358,12 +369,10 @@ def show_types():
     rows = coll.aggregate(payload)
     result['data'] = {}
     for row in rows:
-        #print(row['_id'])
         if 'type' not in row['_id']:
             result['data']['datacite'] = {"count": row['count'], "subtype": None}
         else:
             typ = row['_id']['type']
-            print(typ)
             result['data'][typ] = {"count": row['count']}
             result['data'][typ]['subtype'] = row['_id']['subtype'] if 'subtype' in row['_id'] \
                                              else None
@@ -373,6 +382,16 @@ def show_types():
 # ******************************************************************************
 # * Web endpoints                                                              *
 # ******************************************************************************
+@app.route('/')
+@app.route('/home')
+def show_home():
+    ''' Home
+    '''
+    response = make_response(render_template('home.html', urlroot=request.url_root,
+                                             navbar=generate_navbar('Home')))
+    return response
+
+
 @app.route('/doiui/<path:doi>')
 def show_doi_ui(doi):
     ''' Show DOI
