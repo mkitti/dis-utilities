@@ -7,6 +7,7 @@ import inspect
 from json import JSONEncoder, dumps
 from operator import attrgetter
 import os
+import sys
 from time import time
 from flask import (Flask, make_response, render_template, request,
                    jsonify)
@@ -18,7 +19,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.1"
+__version__ = "0.0.2"
 # Database
 DB = {}
 # Navigation
@@ -78,6 +79,9 @@ app.json_encoder = CustomJSONEncoder
 app.config.from_pyfile("config.cfg")
 CORS(app, supports_credentials=True)
 app.json_encoder = CustomJSONEncoder
+app.config["STARTDT"] = datetime.now()
+app.config["LAST_TRANSACTION"] = time()
+
 
 # ******************************************************************************
 # * Flask                                                                      *
@@ -269,6 +273,39 @@ def show_swagger():
     ''' Show Swagger docs
     '''
     return render_template('swagger_ui.html')
+
+# *****************************************************************************
+# * Admin endpoints                                                         *
+# *****************************************************************************
+
+@app.route("/stats")
+def stats():
+    '''
+    Show stats
+    Show uptime/requests statistics
+    ---
+    tags:
+      - Diagnostics
+    responses:
+      200:
+          description: Stats
+      400:
+          description: Stats could not be calculated
+    '''
+    tbt = time() - app.config['LAST_TRANSACTION']
+    result = initialize_result()
+    start = datetime.fromtimestamp(app.config['START_TIME']).strftime('%Y-%m-%d %H:%M:%S')
+    up_time = datetime.now() - app.config['STARTDT']
+    result['stats'] = {"version": __version__,
+                       "requests": app.config['COUNTER'],
+                       "start_time": start,
+                       "uptime": str(up_time),
+                       "python": sys.version,
+                       "pid": os.getpid(),
+                       "endpoint_counts": app.config['ENDPOINTS'],
+                       "time_since_last_transaction": tbt,
+                      }
+    return generate_response(result)
 
 # ******************************************************************************
 # * API endpoints                                                              *
