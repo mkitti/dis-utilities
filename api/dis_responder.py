@@ -19,7 +19,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 # Database
 DB = {}
 # Navigation
@@ -71,7 +71,8 @@ class InvalidUsage(Exception):
         ''' Build error response
         '''
         retval = dict(self.payload or ())
-        retval['rest'] = {'error': self.message}
+        retval['rest'] = {'error': True,
+                          'error_text': self.message}
         return retval
 
 app = Flask(__name__, template_folder="templates")
@@ -220,8 +221,7 @@ def receive_payload():
         elif request.json:
             pay = request.json
     except Exception as err:
-        mess = f"An exception of type {type(err).__name__} occurred.\nArguments:\n{err.args}"
-        raise InvalidUsage(mess, 500) from err
+        raise InvalidUsage(str(err), 500) from err
     return pay
 
 
@@ -334,7 +334,10 @@ def show_doi(doi):
     doi = doi.rstrip('/')
     result = initialize_result()
     coll = DB['dis'].dois
-    row = coll.find_one({"doi": doi})
+    try:
+        row = coll.find_one({"doi": doi})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
     if row:
         row['_id'] = str(row['_id'])
         result['rest']['row_count'] = 1
@@ -351,6 +354,35 @@ def show_doi(doi):
         result['data'] = resp['message'] if 'message' in resp else {}
     if result['data']:
         result['rest']['row_count'] = 1
+    return generate_response(result)
+
+
+@app.route('/orcid')
+def show_oids():
+    '''
+    Show saved ORCiD IDs
+    Return information for saved ORCiD IDs
+    ---
+    tags:
+      - ORCiD
+    responses:
+      200:
+          description: ORCiD data
+      404:
+          description: ORCiD data not found
+    '''
+    result = initialize_result()
+    try:
+        coll = DB['dis'].orcid
+        rows = coll.find({},{'_id': 0}).sort("family", 1)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    result['rest']['source'] = 'mongo'
+    result['data'] = {}
+    for row in rows:
+        print(row)
+        result['data'][row['orcid']] = row
+    result['rest']['row_count'] = len(result['data'])
     return generate_response(result)
 
 
@@ -375,15 +407,45 @@ def show_oid(oid):
           description: ORCiD data not found
     '''
     result = initialize_result()
+    try:
+        coll = DB['dis'].orcid
+        row = coll.find_one({"orcid": oid},{'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    result['rest']['source'] = 'mongo'
+    result['data'] = row
+    return generate_response(result)
+
+
+@app.route('/orcidapi/<string:oid>')
+def show_oidapi(oid):
+    '''
+    Show an ORCiD ID (using the ORDiD API)
+    Return information for an ORCiD ID
+    ---
+    tags:
+      - ORCiD
+    parameters:
+      - in: path
+        name: oid
+        type: path
+        required: true
+        description: ORCiD ID
+    responses:
+      200:
+          description: ORCiD data
+      404:
+          description: ORCiD data not found
+    '''
+    result = initialize_result()
     url = f"https://pub.orcid.org/v3.0/{oid}"
     try:
         resp = requests.get(url, headers={"Accept": "application/json"}, timeout=10)
         result['data'] = resp.json()
     except Exception as err:
-        result['rest']['error'] = True
-        result['rest']['error_text'] = str(err)
-        result['data'] = {}
+        raise InvalidUsage(str(err), 500) from err
     if 'error-code' not in result['data']:
+        result['rest']['source'] = 'orcid'
         result['rest']['row_count'] = 1
     return generate_response(result)
 
@@ -403,7 +465,11 @@ def show_types():
     result = initialize_result()
     coll = DB['dis'].dois
     payload = [{"$group": {"_id": {"type": "$type", "subtype": "$subtype"},"count": {"$sum": 1}}}]
-    rows = coll.aggregate(payload)
+    try:
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    result['rest']['source'] = 'mongo'
     result['data'] = {}
     for row in rows:
         if 'type' not in row['_id']:
