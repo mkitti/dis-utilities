@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import inspect
 from json import JSONEncoder, dumps
 from operator import attrgetter
+import re
 import os
 import sys
 from time import time
@@ -19,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.3"
+__version__ = "0.0.4"
 # Database
 DB = {}
 # Navigation
@@ -360,16 +361,16 @@ def show_doi(doi):
 @app.route('/orcid')
 def show_oids():
     '''
-    Show saved ORCiD IDs
-    Return information for saved ORCiD IDs
+    Show saved ORCID IDs
+    Return information for saved ORCID IDs
     ---
     tags:
-      - ORCiD
+      - ORCID
     responses:
       200:
-          description: ORCiD data
+          description: ORCID data
       404:
-          description: ORCiD data not found
+          description: ORCID data not found
     '''
     result = initialize_result()
     try:
@@ -378,10 +379,9 @@ def show_oids():
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
-    result['data'] = {}
+    result['data'] = []
     for row in rows:
-        print(row)
-        result['data'][row['orcid']] = row
+        result['data'].append(row)
     result['rest']['row_count'] = len(result['data'])
     return generate_response(result)
 
@@ -389,53 +389,61 @@ def show_oids():
 @app.route('/orcid/<string:oid>')
 def show_oid(oid):
     '''
-    Show an ORCiD ID
-    Return information for an ORCiD ID
+    Show an ORCID ID
+    Return information for an ORCID ID or name
     ---
     tags:
-      - ORCiD
+      - ORCID
     parameters:
       - in: path
         name: oid
         type: path
         required: true
-        description: ORCiD ID
+        description: ORCID ID, given name, or family name
     responses:
       200:
-          description: ORCiD data
+          description: ORCID data
       404:
-          description: ORCiD data not found
+          description: ORCID data not found
     '''
     result = initialize_result()
+    if re.match(r'([0-9A-Z]{4}-){3}[0-9A-Z]+', oid):
+        payload = {"orcid": oid}
+    else:
+        payload = {"$or": [{"family": {"$regex": oid, "$options" : "i"}},
+                           {"given": {"$regex": oid, "$options" : "i"}}]
+                  }
     try:
         coll = DB['dis'].orcid
-        row = coll.find_one({"orcid": oid},{'_id': 0})
+        rows = coll.find(payload, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
-    result['data'] = row
+    result['data'] = []
+    for row in rows:
+        result['data'].append(row)
     return generate_response(result)
 
 
 @app.route('/orcidapi/<string:oid>')
 def show_oidapi(oid):
     '''
-    Show an ORCiD ID (using the ORDiD API)
-    Return information for an ORCiD ID
+    Show an ORCID ID (using the ORDiD API)
+    Return information for an ORCID ID
     ---
     tags:
-      - ORCiD
+      - ORCID
     parameters:
       - in: path
         name: oid
         type: path
         required: true
-        description: ORCiD ID
+        description: ORCID ID
     responses:
       200:
-          description: ORCiD data
+          description: ORCID data
       404:
-          description: ORCiD data not found
+          description: ORCID data not found
     '''
     result = initialize_result()
     url = f"https://pub.orcid.org/v3.0/{oid}"

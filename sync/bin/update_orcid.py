@@ -1,5 +1,5 @@
 ''' update_orcid.py
-    Update the MongoDB orcid collection with ORCiD IDs and names for Janelia authors
+    Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
 import argparse
@@ -52,11 +52,11 @@ def initialize_program():
 
 
 def add_name(oid, oids, family, given):
-    ''' If the ORCiD ID is new, add it to the dict. Otherwise, update it
+    ''' If the ORCID ID is new, add it to the dict. Otherwise, update it
         with new family/given name.
         Keyword arguments:
-          oid: ORCiD ID
-          oids: ORCiD ID dict
+          oid: ORCID ID
+          oids: ORCID ID dict
           family: family name
           given: given name
         Returns:
@@ -75,7 +75,7 @@ def process_author(aut, oids):
     ''' Process a single author record
         Keyword arguments:
           aut: author record
-          oids: ORCiD ID dict
+          oids: ORCID ID dict
         Returns:
           None
     '''
@@ -87,9 +87,9 @@ def process_author(aut, oids):
 
 
 def get_name(oid):
-    ''' Get an author's first and last name from ORCiD
+    ''' Get an author's first and last name from ORCID
         Keyword arguments:
-          oid: ORCiD
+          oid: ORCID
         Returns:
           family and given name
     '''
@@ -109,9 +109,9 @@ def get_name(oid):
 
 
 def add_from_orcid(oids):
-    ''' Find additional ORCiD IDs using the ORCiD API
+    ''' Find additional ORCID IDs using the ORCID API
         Keyword arguments:
-          oids: ORCiD ID dict
+          oids: ORCID ID dict
         Returns:
           None
     '''
@@ -128,7 +128,7 @@ def add_from_orcid(oids):
         for orcid in resp.json()['result']:
             authors.append(orcid['orcid-identifier']['path'])
     COUNT['orcid'] = len(authors)
-    for oid in tqdm(authors, desc='Janelians from ORCiD'):
+    for oid in tqdm(authors, desc='Janelians from ORCID'):
         family, given = get_name(oid)
         if family and given:
             add_name(oid, oids, family, given)
@@ -138,7 +138,7 @@ def add_from_orcid(oids):
 def write_records(oids):
     ''' Write records to Mongo
         Keyword arguments:
-          oids: ORCiD ID dict
+          oids: ORCID ID dict
         Returns:
           None
     '''
@@ -161,7 +161,7 @@ def update_orcid():
         Returns:
           None
     '''
-    # Get ORCiD IDs from the doi collection
+    # Get ORCID IDs from the doi collection
     dcoll = DB['dis'].dois
     payload = {"author.affiliation.name": {"$regex": "Janelia"},
                "author.ORCID": {"$exists": True}}
@@ -178,9 +178,9 @@ def update_orcid():
     add_from_orcid(oids)
     write_records(oids)
     print(f"Records read from MongoDB:dois: {COUNT['records']}")
-    print(f"Records read from ORCiD:        {COUNT['orcid']}")
-    print(f"ORCiD IDs inserted:             {COUNT['insert']}")
-    print(f"ORCiD IDs updated:              {COUNT['update']}")
+    print(f"Records read from ORCID:        {COUNT['orcid']}")
+    print(f"ORCID IDs inserted:             {COUNT['insert']}")
+    print(f"ORCID IDs updated:              {COUNT['update']}")
 
 # -----------------------------------------------------------------------------
 
