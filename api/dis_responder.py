@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.4"
+__version__ = "0.0.5"
 # Database
 DB = {}
 # Navigation
@@ -509,6 +509,15 @@ def show_doi_ui(doi):
     '''
     doi = doi.lstrip('/')
     doi = doi.rstrip('/')
+    coll = DB['dis'].dois
+    try:
+        row = coll.find_one({"doi": doi})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if row:
+        html = '<h5 style="color:lime">This DOI is saved locally in a Janelia database</h5><br>'
+    else:
+        html =''
     if 'janelia' in doi:
         resp = JRC.call_datacite(doi)
         data = resp['data'] if 'data' in resp else {}
@@ -537,9 +546,9 @@ def show_doi_ui(doi):
                                 message=f"Could not find generate journal for {doi}")
     outjson = dumps(data, indent=2).replace("\n", "<br>").replace(" ", "&nbsp;")
     link = f"https://dx.doi.org/{doi}"
-    html = "<h4>Citation</h4>" + f"<span class='citation'>{citation} {journal}." \
-           + f"<br>DOI: <a href='{link}' target='_blank'>{doi}</a></span>" \
-           + f"<br><br><h4>Raw JSON</h4><div class='scroll'>{outjson}</div>"
+    html += "<h4>Citation</h4>" + f"<span class='citation'>{citation} {journal}." \
+            + f"<br><br>DOI: <a href='{link}' target='_blank'>{doi}</a></span>" \
+            + f"<br><br><h4>Raw JSON</h4><div class='scroll'>{outjson}</div>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
