@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 # Database
 DB = {}
 # Navigation
@@ -296,6 +296,31 @@ def render_warning(msg, severity='error', size='lg'):
         icon = 'exclamation-circle'
     return f"<span class='fas fa-{icon} fa-{size}' style='color:{color}'></span>" \
            + f"&nbsp;{msg}"
+
+
+def people_by_name(first, surname):
+    ''' Search for a surname from the people system
+        Keyword arguments:
+          first: first letetr of first name
+          surname: name to search with
+        Returns:
+          List of people
+    '''
+    headers = {'Content-Type': 'application/json', 'APIKey': app.config["APIKEY"]}
+    url = f"{app.config['PEOPLE']}/People/Search/ByName/{surname}"
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+    except Exception as err:
+        raise err
+    people = response.json()
+    filtered = []
+    for person in people:
+        if person['locationName'] != 'Janelia Research Campus':
+            continue
+        if person['nameLastPreferred'].lower() == surname.lower() \
+           and person['nameFirstPreferred'][0].lower() == first.lower():
+            filtered.append(person)
+    return filtered
 
 # *****************************************************************************
 # * Documentation                                                             *
@@ -669,6 +694,15 @@ def show_oid_ui(oid):
         html = f"<h2>{name['credit-name']['value']}</h2>"
     else:
         html = f"<h2>{name['given-names']['value']} {name['family-name']['value']}</h2>"
+    people = people_by_name(name['given-names']['value'][0], name['family-name']['value'])
+    if people:
+        if len(people) == 1:
+            who = ' '.join([people[0]['nameFirstPreferred'], people[0]['nameLastPreferred']])
+            if 'userIdO365' in people[0]:
+                who = "<a href='" + f"{app.config['WORKDAY']}{people[0]['userIdO365']}" \
+                      + f"' target='_blank'>{who}</a>"
+            html += f"Best match in People system: {who}<br>"
+    # Works
     if 'works' in data['activities-summary'] and data['activities-summary']['works']['group']:
         html += 'Note that titles below may be self-reported, and may not have DOIs available</br>'
         works = data['activities-summary']['works']['group']
