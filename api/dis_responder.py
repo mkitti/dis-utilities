@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.8"
+__version__ = "0.0.9"
 # Database
 DB = {}
 # Navigation
@@ -134,17 +134,17 @@ def handle_invalid_usage(error):
     return response
 
 
-def database_error(err):
-    ''' Render a database error
+def inspect_error(err, errtype):
+    ''' Render an error with inspection
         Keyword arguments:
           err: exception
         Returns:
           Error template
     '''
-    temp = "{2}: An exception of type {0} occurred. Arguments:\n{1!r}"
-    mess = temp.format(type(err).__name__, err.args, inspect.stack()[0][3])
+    mess = f"{inspect.stack()[0][3]} An exception of type {type(err).__name__} occurred. " \
+           + f"Arguments:\n{err.args}"
     return render_template('error.html', urlroot=request.url_root,
-                           title=render_warning('Database error'), message=mess)
+                           title=render_warning(errtype), message=mess)
 
 
 def generate_navbar(active):
@@ -258,10 +258,13 @@ def get_work_doi(work):
     '''
     if not work['external-ids']['external-id']:
         return ''
-    if 'external-id-normalized' in work['external-ids']['external-id'][0]:
-        return work['external-ids']['external-id'][0]['external-id-normalized']['value']
-    if 'external-id-value' in work['external-ids']['external-id'][0]:
-        return work['external-ids']['external-id'][0]['external-id-url']['value']
+    for eid in work['external-ids']['external-id']:
+        if eid['external-id-type'] != 'doi':
+            continue
+        if 'external-id-normalized' in eid:
+            return eid['external-id-normalized']['value']
+        if 'external-id-value' in eid:
+            return eid['external-id-url']['value']
     return ''
 
 
@@ -302,7 +305,10 @@ def render_warning(msg, severity='error', size='lg'):
 def get_doc_json():
     ''' Show documentation
     '''
-    swag = swagger(app)
+    try:
+        swag = swagger(app)
+    except Exception as err:
+        return inspect_error(err, 'Could not parse swag')
     swag['info']['version'] = __version__
     swag['info']['title'] = "Data and Information Services"
     return jsonify(swag)
@@ -328,9 +334,9 @@ def stats():
       - Diagnostics
     responses:
       200:
-          description: Stats
+        description: Stats
       400:
-          description: Stats could not be calculated
+        description: Stats could not be calculated
     '''
     tbt = time() - app.config['LAST_TRANSACTION']
     result = initialize_result()
@@ -354,22 +360,23 @@ def stats():
 def show_doi(doi):
     '''
     Return a DOI
-    Return Crossref or DataCite information for a given DOI. If it's not in the
-    dois collection, it will be retrieved from Crossref or Datacite.
+    Return Crossref or DataCite information for a given DOI.
+    If it's not in the dois collection, it will be retrieved from Crossref or Datacite.
     ---
     tags:
       - DOI
     parameters:
       - in: path
         name: doi
-        type: path
+        schema:
+          type: path
         required: true
         description: DOI
     responses:
       200:
-          description: DOI data
+        description: DOI data
       500:
-          MongoDB error
+        description: MongoDB error
     '''
     doi = doi.lstrip('/')
     doi = doi.rstrip('/')
@@ -408,16 +415,17 @@ def show_inserted(idate):
     parameters:
       - in: path
         name: idate
-        type: string
+        schema:
+          type: string
         required: true
         description: Earliest insertion date in ISO format (YYYY-MM-DD)
     responses:
       200:
-          description: DOI data
+        description: DOI data
       400:
-          description: bad input data
+        description: bad input data
       500:
-          MongoDB error
+        description: MongoDB error
     '''
     result = initialize_result()
     try:
@@ -448,9 +456,9 @@ def show_oids():
       - ORCID
     responses:
       200:
-          description: ORCID data
+        description: ORCID data
       500:
-          MongoDB error
+        description: MongoDB error
     '''
     result = initialize_result()
     try:
@@ -477,14 +485,15 @@ def show_oid(oid):
     parameters:
       - in: path
         name: oid
-        type: path
+        schema:
+          type: string
         required: true
         description: ORCID ID, given name, or family name
     responses:
       200:
-          description: ORCID data
+        description: ORCID data
       500:
-          MongoDB error
+        description: MongoDB error
     '''
     result = initialize_result()
     if re.match(r'([0-9A-Z]{4}-){3}[0-9A-Z]+', oid):
@@ -509,21 +518,22 @@ def show_oid(oid):
 def show_oidapi(oid):
     '''
     Show an ORCID ID (using the ORCID API)
-    Return information for an ORCID ID
+    Return information for an ORCID ID (using the ORCID API)
     ---
     tags:
       - ORCID
     parameters:
       - in: path
         name: oid
-        type: path
+        schema:
+          type: string
         required: true
         description: ORCID ID
     responses:
       200:
-          description: ORCID data
+        description: ORCID data
       500:
-          MongoDB error
+        description: MongoDB error
     '''
     result = initialize_result()
     url = f"https://pub.orcid.org/v3.0/{oid}"
@@ -548,9 +558,9 @@ def show_types():
       - Types
     responses:
       200:
-          description: types
+        description: types
       500:
-          MongoDB error
+        description: MongoDB error
     '''
     result = initialize_result()
     coll = DB['dis'].dois
@@ -676,8 +686,8 @@ def show_oid_ui(oid):
                 if work['external-ids']['external-id'][0]['external-id-url']:
                     wurl = work['external-ids']['external-id'][0]['external-id-url']['value']
                     link = f"<a href='{wurl}' target='_blank'>{doi}</a>"
-                else:
-                    link = doi
+            else:
+                link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
             html += f"<tr><td>{date}</td><td>{link}</td>" \
                     + f"<td>{wsumm['title']['title']['value']}</td></tr>"
         html += '</tbody></table>'
@@ -708,7 +718,6 @@ def show_names_ui(name):
            + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
-        print(row)
         link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
         html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
                 + f"<td>{', '.join(row['family'])}</td></tr>"
