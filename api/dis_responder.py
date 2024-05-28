@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.9"
+__version__ = "1.0.0"
 # Database
 DB = {}
 # Navigation
@@ -383,7 +383,7 @@ def show_doi(doi):
     result = initialize_result()
     coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi})
+        row = coll.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if row:
@@ -433,8 +433,9 @@ def show_inserted(idate):
         isodate = datetime.strptime(idate,'%Y-%m-%d')
     except Exception as err:
         raise InvalidUsage(str(err), 400) from err
+    print(isodate)
     try:
-        rows = coll.find({"jrc_inserted": {"$gte" : isodate}})
+        rows = coll.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['row_count'] = 0
@@ -463,7 +464,7 @@ def show_oids():
     result = initialize_result()
     try:
         coll = DB['dis'].orcid
-        rows = coll.find({}).sort("family", 1)
+        rows = coll.find({}, {'_id': 0}).sort("family", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -504,7 +505,7 @@ def show_oid(oid):
                   }
     try:
         coll = DB['dis'].orcid
-        rows = coll.find(payload)
+        rows = coll.find(payload, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
