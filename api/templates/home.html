@@ -12,10 +12,18 @@
   }
   function find_oid() {
     if (!$('#oid').val()) {
-      alert("You must enter an ORCiD ID");
+      alert("You must enter an ORCID ID");
       return;
     }
     url = "/orcidui/" + $("#oid").val();
+    window.location = url;
+  }
+  function find_names() {
+    if (!$('#name').val()) {
+      alert("You must enter a name");
+      return;
+    }
+    url = "/namesui/" + $("#name").val();
     window.location = url;
   }
 </script>
@@ -41,13 +49,25 @@ onload="tableInitialize();"
 <br><br>
 <div class="flexcontainer">
   <div class="flexitem">
-  <span class="form-control-lg">Find an ORCiD ID:</span>
+  <span class="form-control-lg">Find an ORCID ID:</span>
   </div>
   <div class="flexitem">
     <input type="text" class="form-control form-control-lg" id="oid">
   </div>
   <div class="flexitem">
     <button type="submit" id="oidb" class="btn btn-primary btn-md" onclick="find_oid(); return false;" href="#">Look up</button>
+  </div>
+</div>
+<br><br>
+<div class="flexcontainer">
+  <div class="flexitem">
+  <span class="form-control-lg">Find ORCID IDs by name:</span>
+  </div>
+  <div class="flexitem">
+    <input type="text" class="form-control form-control-lg" id="name">
+  </div>
+  <div class="flexitem">
+    <button type="submit" id="nameb" class="btn btn-primary btn-md" onclick="find_names(); return false;" href="#">Look up</button>
   </div>
 </div>
 </form>
