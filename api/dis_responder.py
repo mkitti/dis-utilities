@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "0.0.7"
+__version__ = "0.0.8"
 # Database
 DB = {}
 # Navigation
@@ -697,20 +697,18 @@ def show_names_ui(name):
                       ]}
     try:
         coll = DB['dis'].orcid
+        if not coll.count_documents(payload):
+            return render_template('warning.html', urlroot=request.url_root,
+                                   title=render_warning("Could not find name", 'warning'),
+                                    message=f"Could not find any name matching {name}")
         rows = coll.find(payload).sort("family", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
-    cnt = 0
-    for row in rows:
-        cnt += 1
-    if not cnt:
-        return render_template('warning.html', urlroot=request.url_root,
-                                title=render_warning("Could not find name", 'warning'),
-                                message=f"Could not find any name matching {name}")
     html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
            + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
+        print(row)
         link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
         html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
                 + f"<td>{', '.join(row['family'])}</td></tr>"
