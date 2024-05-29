@@ -22,7 +22,6 @@ def terminate_program(msg=None):
         Returns:
           None
     '''
-    print(type(msg))
     if msg:
         if not isinstance(msg, str):
             msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
