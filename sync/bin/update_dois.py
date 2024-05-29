@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.2.0'
+__version__ = '0.3.0'
 
 import argparse
 import configparser

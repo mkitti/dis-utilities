@@ -151,11 +151,43 @@ def people_by_name(first, surname):
     filtered = []
     for person in people:
         if person['locationName'] != 'Janelia Research Campus':
+        # or person['photoURL'].endswith('PlaceHolder.png'):
             continue
         if person['nameLastPreferred'].lower() == surname.lower() \
            and person['nameFirstPreferred'].lower() == first.lower():
             filtered.append(person)
     return filtered
+
+
+def correlate_person(oid, oids):
+    ''' Correlate a name from ORCID with HHMI's People service
+        Keyword arguments:
+          oid: ORCID ID
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    val = oids[oid]
+    found = False
+    for surname in val['family']:
+        for first in val['given']:
+            people = people_by_name(first, surname)
+            if people:
+                if len(people) == 1:
+                    found = True
+                    oids[oid]['employeeId'] = people[0]['employeeId']
+                    oids[oid]['userIdO365'] = people[0]['userIdO365']
+                    if 'group leader' in people[0]['businessTitle'].lower():
+                        oids[oid]['group'] = f"{surname} Lab"
+                    elif people[0]['businessTitle'] == 'JRC Alumni':
+                        oids[oid]['alumni'] = True
+                    LOGGER.debug(f"Added {first} {surname} from People")
+                    break
+                LOGGER.error(f"Found more than one record in People for {first} {surname}")
+        if found:
+            break
+    #if not found:
+    #    LOGGER.warning(f"Could not find a record in People for {first} {surname}")
 
 
 def add_janelia_info(oids):
@@ -173,26 +205,10 @@ def add_janelia_info(oids):
         terminate_program(err)
     for row in rows:
         present[row['orcid']] = row
-    for oid, val in tqdm(oids.items(), desc='Janalia info'):
+    for oid in tqdm(oids, desc='Janalia info'):
         if oid in present and 'employeeId' in present[oid]:
             continue
-        found = False
-        for surname in val['family']:
-            for first in val['given']:
-                people = people_by_name(first, surname)
-                if people:
-                    if len(people) > 1:
-                        LOGGER.error(f"Found more than one record in People for {first} {surname}")
-                    if len(people) == 1:
-                        found = True
-                        oids[oid]['employeeId'] = people[0]['employeeId']
-                        oids[oid]['userIdO365'] = people[0]['userIdO365']
-                        LOGGER.debug(f"Found {first} {surname} in People")
-                        break
-            if found:
-                break
-        #if not found:
-        #    LOGGER.warning(f"Could not find a record in People for {first} {surname}")
+        correlate_person(oid, oids)
 
 
 def write_records(oids):
@@ -203,16 +219,13 @@ def write_records(oids):
           None
     '''
     coll = DB['dis'].orcid
-    for oid, val  in oids.items():
-        if ARG.WRITE:
-            result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
-            if hasattr(result, 'matched_count') and result.matched_count:
-                COUNT['update'] += 1
-            else:
-                COUNT['insert'] += 1
-                print(f"New entry: {val}")
+    for oid, val in tqdm(oids.items(), desc='Updating orcid collection'):
+        result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
+        if hasattr(result, 'matched_count') and result.matched_count:
+            COUNT['update'] += 1
         else:
-            print(oid, val)
+            COUNT['insert'] += 1
+            print(f"New entry: {val}")
 
 
 def update_orcid():
@@ -238,7 +251,8 @@ def update_orcid():
             process_author(aut, oids)
     add_from_orcid(oids)
     add_janelia_info(oids)
-    write_records(oids)
+    if ARG.WRITE:
+        write_records(oids)
     print(f"Records read from MongoDB:dois: {COUNT['records']}")
     print(f"Records read from ORCID:        {COUNT['orcid']}")
     print(f"ORCID IDs inserted:             {COUNT['insert']}")
