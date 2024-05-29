@@ -10,7 +10,7 @@ import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 
-# pylint: disable=broad-exception-caught
+# pylint: disable=broad-exception-caught,logging-fstring-interpolation
 
 DB = {}
 COUNT = {'records': 0, 'orcid': 0, 'insert': 0, 'update': 0}
@@ -46,7 +46,7 @@ def initialize_program():
         LOGGER.info("Connecting to %s %s on %s as %s", dbo.name, ARG.MANIFOLD, dbo.host, dbo.user)
         try:
             DB[source] = JRC.connect_database(dbo)
-        except Exception as err: # pylint: disable=broad-exception-caught
+        except Exception as err:
             terminate_program(err)
 
 
@@ -131,7 +131,68 @@ def add_from_orcid(oids):
         family, given = get_name(oid)
         if family and given:
             add_name(oid, oids, family, given)
+
+
+def people_by_name(first, surname):
+    ''' Search for a name in the people system
+        Keyword arguments:
+          first: first name
+          surname: last name
+        Returns:
+          List of people
+    '''
+    headers = {'Content-Type': 'application/json', 'APIKey': attrgetter('people.key')(REST)}
+    url = f"{attrgetter('people.url')(REST)}People/Search/ByName/{surname}"
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+    except Exception as err:
+        raise err
+    people = response.json()
+    filtered = []
+    for person in people:
+        if person['locationName'] != 'Janelia Research Campus':
             continue
+        if person['nameLastPreferred'].lower() == surname.lower() \
+           and person['nameFirstPreferred'].lower() == first.lower():
+            filtered.append(person)
+    return filtered
+
+
+def add_janelia_info(oids):
+    ''' Find Janelia information for each ORCID ID
+        Keyword arguments:
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    present = {}
+    try:
+        coll = DB['dis'].orcid
+        rows = coll.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        present[row['orcid']] = row
+    for oid, val in tqdm(oids.items(), desc='Janalia info'):
+        if oid in present and 'employeeId' in present[oid]:
+            continue
+        found = False
+        for surname in val['family']:
+            for first in val['given']:
+                people = people_by_name(first, surname)
+                if people:
+                    if len(people) > 1:
+                        LOGGER.error(f"Found more than one record in People for {first} {surname}")
+                    if len(people) == 1:
+                        found = True
+                        oids[oid]['employeeId'] = people[0]['employeeId']
+                        oids[oid]['userIdO365'] = people[0]['userIdO365']
+                        LOGGER.debug(f"Found {first} {surname} in People")
+                        break
+            if found:
+                break
+        #if not found:
+        #    LOGGER.warning(f"Could not find a record in People for {first} {surname}")
 
 
 def write_records(oids):
@@ -141,14 +202,15 @@ def write_records(oids):
         Returns:
           None
     '''
-    ocoll = DB['dis'].orcid
+    coll = DB['dis'].orcid
     for oid, val  in oids.items():
         if ARG.WRITE:
-            result = ocoll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
+            result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
             if hasattr(result, 'matched_count') and result.matched_count:
                 COUNT['update'] += 1
             else:
                 COUNT['insert'] += 1
+                print(f"New entry: {val}")
         else:
             print(oid, val)
 
@@ -175,6 +237,7 @@ def update_orcid():
                 continue
             process_author(aut, oids)
     add_from_orcid(oids)
+    add_janelia_info(oids)
     write_records(oids)
     print(f"Records read from MongoDB:dois: {COUNT['records']}")
     print(f"Records read from ORCID:        {COUNT['orcid']}")
@@ -187,7 +250,7 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Add ORCid information to MongoDB:orcid")
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
-                        default='dev', choices=['dev', 'prod'],
+                        default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
                         default=False, help='Write to database/config system')
@@ -198,5 +261,6 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
+    REST = JRC.get_config("rest_services")
     update_orcid()
     terminate_program()
