@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.3.0'
+__version__ = '0.4.0'
 
 import argparse
 import configparser
@@ -683,12 +683,12 @@ if __name__ == '__main__':
     PARSER.add_argument('--doi', dest='DOI', action='store',
                         help='Single DOI to process')
     PARSER.add_argument('--target', dest='TARGET', action='store',
-                        default='flyboy', choices=['flyboy', 'dis'],
+                        default='dis', choices=['flyboy', 'dis'],
                         help='Target system (flyboy or dis)')
     PARSER.add_argument('--file', dest='FILE', action='store',
                         help='File of DOIs to process')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
-                        default='dev', choices=['dev', 'prod'],
+                        default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
     PARSER.add_argument('--insert', dest='INSERT', action='store_true',
                         default=False, help='Only look for new records')
