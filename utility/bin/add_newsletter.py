@@ -87,7 +87,7 @@ def process_dois():
         ARG.DATE = datetime.today().strftime('%Y-%m-%d')
     else:
         try:
-            ARG.DATE = datetime.strptime(ARG.DATE, '%Y-%m-%d')
+            _ = datetime.strptime(ARG.DATE, '%Y-%m-%d')
         except ValueError:
             terminate_program(f"Supplied date {ARG.DATE} is not a valid date (YYYY-MM-DD)")
     if ARG.DOI:
