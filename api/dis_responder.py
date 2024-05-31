@@ -568,7 +568,7 @@ def show_groups():
     coll = DB['dis'].orcid
     payload = {"group": {"$exists": True}}
     try:
-        rows = coll.find(payload).sort("group", 1)
+        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
