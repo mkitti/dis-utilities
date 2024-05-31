@@ -38,7 +38,7 @@ NAV = {"Home": "",
 class CustomJSONEncoder(JSONEncoder):
     ''' Define a custom JSON encoder
     '''
-    def default(self, o):   # pylint: disable=E0202, W0221
+    def default(self, o):
         try:
             if isinstance(o, bson.objectid.ObjectId):
                 return str(o)
@@ -547,6 +547,35 @@ def show_oidapi(oid):
     if 'error-code' not in result['data']:
         result['rest']['source'] = 'orcid'
         result['rest']['row_count'] = 1
+    return generate_response(result)
+
+
+@app.route('/groups')
+def show_groups():
+    '''
+    Show groups from ORCID
+    Return records whose IDs are in a group
+    ---
+    tags:
+      - Groups
+    responses:
+      200:
+        description: groups
+      500:
+        description: MongoDB error
+    '''
+    result = initialize_result()
+    coll = DB['dis'].orcid
+    payload = {"group": {"$exists": True}}
+    try:
+        rows = coll.find(payload).sort("group", 1)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    result['rest']['source'] = 'mongo'
+    result['data'] = []
+    for row in rows:
+        result['data'].append(row)
+    result['rest']['row_count'] = len(result['data'])
     return generate_response(result)
 
 
