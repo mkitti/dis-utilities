@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 # Database
 DB = {}
 # Navigation
@@ -545,7 +545,7 @@ def show_oids():
     result = initialize_result()
     try:
         coll = DB['dis'].orcid
-        rows = coll.find({}, {'_id': 0}).sort("family", 1)
+        rows = coll.find({}, {'_id': 0}).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -762,9 +762,9 @@ def show_doi_ui(doi):
 def show_oid_ui(oid):
     ''' Show ORCID user
     '''
-    url = f"https://pub.orcid.org/v3.0/{oid}"
     try:
-        resp = requests.get(url, headers={"Accept": "application/json"}, timeout=10)
+        resp = requests.get(f"https://pub.orcid.org/v3.0/{oid}",
+                            headers={"Accept": "application/json"}, timeout=10)
         data = resp.json()
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
@@ -784,7 +784,6 @@ def show_oid_ui(oid):
         row = coll.find_one({"orcid": oid})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
-    print(row)
     if row and 'userIdO365' in row:
         who = "<a href='" + f"{app.config['WORKDAY']}{row['userIdO365']}" \
               + f"' target='_blank'>{who}</a>"
@@ -792,11 +791,10 @@ def show_oid_ui(oid):
     # Works
     if 'works' in data['activities-summary'] and data['activities-summary']['works']['group']:
         html += 'Note that titles below may be self-reported, and may not have DOIs available</br>'
-        works = data['activities-summary']['works']['group']
         html += '<table id="ops" class="tablesorter standard"><thead><tr>' \
                 + '<th>Published</th><th>DOI</th><th>Title</th>' \
                 + '</tr></thead><tbody>'
-        for work in works:
+        for work in data['activities-summary']['works']['group']:
             wsumm = work['work-summary'][0]
             date = get_work_publication_date(wsumm)
             doi = get_work_doi(work)
@@ -806,8 +804,9 @@ def show_oid_ui(oid):
                 continue
             if work['external-ids']['external-id'][0]['external-id-url']:
                 if work['external-ids']['external-id'][0]['external-id-url']:
-                    wurl = work['external-ids']['external-id'][0]['external-id-url']['value']
-                    link = f"<a href='{wurl}' target='_blank'>{doi}</a>"
+                    link = "<a href='" \
+                           + work['external-ids']['external-id'][0]['external-id-url']['value'] \
+                           + f"' target='_blank'>{doi}</a>"
             else:
                 link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
             html += f"<tr><td>{date}</td><td>{link}</td>" \
@@ -833,7 +832,7 @@ def show_names_ui(name):
             return render_template('warning.html', urlroot=request.url_root,
                                    title=render_warning("Could not find name", 'warning'),
                                     message=f"Could not find any name matching {name}")
-        rows = coll.find(payload).sort("family", 1)
+        rows = coll.find(payload).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
