@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.4.0'
+__version__ = '0.5.0'
 
 import argparse
 import configparser
@@ -121,7 +121,9 @@ def get_dis_dois_from_mongo():
     result = {}
     recs = coll.find({}, {"doi": 1, "updated": 1, "deposited": 1})
     for rec in recs:
-        if "janelia" in rec['doi']:
+        if DL.is_datacite(rec['doi']):
+            if "updated" not in rec:
+                terminate_program(f"Could not find updated field for {rec['doi']} (DataCite)")
             result[rec['doi']] = {"updated": rec['updated']}
         else:
             result[rec['doi']] = {"deposited": {'date-time': rec['deposited']['date-time']}}
@@ -163,21 +165,21 @@ def get_dois_from_crossref():
             CROSSREF[doi] = {"message": rec}
         if len(dlist) >= resp['message']['total-results']:
             complete = True
-    LOGGER.info(f"Got {len(dlist):,} DOIs from Crossref in {parts} parts")
+    LOGGER.info(f"Got {len(dlist):,} DOIs from Crossref in {parts} part(s)")
     return dlist
 
 
-def get_dois_from_datacite():
+def get_dois_from_datacite(query):
     ''' Get DOIs from DataCite
         Keyword arguments:
-          None
+          query: query type
         Returns:
           List of unique DOIs
     '''
     dlist = []
-    LOGGER.info("Getting DOIs from DataCite")
+    LOGGER.info(f"Getting DOIs from DataCite ({query})")
     complete = False
-    suffix = CONFIG['datacite']['suffix']
+    suffix = CONFIG['datacite'][query]
     parts = 0
     while not complete:
         try:
@@ -197,14 +199,15 @@ def get_dois_from_datacite():
             suffix = recs['links']['next'].replace('https://api.datacite.org/dois', '')
         else:
             complete = True
-    LOGGER.info(f"Got {len(dlist):,} DOIs from DataCite in {parts} parts")
+    LOGGER.info(f"Got {len(dlist):,} DOIs from DataCite in {parts} part(s) for {query}")
     return dlist
 
 
 def get_dois_for_dis(flycore):
     ''' Get a list of DOIs to process for an update of the DIS database. Sources are:
-        - All Janelia-prefixed DOIs from DataCite
         - DOIs with an affiliation of Janelia from Crossref
+        - All Janelia-prefixed DOIs from DataCite
+        - DOIs with an affiliation of Janelia from DataCite
         - DOIs in use by FLYF2
         - DOIs associated with ALPs releases
         - DOIs associated with FlyEM datasets
@@ -217,7 +220,8 @@ def get_dois_for_dis(flycore):
     # Crossref
     dlist = get_dois_from_crossref()
     # DataCite
-    dlist.extend(get_dois_from_datacite())
+    dlist.extend(get_dois_from_datacite("janelia"))
+    dlist.extend(get_dois_from_datacite("affiliation"))
     # FlyCore
     for doi in flycore['dois']:
         if doi not in dlist and 'in prep' not in doi:
@@ -336,7 +340,7 @@ def get_doi_record(doi):
           record for a single DOI
     """
     msg = None
-    if 'janelia' in doi:
+    if DL.is_datacite(doi):
         # DataCite
         if doi in DATACITE:
             msg = DATACITE[doi]
@@ -587,7 +591,7 @@ def process_dois():
         if ARG.INSERT:
             if doi in EXISTING:
                 continue
-            if 'janelia' in doi:
+            if DL.is_datacite(doi):
                 msg = get_doi_record(doi)
                 if msg:
                     persist[doi] = msg['data']['attributes']
@@ -599,7 +603,7 @@ def process_dois():
         msg = get_doi_record(doi)
         if not msg:
             continue
-        if 'janelia' in doi:
+        if DL.is_datacite(doi):
             # DataCite
             if datacite_needs_update(doi, msg['data']):
                 persist[doi] = msg['data']['attributes']

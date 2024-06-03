@@ -70,7 +70,7 @@ def add_name(oid, oids, family, given):
         oids[oid] = {"family": [family], "given": [given]}
 
 
-def process_author(aut, oids):
+def process_author(aut, oids, source="crossref"):
     ''' Process a single author record
         Keyword arguments:
           aut: author record
@@ -81,7 +81,8 @@ def process_author(aut, oids):
     for aff in aut['affiliation']:
         if 'Janelia' in aff['name']:
             oid = re.sub(r'.*/', '', aut['ORCID'])
-            add_name(oid, oids, aut['family'], aut['given'])
+            if source == "crossref":
+                add_name(oid, oids, aut['family'], aut['given'])
             break
 
 
@@ -237,6 +238,7 @@ def update_orcid():
     '''
     # Get ORCID IDs from the doi collection
     dcoll = DB['dis'].dois
+    # Crossref
     payload = {"author.affiliation.name": {"$regex": "Janelia"},
                "author.ORCID": {"$exists": True}}
     project = {"author.given": 1, "author.family": 1,
@@ -248,7 +250,7 @@ def update_orcid():
         for aut in rec['author']:
             if 'ORCID' not in aut:
                 continue
-            process_author(aut, oids)
+            process_author(aut, oids, "crossref")
     add_from_orcid(oids)
     add_janelia_info(oids)
     if ARG.WRITE:
