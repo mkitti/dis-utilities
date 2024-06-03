@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 # Database
 DB = {}
 # Navigation
@@ -392,7 +392,7 @@ def show_doi(doi):
         result['rest']['source'] = 'mongo'
         result['data'] = row
         return generate_response(result)
-    if 'janelia' in doi:
+    if DL.is_datacite(doi):
         resp = JRC.call_datacite(doi)
         result['rest']['source'] = 'datacite'
         result['data'] = resp['data'] if 'data' in resp else {}
@@ -445,6 +445,86 @@ def show_inserted(idate):
     for row in rows:
         result['data'].append(row)
         result['rest']['row_count'] += 1
+    return generate_response(result)
+
+
+@app.route('/citation/<path:doi>')
+@app.route('/citation/dis/<path:doi>')
+def show_citation(doi):
+    '''
+    Return a DIS-style citation
+    Return a DIS-style citation for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB or formatting error
+    '''
+    doi = doi.lstrip('/')
+    doi = doi.rstrip('/')
+    result = initialize_result()
+    coll = DB['dis'].dois
+    try:
+        row = coll.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        return generate_response(result)
+    result['rest']['row_count'] = 1
+    result['rest']['source'] = 'mongo'
+    authors = DL.get_author_list(row)
+    title = DL.get_title(row)
+    result['data'] = f"{authors} {title}. https://doi.org/{doi}."
+    return generate_response(result)
+
+
+@app.route('/citation/flylight/<path:doi>')
+def show_flylight_citation(doi):
+    '''
+    Return a FlyLight-style citation
+    Return a FlyLight-style citation for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB or formatting error
+    '''
+    doi = doi.lstrip('/')
+    doi = doi.rstrip('/')
+    result = initialize_result()
+    coll = DB['dis'].dois
+    try:
+        row = coll.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        return generate_response(result)
+    result['rest']['row_count'] = 1
+    result['rest']['source'] = 'mongo'
+    authors = DL.get_author_list(row, style='flylight')
+    title = DL.get_title(row)
+    journal = DL.get_journal(row)
+    result['data'] = f"{authors} {title}. {journal}."
     return generate_response(result)
 
 
@@ -638,10 +718,10 @@ def show_doi_ui(doi):
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if row:
-        html = '<h5 style="color:lime">This DOI is saved locally in a Janelia database</h5><br>'
+        html = '<h5 style="color:lime">This DOI is saved locally in the Janelia database</h5><br>'
     else:
         html =''
-    if 'janelia' in doi:
+    if DL.is_datacite(doi):
         resp = JRC.call_datacite(doi)
         data = resp['data'] if 'data' in resp else {}
     else:
@@ -651,7 +731,7 @@ def show_doi_ui(doi):
         return render_template('warning.html', urlroot=request.url_root,
                                 title=render_warning("Could not find DOI", 'warning'),
                                 message=f"Could not find DOI {doi}")
-    authorlist = DL.get_author_list(data)
+    authorlist = DL.get_author_list(data, orcid=True)
     if not authorlist:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning("Could not generate author list"),
