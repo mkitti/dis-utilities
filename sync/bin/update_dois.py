@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.5.0'
+__version__ = '0.6.0'
 
 import argparse
 import configparser
@@ -106,7 +106,7 @@ def initialize_program():
         LOGGER.info("Connecting to %s %s on %s as %s", dbo.name, manifold, dbo.host, dbo.user)
         try:
             DB[source] = JRC.connect_database(dbo)
-        except Exception as err: # pylint: disable=broad-exception-caught
+        except Exception as err:
             terminate_program(err)
 
 
@@ -265,8 +265,7 @@ def get_dois():
     if ARG.DOI:
         return {"dois": [ARG.DOI]}
     if ARG.FILE:
-        with open(ARG.FILE, 'r', encoding='ascii') as instream:
-            return {"dois": instream.read().splitlines()}
+        return {"dois": ARG.FILE.read().splitlines()}
     flycore = call_responder('flycore', '?request=doilist')
     LOGGER.info(f"Got {len(flycore['dois']):,} DOIs from FLYF2")
     if ARG.TARGET == 'dis':
@@ -690,6 +689,7 @@ if __name__ == '__main__':
                         default='dis', choices=['flyboy', 'dis'],
                         help='Target system (flyboy or dis)')
     PARSER.add_argument('--file', dest='FILE', action='store',
+                        type=argparse.FileType("r", encoding="ascii"),
                         help='File of DOIs to process')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
