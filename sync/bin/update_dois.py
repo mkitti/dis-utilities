@@ -6,11 +6,12 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.6.0'
+__version__ = '0.7.0'
 
 import argparse
 import configparser
 from datetime import datetime
+import getpass
 import json
 from operator import attrgetter
 import os
@@ -140,7 +141,7 @@ def get_dois_from_crossref():
     '''
     dlist = []
     LOGGER.info("Getting DOIs from Crossref")
-    suffix = CONFIG['crossref']['suffix']
+    suffix = CONFIG['crossref']['janelia']
     complete = False
     parts = 0
     while not complete:
@@ -623,7 +624,19 @@ def generate_email():
         Returns:
           None
     '''
-    msg = f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
+    msg = ""
+    user = getpass.getuser()
+    if user:
+        try:
+            workday = JRC.simplenamespace_to_dict(JRC.get_config("workday"))
+        except Exception as err:
+            terminate_program(err)
+        if user in workday:
+            rec = workday[user]
+            msg += f"Program run by {rec['first']} {rec['last']} at {datetime.now()}\n"
+        else:
+            msg += f"Program run by {user} at {datetime.now()}\n"
+    msg += f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for doi in INSERTED:
         msg += f"\n{doi}"
     try:
