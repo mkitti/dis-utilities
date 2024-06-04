@@ -74,7 +74,8 @@ class InvalidUsage(Exception):
         ''' Build error response
         '''
         retval = dict(self.payload or ())
-        retval['rest'] = {'error': True,
+        retval['rest'] = {'status_code': self.status_code,
+                          'error': True,
                           'error_text': self.message}
         return retval
 
@@ -467,6 +468,8 @@ def show_citation(doi):
     responses:
       200:
         description: DOI data
+      404:
+        description: DOI not found
       500:
         description: MongoDB or formatting error
     '''
@@ -479,7 +482,7 @@ def show_citation(doi):
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
-        return generate_response(result)
+        raise InvalidUsage(f"DOI {doi} is not in the database", 404)
     result['rest']['row_count'] = 1
     result['rest']['source'] = 'mongo'
     authors = DL.get_author_list(row)
@@ -506,6 +509,8 @@ def show_flylight_citation(doi):
     responses:
       200:
         description: DOI data
+      404:
+        description: DOI not found
       500:
         description: MongoDB or formatting error
     '''
@@ -518,13 +523,56 @@ def show_flylight_citation(doi):
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
-        return generate_response(result)
+        raise InvalidUsage(f"DOI {doi} is not in the database", 404)
     result['rest']['row_count'] = 1
     result['rest']['source'] = 'mongo'
     authors = DL.get_author_list(row, style='flylight')
     title = DL.get_title(row)
     journal = DL.get_journal(row)
     result['data'] = f"{authors} {title}. {journal}."
+    return generate_response(result)
+
+
+@app.route('/citation/components/<path:doi>')
+def show_components(doi):
+    '''
+    Return components of a DIS-style citation
+    Return components of a DIS-style citation for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      404:
+        description: DOI not found
+      500:
+        description: MongoDB or formatting error
+    '''
+    doi = doi.lstrip('/')
+    doi = doi.rstrip('/')
+    result = initialize_result()
+    coll = DB['dis'].dois
+    try:
+        row = coll.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        raise InvalidUsage(f"DOI {doi} is not in the database", 404)
+    result['rest']['row_count'] = 1
+    result['rest']['source'] = 'mongo'
+    result['data'] = {"authors": DL.get_author_list(row, returntype="list"),
+                      "journal": DL.get_journal(row),
+                      "publishing_date": DL.get_publishing_date(row),
+                      "title": DL.get_title(row)
+                     }
     return generate_response(result)
 
 
@@ -614,8 +662,6 @@ def show_oidapi(oid):
     responses:
       200:
         description: ORCID data
-      500:
-        description: MongoDB error
     '''
     result = initialize_result()
     url = f"https://pub.orcid.org/v3.0/{oid}"
@@ -720,7 +766,7 @@ def show_doi_ui(doi):
     if row:
         html = '<h5 style="color:lime">This DOI is saved locally in the Janelia database</h5><br>'
     else:
-        html =''
+        html = '<h5 style="color:red">This DOI is not saved locally in the Janelia database</h5><br>'
     if DL.is_datacite(doi):
         resp = JRC.call_datacite(doi)
         data = resp['data'] if 'data' in resp else {}
