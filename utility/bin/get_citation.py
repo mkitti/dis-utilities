@@ -26,19 +26,19 @@ def strip_doi_if_provided_as_url(doi, substring=".org/10.", doi_index_in_substri
 def format_url_for_api(doi):
     return( endpoint + doi.replace("/", "%2F") ) # e.g. 10.1186/s12859-024-05732-7 becomes 10.1186%2Fs12859-024-05732-7
 
-def get_citation(url):
+def get_citation(url, doi):
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         return(response.json()['data'])
     else:
-        print(f"Failed to retrieve data. Status code: {response.status_code}.\n Error message: {response.reason}\n")
+        print(f"Failed to retrieve data for {doi}. Status code: {response.status_code}.\n Error message: {response.reason}")
         if response.status_code == 404:
             print("A 404 error may indicate that the DOI is not in the database.")
 
 def doi_to_citation(doi):
     base_doi = strip_doi_if_provided_as_url(doi)
     url = format_url_for_api(base_doi)
-    citation = get_citation(url)
+    citation = get_citation(url, base_doi)
     return(citation)
 
 
@@ -66,6 +66,7 @@ if __name__ == '__main__':
         except Exception as err:
             print(f"Could not process {arg.FILE}")
             exit()
-
-    for citation in sorted(results):
-        print(citation)
+    
+        for citation in sorted(results):
+            if citation:   # a REST error will produce a None object; we don't want to print that.
+                print(citation)
