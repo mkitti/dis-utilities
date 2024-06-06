@@ -31,7 +31,9 @@ def get_citation(url):
     if response.status_code == 200:
         return(response.json()['data'])
     else:
-        print(f"Failed to retrieve data. Status code: {response.status_code}.\n Error message: {response.reason}\n A 404 error may indicate that the DOI is not in the database.")
+        print(f"Failed to retrieve data. Status code: {response.status_code}.\n Error message: {response.reason}\n")
+        if response.status_code == 404:
+            print("A 404 error may indicate that the DOI is not in the database.")
 
 def doi_to_citation(doi):
     base_doi = strip_doi_if_provided_as_url(doi)
