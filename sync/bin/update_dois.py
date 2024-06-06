@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.7.0'
+__version__ = '0.8.0'
 
 import argparse
 import configparser
@@ -52,7 +52,7 @@ SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
-         'notfound': 0, 'noupdate': 0,
+         'notfound': 0, 'noupdate': 0, 'noauthor': 0,
          'insert': 0, 'update': 0, 'delete': 0, 'foundfb': 0, 'flyboy': 0}
 
 def terminate_program(msg=None):
@@ -310,7 +310,11 @@ def call_crossref_with_retry(doi):
                 break
             MISSING[f"No author for {doi}"] = True
             LOGGER.warning(f"No author for {doi}")
+            COUNT['noauthor'] += 1
             return None
+        else:
+            LOGGER.warning(f"No title for {doi}")
+            MISSING[f"No title for {doi}"] = True
         attempt -= 1
         LOGGER.warning(f"Missing data from crossref.org for {doi}: retrying ({attempt})")
         sleep(0.5)
@@ -391,6 +395,8 @@ def crossref_needs_update(doi, msg):
     stored = convert_timestamp(rec['deposited']['date-time'])
     new = convert_timestamp(msg['deposited']['date-time'])
     needs_update = bool(stored != new)
+    if ARG.FORCE:
+        needs_update = True
     if needs_update:
         LOGGER.debug(f"Update {doi} {stored} -> {new}")
         UPDATED[doi] = f"Deposited {stored} -> {new}"
@@ -415,6 +421,8 @@ def datacite_needs_update(doi, msg):
     stored = convert_timestamp(rec['updated'])
     new = convert_timestamp(msg['attributes']['updated'])
     needs_update = bool(stored != new)
+    if ARG.FORCE:
+        needs_update = True
     if needs_update:
         LOGGER.debug(f"Update {doi} {stored} -> {new}")
         UPDATED[doi] = f"Updated {stored} -> {new}"
@@ -568,6 +576,37 @@ def update_dois(specified, persist):
         update_mongodb(persist)
 
 
+def check_for_preprint(doi, rec):
+    """ Check to see if a DOI is or has a preprint
+        Keyword arguments:
+          doi: DOI
+          rec: DOI record
+        Returns:
+          The related DOI if there is one and only one, otherwise None
+    """
+    if 'relation' not in rec or 'type' not in rec:
+        return None
+    subject = []
+    if rec['type'] == 'posted-content' and rec['subtype'] == 'preprint' \
+       and 'is-preprint-of' in rec['relation']:
+        for rel in rec['relation']['is-preprint-of']:
+            if rel['id-type'] == 'doi':
+                if rel['id'] not in subject:
+                    subject.append(rel['id'])
+    elif rec['type'] == 'journal-article' and 'has-preprint' in rec['relation']:
+        for rel in rec['relation']['has-preprint']:
+            if rel['id-type'] == 'doi':
+                if rel['id'] not in subject:
+                    subject.append(rel['id'])
+    if not subject:
+        return None
+    if len(subject) == 1:
+        return subject[0]
+    else:
+        LOGGER.warning(f"Multiple relations for {doi}: {', '.join(subject)}")
+    return None
+
+
 def process_dois():
     """ Process a list of DOIs
         Keyword arguments:
@@ -613,6 +652,11 @@ def process_dois():
             if crossref_needs_update(doi, msg['message']):
                 persist[doi] = msg['message']
             COUNT['foundc'] += 1
+        if doi in persist:
+            preprint = check_for_preprint(doi, persist[doi])
+            if preprint:
+                persist[doi]['jrc_preprint'] = preprint
+                LOGGER.debug(f"Added preprint {doi} {preprint}")
         # Are we too early (https://doi.org/api/handles/10.7554/eLife.97706.1)
     update_dois(specified, persist)
 
@@ -675,6 +719,7 @@ def post_activities():
     print(f"DOIs specified:                  {COUNT['found']:,}")
     print(f"DOIs found in Crossref:          {COUNT['foundc']:,}")
     print(f"DOIs found in DataCite:          {COUNT['foundd']:,}")
+    print(f"DOIs with no author:             {COUNT['noauthor']:,}")
     print(f"DOIs not found:                  {COUNT['notfound']:,}")
     print(f"Duplicate DOIs:                  {COUNT['duplicate']:,}")
     print(f"DOIs not needing updates:        {COUNT['noupdate']:,}")
@@ -709,6 +754,8 @@ if __name__ == '__main__':
                         help='MongoDB manifold (dev, prod)')
     PARSER.add_argument('--insert', dest='INSERT', action='store_true',
                         default=False, help='Only look for new records')
+    PARSER.add_argument('--force', dest='FORCE', action='store_true',
+                        default=False, help='Force update')
     PARSER.add_argument('--output', dest='OUTPUT', action='store_true',
                         default=False, help='Produce output files')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',

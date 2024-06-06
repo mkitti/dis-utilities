@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "1.1.1"
+__version__ = "1.2.0"
 # Database
 DB = {}
 # Navigation
@@ -491,6 +491,54 @@ def show_citation(doi):
     return generate_response(result)
 
 
+@app.route('/citations/', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
+@app.route('/citations/<string:ctype>/', methods=['OPTIONS', 'POST'])
+def show_multiple_citations(ctype='dis'):
+    '''
+    Return DIS-style citations
+    Return DIS-style citations for a list of given DOIs.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: query
+        name: dois
+        schema:
+          type: list
+        required: true
+        description: List of DOIs
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB or formatting error
+    '''
+    result = initialize_result()
+    ipd = receive_payload()
+    if "dois" not in ipd or not (ipd['dois']) or not isinstance(ipd['dois'], list):
+        raise InvalidUsage("You must specify a list of DOIs")
+    result['rest']['source'] = 'mongo'
+    result['data'] = {}
+    coll = DB['dis'].dois
+    for doi in ipd['dois']:
+        try:
+            row = coll.find_one({"doi": doi}, {'_id': 0})
+        except Exception as err:
+            raise InvalidUsage(str(err), 500) from err
+        if not row:
+            result['data'][doi] = ''
+            continue
+        result['rest']['row_count'] += 1
+        authors = DL.get_author_list(row, style=ctype)
+        title = DL.get_title(row)
+        if ctype == 'dis':
+            result['data'][doi] = f"{authors} {title}. https://doi.org/{doi}."
+        else:
+            journal = DL.get_journal(row)
+            result['data'][doi] = f"{authors} {title}. {journal}."
+    return generate_response(result)
+
+
 @app.route('/citation/flylight/<path:doi>')
 def show_flylight_citation(doi):
     '''
@@ -766,7 +814,8 @@ def show_doi_ui(doi):
     if row:
         html = '<h5 style="color:lime">This DOI is saved locally in the Janelia database</h5><br>'
     else:
-        html = '<h5 style="color:red">This DOI is not saved locally in the Janelia database</h5><br>'
+        html = '<h5 style="color:red">This DOI is not saved locally in the ' \
+               + 'Janelia database</h5><br>'
     if DL.is_datacite(doi):
         resp = JRC.call_datacite(doi)
         data = resp['data'] if 'data' in resp else {}
