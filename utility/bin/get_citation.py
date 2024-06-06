@@ -48,33 +48,22 @@ if __name__ == '__main__':
     muexgroup = parser.add_mutually_exclusive_group(required=True)
     muexgroup.add_argument('--doi', dest='DOI', action='store',
                          help='Produce a citation from a single DOI.')
-    muexgroup.add_argument('--infile', dest='INFILE', action='store',
+    muexgroup.add_argument('--file', dest='FILE', action='store',
                          help='Produce a citation from a file containing one or more DOIs.')
-    parser.add_argument('--outfile', dest='OUTFILE', action='store',
-                        help='Optional: name of output file, if results should be written to a file.')
-
+    
     arg = parser.parse_args()
     
     results = []
     if arg.DOI:
         results.append( doi_to_citation(arg.DOI) )
-    elif arg.INFILE:
+    elif arg.FILE:
         try:
-            with open(arg.INFILE, "r", encoding="ascii") as instream:
+            with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
                     results.append( doi_to_citation(doi) )
         except Exception as err:
-            print(f"Could not process {arg.INFILE}")
+            print(f"Could not process {arg.FILE}")
             exit()
 
-    if arg.OUTFILE:
-        try:
-            with open(arg.OUTFILE, "w", encoding="ascii") as outstream:
-                for citation in sorted(results):
-                    outstream.write( citation+"\n" )
-        except Exception as err:
-            print(f"Could not write to {arg.OUTFILE}")
-            exit()
-    else:
-        for citation in sorted(results):
-            print(citation)
+    for citation in sorted(results):
+        print(citation)
