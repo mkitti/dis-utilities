@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.8.0'
+__version__ = '0.9.0'
 
 import argparse
 import configparser
@@ -159,6 +159,7 @@ def get_dois_from_crossref():
         for rec in recs:
             COUNT['crossref'] += 1
             doi = rec['doi'] = rec['DOI']
+            rec['jrc_obtained_from'] = 'Crossref'
             if doi in CROSSREF:
                 COUNT['duplicate'] += 1
                 continue
@@ -190,6 +191,7 @@ def get_dois_from_datacite(query):
         parts += 1
         for rec in recs['data']:
             COUNT['datacite'] += 1
+            rec['jrc_obtained_from'] = 'DataCite'
             doi = rec['attributes']['doi']
             if doi in DATACITE:
                 COUNT['duplicate'] += 1
@@ -312,9 +314,8 @@ def call_crossref_with_retry(doi):
             LOGGER.warning(f"No author for {doi}")
             COUNT['noauthor'] += 1
             return None
-        else:
-            LOGGER.warning(f"No title for {doi}")
-            MISSING[f"No title for {doi}"] = True
+        LOGGER.warning(f"No title for {doi}")
+        MISSING[f"No title for {doi}"] = True
         attempt -= 1
         LOGGER.warning(f"Missing data from crossref.org for {doi}: retrying ({attempt})")
         sleep(0.5)
@@ -592,18 +593,19 @@ def check_for_preprint(doi, rec):
         for rel in rec['relation']['is-preprint-of']:
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
+                    LOGGER.info(f"Added |{rel['id']}|")
                     subject.append(rel['id'])
     elif rec['type'] == 'journal-article' and 'has-preprint' in rec['relation']:
         for rel in rec['relation']['has-preprint']:
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
+                    LOGGER.info(f"Added |{rel['id']}|")
                     subject.append(rel['id'])
     if not subject:
         return None
     if len(subject) == 1:
         return subject[0]
-    else:
-        LOGGER.warning(f"Multiple relations for {doi}: {', '.join(subject)}")
+    LOGGER.warning(f"Multiple relations for {doi}: {', '.join(subject)}")
     return None
 
 

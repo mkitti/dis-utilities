@@ -18,15 +18,17 @@ import requests
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 
-# pylint: disable=broad-exception-caught
+# pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "1.2.1"
+__version__ = "1.3.0"
 # Database
 DB = {}
 # Navigation
 NAV = {"Home": "",
-       #"DOIs" : {"Lookup": "home",
-       #         },
+       "Stats" : {"DOI type": "stats_type",
+                  "DOI publisher": "stats_publisher",
+                  "Database": "stats_database"
+                },
        #"ORCID": {"Lookup": "orcid"
        #         }
       }
@@ -298,6 +300,20 @@ def render_warning(msg, severity='error', size='lg'):
     return f"<span class='fas fa-{icon} fa-{size}' style='color:{color}'></span>" \
            + f"&nbsp;{msg}"
 
+
+def humansize(num, suffix='B'):
+    ''' Return a human-readable storage size
+        Keyword arguments:
+          num: size
+          suffix: default suffix
+        Returns:
+          string
+    '''
+    for unit in ['', 'K', 'M', 'G', 'T']:
+        if abs(num) < 1024.0:
+            return f"{num:.1f}{unit}{suffix}"
+        num /= 1024.0
+    return "{num:.1f}P{suffix}"
 
 # *****************************************************************************
 # * Documentation                                                             *
@@ -800,6 +816,9 @@ def show_home():
     return response
 
 
+# ******************************************************************************
+# * DOI endpoints                                                              *
+# ******************************************************************************
 @app.route('/doiui/<path:doi>')
 def show_doi_ui(doi):
     ''' Show DOI
@@ -853,6 +872,9 @@ def show_doi_ui(doi):
     return response
 
 
+# ******************************************************************************
+# * ORCID endpoints                                                            *
+# ******************************************************************************
 @app.route('/orcidui/<string:oid>')
 def show_oid_ui(oid):
     ''' Show ORCID user
@@ -941,6 +963,95 @@ def show_names_ui(name):
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"Search term: {name}", html=html,
                                              navbar=generate_navbar('ORCID')))
+    return response
+
+
+# ******************************************************************************
+# * Stat endpoints                                                             *
+# ******************************************************************************
+@app.route('/stats_type')
+def stats_type():
+    ''' Show data types
+    '''
+    payload = [{"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
+                                   "subtype": "$subtype"},
+                           "count": {"$sum": 1}}},
+               {"$sort" : {"count": -1}}]
+    try:
+        coll = DB['dis'].dois
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+           + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        for field in ('type', 'subtype'):
+            if field not in row['_id']:
+                row['_id'][field] = ''
+        html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
+                + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="DOI types", html=html,
+                                             navbar=generate_navbar('Stats')))
+    return response
+
+
+@app.route('/stats_publisher')
+def stats_publisher():
+    ''' Show publishers
+    '''
+    payload = [{"$group": {"_id": {"publisher": "$publisher"},
+                           "count": {"$sum": 1}}},
+               {"$sort" : {"count": -1}}]
+    try:
+        coll = DB['dis'].dois
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+           + '<th>Publisher</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        html += f"<tr><td>{row['_id']['publisher']}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="DOI publishers", html=html,
+                                             navbar=generate_navbar('Stats')))
+    return response
+
+
+@app.route('/stats_database')
+def stats_database():
+    ''' Show database stats
+    '''
+    collection = {}
+    try:
+        cnames = DB['dis'].list_collection_names()
+        for cname in cnames:
+            stat = DB['dis'].command('collStats', cname)
+            indices = []
+            for key, val in stat['indexSizes'].items():
+                indices.append(f"{key} ({humansize(val)})")
+            free = stat['freeStorageSize'] / stat['storageSize'] * 100
+            collection[cname] = {"docs": stat['count'],
+                                 "size": humansize(stat['size']),
+                                 "free": f"{free:.2f}",
+                                 "idx": ", ".join(indices)
+                                }
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    html = '<table id="collections" class="tablesorter standard"><thead><tr>' \
+           + '<th>Collection</th><th>Documents</th><th>Size</th><th>Free space</th>' \
+           + '<th>Indices</th></tr></thead><tbody>'
+    for coll, val in sorted(collection.items()):
+        html += f"<tr><td>{coll}</td><td>{val['docs']:,}</td><td>{val['size']}</td>" \
+                + f"<td>{val['free']}%</td><td>{val['idx']}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="Database statistics", html=html,
+                                             navbar=generate_navbar('Stats')))
     return response
 
 # *****************************************************************************
