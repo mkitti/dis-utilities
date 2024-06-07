@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught
 
-__version__ = "1.2.0"
+__version__ = "1.2.1"
 # Database
 DB = {}
 # Navigation
@@ -491,8 +491,8 @@ def show_citation(doi):
     return generate_response(result)
 
 
-@app.route('/citations/', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
-@app.route('/citations/<string:ctype>/', methods=['OPTIONS', 'POST'])
+@app.route('/citations', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
+@app.route('/citations/<string:ctype>', methods=['OPTIONS', 'POST'])
 def show_multiple_citations(ctype='dis'):
     '''
     Return DIS-style citations
