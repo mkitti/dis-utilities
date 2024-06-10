@@ -517,7 +517,13 @@ def show_multiple_citations(ctype='dis'):
     tags:
       - DOI
     parameters:
-      - in: query
+      - in: path
+        name: ctype
+        schema:
+          type: string
+        required: false
+        description: Citation type (dis or flylight)
+          - in: query
         name: dois
         schema:
           type: list
@@ -637,6 +643,60 @@ def show_components(doi):
                       "publishing_date": DL.get_publishing_date(row),
                       "title": DL.get_title(row)
                      }
+    return generate_response(result)
+
+
+@app.route('/components', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
+@app.route('/components/<string:ctype>', methods=['OPTIONS', 'POST'])
+def show_multiple_components(ctype='dis'):
+    '''
+    Return components for a given group
+    Return a list of citation components for a given group.
+    ---
+    tags:
+      - Groups
+    parameters:
+      - in: path
+        name: ctype
+        schema:
+          type: string
+        required: false
+        description: Citation type (dis or flylight)
+      - in: query
+        name: group
+        schema:
+          type: string
+        required: true
+        description: Group
+    responses:
+      200:
+        description: Component data
+      500:
+        description: MongoDB or formatting error
+    '''
+    result = initialize_result()
+    ipd = receive_payload()
+    if "group" not in ipd or not (ipd['group']) or not isinstance(ipd['group'], str):
+        raise InvalidUsage("You must specify a group")
+    result['rest']['source'] = 'mongo'
+    result['data'] = []
+    coll = DB['dis'].dois
+    try:
+        rows = coll.find({"jrc_tag": ipd['group']}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not rows:
+        result['data'] = None
+        generate_response(result)
+    for row in rows:
+        result['rest']['row_count'] += 1
+        record = {"doi": row['doi'],
+                  "authors": DL.get_author_list(row, style=ctype, returntype="list"),
+                  "title": DL.get_title(row),
+                  "journal": DL.get_journal(row),
+                  "publishing_date": DL.get_publishing_date(row)
+                 }
+        result['data'].append(record)
     return generate_response(result)
 
 
