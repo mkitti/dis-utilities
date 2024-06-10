@@ -179,10 +179,10 @@ def correlate_person(oid, oids):
                     oids[oid]['employeeId'] = people[0]['employeeId']
                     oids[oid]['userIdO365'] = people[0]['userIdO365']
                     if 'group leader' in people[0]['businessTitle'].lower():
-                        oids[oid]['group'] = f"{surname} Lab"
+                        oids[oid]['group'] = f"{first} {surname} Lab"
                     elif people[0]['businessTitle'] == 'JRC Alumni':
                         oids[oid]['alumni'] = True
-                    LOGGER.debug(f"Added {first} {surname} from People")
+                    LOGGER.info(f"Added {first} {surname} from People")
                     break
                 LOGGER.error(f"Found more than one record in People for {first} {surname}")
         if found:
