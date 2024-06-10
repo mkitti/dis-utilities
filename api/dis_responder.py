@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "1.4.0"
+__version__ = "1.6.0"
 # Database
 DB = {}
 # Navigation
@@ -314,6 +314,30 @@ def humansize(num, suffix='B'):
             return f"{num:.1f}{unit}{suffix}"
         num /= 1024.0
     return "{num:.1f}P{suffix}"
+
+
+def add_jrc_fields(row):
+    ''' Add a table of custom JRC fields
+        Keyword arguments:
+          row: DOI record
+        Returns:
+          HTML
+    '''
+    jrc = {}
+    prog = re.compile("^jrc_")
+    for key, val in row.items():
+        if not re.match(prog, key):
+            continue
+        if isinstance(val, list):
+            val = ", ".join(val)
+        jrc[key] = val
+    if not jrc:
+        return ""
+    html = '<table class="standard">'
+    for key in sorted(jrc):
+        html += f"<tr><td>{key}</td><td>{jrc[key]}</td></tr>"
+    html += "</table><br>"
+    return html
 
 # *****************************************************************************
 # * Documentation                                                             *
@@ -930,7 +954,8 @@ def show_doi_ui(doi):
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if row:
-        html = '<h5 style="color:lime">This DOI is saved locally in the Janelia database</h5><br>'
+        html = '<h5 style="color:lime">This DOI is saved locally in the Janelia database</h5>'
+        html += add_jrc_fields(row)
     else:
         html = '<h5 style="color:red">This DOI is not saved locally in the ' \
                + 'Janelia database</h5><br>'
