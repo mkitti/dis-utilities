@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "1.6.0"
+__version__ = "1.7.0"
 # Database
 DB = {}
 # Navigation
@@ -627,7 +627,7 @@ def show_flylight_citation(doi):
     return generate_response(result)
 
 
-@app.route('/citation/components/<path:doi>')
+@app.route('/components/<path:doi>')
 def show_components(doi):
     '''
     Return components of a DIS-style citation
@@ -667,6 +667,8 @@ def show_components(doi):
                       "publishing_date": DL.get_publishing_date(row),
                       "title": DL.get_title(row)
                      }
+    if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
+        result['data']['abstract'] = row['abstract']
     return generate_response(result)
 
 
@@ -847,6 +849,8 @@ def show_multiple_components(ctype='dis'):
                   "journal": DL.get_journal(row),
                   "publishing_date": DL.get_publishing_date(row)
                  }
+        if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
+            record['abstract'] = row['abstract']
         result['data'].append(record)
         result['rest']['row_count'] += 1
     return generate_response(result)
