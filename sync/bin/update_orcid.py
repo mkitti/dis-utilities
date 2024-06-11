@@ -2,6 +2,8 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
+__version__ = '1.0.0'
+
 import argparse
 from operator import attrgetter
 import re
@@ -191,6 +193,20 @@ def correlate_person(oid, oids):
     #    LOGGER.warning(f"Could not find a record in People for {first} {surname}")
 
 
+def preserve_mongo_names(current, oids):
+    ''' Preserve names from sources other than this program in the oids dictionary
+        Keyword arguments:
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    oid = current['orcid']
+    for field in ('family', 'given'):
+        for name in current[field]:
+            if name not in oids[oid][field]:
+                oids[oid][field].append(name)
+
+
 def add_janelia_info(oids):
     ''' Find Janelia information for each ORCID ID
         Keyword arguments:
@@ -207,6 +223,8 @@ def add_janelia_info(oids):
     for row in rows:
         present[row['orcid']] = row
     for oid in tqdm(oids, desc='Janalia info'):
+        if oid in present:
+            preserve_mongo_names(present[oid], oids)
         if oid in present and 'employeeId' in present[oid]:
             continue
         correlate_person(oid, oids)
@@ -236,23 +254,30 @@ def update_orcid():
         Returns:
           None
     '''
-    # Get ORCID IDs from the doi collection
-    dcoll = DB['dis'].dois
-    # Crossref
-    payload = {"author.affiliation.name": {"$regex": "Janelia"},
-               "author.ORCID": {"$exists": True}}
-    project = {"author.given": 1, "author.family": 1,
-               "author.ORCID": 1, "author.affiliation": 1, "doi": 1}
-    recs = dcoll.find(payload, project)
+    LOGGER.info(f"Started run (version {__version__})")
     oids = {}
-    for rec in tqdm(recs, desc="Adding from doi collection"):
-        COUNT['records'] += 1
-        for aut in rec['author']:
-            if 'ORCID' not in aut:
-                continue
-            process_author(aut, oids, "crossref")
-    add_from_orcid(oids)
-    add_janelia_info(oids)
+    if ARG.ORCID:
+        family, given = get_name(ARG.ORCID)
+        if family and given:
+            add_name(ARG.ORCID, oids, family, given)
+            COUNT['orcid'] += 1
+    else:
+        # Get ORCID IDs from the doi collection
+        dcoll = DB['dis'].dois
+        # Crossref
+        payload = {"author.affiliation.name": {"$regex": "Janelia"},
+                   "author.ORCID": {"$exists": True}}
+        project = {"author.given": 1, "author.family": 1,
+                   "author.ORCID": 1, "author.affiliation": 1, "doi": 1}
+        recs = dcoll.find(payload, project)
+        for rec in tqdm(recs, desc="Adding from doi collection"):
+            COUNT['records'] += 1
+            for aut in rec['author']:
+                if 'ORCID' not in aut:
+                    continue
+                process_author(aut, oids, "crossref")
+        add_from_orcid(oids)
+        add_janelia_info(oids)
     if ARG.WRITE:
         write_records(oids)
     print(f"Records read from MongoDB:dois: {COUNT['records']}")
@@ -264,7 +289,9 @@ def update_orcid():
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
-        description="Add ORCid information to MongoDB:orcid")
+        description="Add ORCID information to MongoDB:orcid")
+    PARSER.add_argument('--orcid', dest='ORCID', action='store',
+                        help='ORCID ID')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
