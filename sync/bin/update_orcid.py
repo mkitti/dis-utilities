@@ -2,10 +2,11 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import argparse
 from operator import attrgetter
+import os
 import re
 import sys
 import requests
@@ -38,6 +39,8 @@ def initialize_program():
         Returns:
           None
     '''
+    if "PEOPLE_API_KEY" not in os.environ:
+      terminate_program(f"Missing token - set in PEOPLE_API_KEY environment variable")
     try:
         dbconfig = JRC.get_config("databases")
     except Exception as err:
@@ -144,7 +147,7 @@ def people_by_name(first, surname):
         Returns:
           List of people
     '''
-    headers = {'Content-Type': 'application/json', 'APIKey': attrgetter('people.key')(REST)}
+    headers = {'Content-Type': 'application/json', 'APIKey': os.environ['PEOPLE_API_KEY']}
     url = f"{attrgetter('people.url')(REST)}People/Search/ByName/{surname}"
     try:
         response = requests.get(url, headers=headers, timeout=10)
@@ -169,7 +172,7 @@ def people_by_id(eid):
         Returns:
           JSON from people system
     '''
-    headers = {'Content-Type': 'application/json', 'APIKey': attrgetter('people.key')(REST)}
+    headers = {'Content-Type': 'application/json', 'APIKey': os.environ['PEOPLE_API_KEY']}
     url = f"{attrgetter('people.url')(REST)}People/Person/GetById/{eid}"
     try:
         response = requests.get(url, headers=headers, timeout=10)
