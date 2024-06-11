@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "1.7.0"
+__version__ = "2.0.0"
 # Database
 DB = {}
 # Navigation
@@ -337,6 +337,35 @@ def add_jrc_fields(row):
     for key in sorted(jrc):
         html += f"<tr><td>{key}</td><td>{jrc[key]}</td></tr>"
     html += "</table><br>"
+    return html
+
+
+def add_relations(data):
+    ''' Create a list of relations
+        Keyword arguments:
+          data: DOI record
+        Returns:
+          HTML
+    '''
+    html = ""
+    if (not 'relation' in data) or (not data['relation']):
+        return html
+    coll = DB['dis'].dois
+    for rel in data['relation']:
+        used = []
+        for itm in data['relation'][rel]:
+            if itm['id'] in used:
+                continue
+            try:
+                row = coll.find_one({"doi": itm['id']})
+            except Exception as err:
+                raise InvalidUsage(str(err), 500) from err
+            if row:
+                link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
+            else:
+                link = f"<a href='https://dx.doi.org/{itm['id']}' target='_blank'>{itm['id']}</a>"
+            html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
+            used.append(itm['id'])
     return html
 
 # *****************************************************************************
@@ -990,10 +1019,11 @@ def show_doi_ui(doi):
                                 title=render_warning("Could not find journal"),
                                 message=f"Could not find journal for {doi}")
     outjson = dumps(data, indent=2).replace("\n", "<br>").replace(" ", "&nbsp;")
-    link = f"https://dx.doi.org/{doi}"
+    link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
     html += "<h4>Citation</h4>" + f"<span class='citation'>{citation} {journal}." \
-            + f"<br><br>DOI: <a href='{link}' target='_blank'>{doi}</a></span>" \
-            + f"<br><br><h4>Raw JSON</h4><div class='scroll'>{outjson}</div>"
+            + f"<br>DOI: {link}</span><br><br>"
+    html += add_relations(data)
+    html += f"<br><h4>Raw JSON</h4><div class='scroll'>{outjson}</div>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
