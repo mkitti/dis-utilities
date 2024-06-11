@@ -149,7 +149,7 @@ def people_by_name(first, surname):
     try:
         response = requests.get(url, headers=headers, timeout=10)
     except Exception as err:
-        raise err
+        terminate_program(err)
     people = response.json()
     filtered = []
     for person in people:
@@ -160,6 +160,24 @@ def people_by_name(first, surname):
            and person['nameFirstPreferred'].lower() == first.lower():
             filtered.append(person)
     return filtered
+
+
+def people_by_id(eid):
+    ''' Search for an employee ID in the people system
+        Keyword arguments:
+          eid: employee ID
+        Returns:
+          JSON from people system
+    '''
+    headers = {'Content-Type': 'application/json', 'APIKey': attrgetter('people.key')(REST)}
+    url = f"{attrgetter('people.url')(REST)}People/Person/GetById/{eid}"
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        print(response)
+        return response.json()
+    except Exception as err:
+        LOGGER.error(f"Could not get response from {url}")
+        terminate_program(err)
 
 
 def correlate_person(oid, oids):
@@ -184,7 +202,16 @@ def correlate_person(oid, oids):
                         oids[oid]['group'] = f"{first} {surname} Lab"
                     elif people[0]['businessTitle'] == 'JRC Alumni':
                         oids[oid]['alumni'] = True
-                    LOGGER.info(f"Added {first} {surname} from People")
+                    idresp = people_by_id(oids[oid]['employeeId'])
+                    if idresp and 'affiliations' in idresp and idresp['affiliations']:
+                        oids[oid]['affiliations'] = []
+                        for aff in idresp['affiliations']:
+                            if aff['supOrgName'] not in oids[oid]['affiliations']:
+                                oids[oid]['affiliations'].append(aff['supOrgName'])
+                    if 'affiliations' in oids[oid]:
+                        LOGGER.info(f"Added {first} {surname} from People ({', '.join(oids[oid]['affiliations'])})")
+                    else:
+                        LOGGER.info(f"Added {first} {surname} from People")
                     break
                 LOGGER.error(f"Found more than one record in People for {first} {surname}")
         if found:
