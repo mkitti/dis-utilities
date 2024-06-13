@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '0.9.0'
+__version__ = '1.0.0'
 
 import argparse
 import configparser
@@ -679,9 +679,10 @@ def generate_email():
             terminate_program(err)
         if user in workday:
             rec = workday[user]
-            msg += f"Program run by {rec['first']} {rec['last']} at {datetime.now()}\n"
+            msg += f"Program (version {__version__}) run by {rec['first']} " \
+                   + f"{rec['last']} at {datetime.now()}\n"
         else:
-            msg += f"Program run by {user} at {datetime.now()}\n"
+            msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
     msg += f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for doi in INSERTED:
         msg += f"\n{doi}"

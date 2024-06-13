@@ -5,6 +5,8 @@
 __version__ = '1.2.0'
 
 import argparse
+from datetime import datetime
+import getpass
 from operator import attrgetter
 import os
 import re
@@ -15,8 +17,16 @@ import jrc_common.jrc_common as JRC
 
 # pylint: disable=broad-exception-caught,logging-fstring-interpolation
 
+# Database
 DB = {}
+# Email
+SENDER = 'svirskasr@hhmi.org'
+RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
+# Counters
 COUNT = {'records': 0, 'orcid': 0, 'insert': 0, 'update': 0}
+# General
+PRESENT = {}
+NEW_ORCID = {}
 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
@@ -40,7 +50,7 @@ def initialize_program():
           None
     '''
     if "PEOPLE_API_KEY" not in os.environ:
-      terminate_program("Missing token - set in PEOPLE_API_KEY environment variable")
+        terminate_program("Missing token - set in PEOPLE_API_KEY environment variable")
     try:
         dbconfig = JRC.get_config("databases")
     except Exception as err:
@@ -53,6 +63,13 @@ def initialize_program():
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
+    try:
+        rows = DB['dis'].orcid.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        PRESENT[row['orcid']] = row
+    LOGGER.info(f"{len(PRESENT)} DOIs are already in the collection")
 
 
 def add_name(oid, oids, family, given):
@@ -73,6 +90,13 @@ def add_name(oid, oids, family, given):
             oids[oid]['given'].append(given)
     else:
         oids[oid] = {"family": [family], "given": [given]}
+        if oid in PRESENT:
+            if not ARG.WRITE:
+                COUNT['update'] += 1
+        else:
+            if not ARG.WRITE:
+                COUNT['insert'] += 1
+            NEW_ORCID[oid] = {"family": [family], "given": [given]}
 
 
 def process_author(aut, oids, source="crossref"):
@@ -191,7 +215,8 @@ def correlate_person(oid, oids):
                             if aff['supOrgName'] not in oids[oid]['affiliations']:
                                 oids[oid]['affiliations'].append(aff['supOrgName'])
                     if 'affiliations' in oids[oid]:
-                        LOGGER.info(f"Added {first} {surname} from People ({', '.join(oids[oid]['affiliations'])})")
+                        LOGGER.info(f"Added {first} {surname} from People " \
+                                    + f"({', '.join(oids[oid]['affiliations'])})")
                     else:
                         LOGGER.info(f"Added {first} {surname} from People")
                     break
@@ -223,18 +248,10 @@ def add_janelia_info(oids):
         Returns:
           None
     '''
-    present = {}
-    try:
-        coll = DB['dis'].orcid
-        rows = coll.find({})
-    except Exception as err:
-        terminate_program(err)
-    for row in rows:
-        present[row['orcid']] = row
-    for oid in tqdm(oids, desc='Janalia info'):
-        if oid in present:
-            preserve_mongo_names(present[oid], oids)
-        if oid in present and 'employeeId' in present[oid]:
+    for oid in tqdm(oids, desc='Janalians from orcid collection'):
+        if oid in PRESENT:
+            preserve_mongo_names(PRESENT[oid], oids)
+        if oid in PRESENT and 'employeeId' in PRESENT[oid]:
             continue
         correlate_person(oid, oids)
 
@@ -254,6 +271,37 @@ def write_records(oids):
         else:
             COUNT['insert'] += 1
             print(f"New entry: {val}")
+
+
+def generate_email():
+    ''' Generate and send an email
+        Keyword arguments:
+          None
+        Returns:
+          None
+    '''
+    msg = ""
+    user = getpass.getuser()
+    if user:
+        try:
+            workday = JRC.simplenamespace_to_dict(JRC.get_config("workday"))
+        except Exception as err:
+            terminate_program(err)
+        if user in workday:
+            rec = workday[user]
+            msg += f"Program (version {__version__}) run by {rec['first']} {rec['last']} " \
+                   + f"at {datetime.now()}\n"
+        else:
+            msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
+    msg += f"The following ORCID IDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
+    for oid, val in NEW_ORCID.items():
+        msg += f"\n{oid}: {val}\n"
+    try:
+        LOGGER.info(f"Sending email to {RECEIVERS}")
+        JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
+                       "New DOIs")
+    except Exception as err:
+        LOGGER.error(err)
 
 
 def update_orcid():
@@ -289,6 +337,8 @@ def update_orcid():
         add_janelia_info(oids)
     if ARG.WRITE:
         write_records(oids)
+        if NEW_ORCID:
+            generate_email()
     print(f"Records read from MongoDB:dois: {COUNT['records']}")
     print(f"Records read from ORCID:        {COUNT['orcid']}")
     print(f"ORCID IDs inserted:             {COUNT['insert']}")
