@@ -61,10 +61,13 @@ def perform_search():
         people[key] = rec
     if not people:
         terminate_program(f"{ARG.NAME} was not found")
-    quest = [inquirer.List('who',
-             message='Select person',
-             choices=people.keys())]
-    ans = inquirer.prompt(quest, theme=BlueComposure())
+    if len(people) == 1:
+        ans = {'who': list(people.keys())[0]}
+    else:
+        quest = [inquirer.List('who',
+                 message='Select person',
+                 choices=people.keys())]
+        ans = inquirer.prompt(quest, theme=BlueComposure())
     if not ans:
         terminate_program()
     print(json.dumps(people[ans['who']], indent=2))
