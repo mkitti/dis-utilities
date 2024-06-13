@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 
 import argparse
 from operator import attrgetter
@@ -40,7 +40,7 @@ def initialize_program():
           None
     '''
     if "PEOPLE_API_KEY" not in os.environ:
-      terminate_program(f"Missing token - set in PEOPLE_API_KEY environment variable")
+      terminate_program("Missing token - set in PEOPLE_API_KEY environment variable")
     try:
         dbconfig = JRC.get_config("databases")
     except Exception as err:
@@ -147,13 +147,10 @@ def people_by_name(first, surname):
         Returns:
           List of people
     '''
-    headers = {'Content-Type': 'application/json', 'APIKey': os.environ['PEOPLE_API_KEY']}
-    url = f"{attrgetter('people.url')(REST)}People/Search/ByName/{surname}"
     try:
-        response = requests.get(url, headers=headers, timeout=10)
+        people = JRC.call_people_by_name(surname)
     except Exception as err:
         terminate_program(err)
-    people = response.json()
     filtered = []
     for person in people:
         if person['locationName'] != 'Janelia Research Campus':
@@ -163,24 +160,6 @@ def people_by_name(first, surname):
            and person['nameFirstPreferred'].lower() == first.lower():
             filtered.append(person)
     return filtered
-
-
-def people_by_id(eid):
-    ''' Search for an employee ID in the people system
-        Keyword arguments:
-          eid: employee ID
-        Returns:
-          JSON from people system
-    '''
-    headers = {'Content-Type': 'application/json', 'APIKey': os.environ['PEOPLE_API_KEY']}
-    url = f"{attrgetter('people.url')(REST)}People/Person/GetById/{eid}"
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        print(response)
-        return response.json()
-    except Exception as err:
-        LOGGER.error(f"Could not get response from {url}")
-        terminate_program(err)
 
 
 def correlate_person(oid, oids):
@@ -205,7 +184,7 @@ def correlate_person(oid, oids):
                         oids[oid]['group'] = f"{first} {surname} Lab"
                     elif people[0]['businessTitle'] == 'JRC Alumni':
                         oids[oid]['alumni'] = True
-                    idresp = people_by_id(oids[oid]['employeeId'])
+                    idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
                     if idresp and 'affiliations' in idresp and idresp['affiliations']:
                         oids[oid]['affiliations'] = []
                         for aff in idresp['affiliations']:
