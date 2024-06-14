@@ -636,10 +636,12 @@ def process_dois():
                 msg = get_doi_record(doi)
                 if msg:
                     persist[doi] = msg['data']['attributes']
+                    persist[doi]['jrc_obtained_from'] = 'DataCite'
             else:
                 msg = get_doi_record(doi)
                 if msg:
                     persist[doi] = msg['message']
+                    persist[doi]['jrc_obtained_from'] = 'Crossref'
             continue
         msg = get_doi_record(doi)
         if not msg:
@@ -648,11 +650,13 @@ def process_dois():
             # DataCite
             if datacite_needs_update(doi, msg['data']):
                 persist[doi] = msg['data']['attributes']
+                persist[doi]['jrc_obtained_from'] = 'DataCite'
             COUNT['foundd'] += 1
         else:
             # Crossref
             if crossref_needs_update(doi, msg['message']):
                 persist[doi] = msg['message']
+                persist[doi]['jrc_obtained_from'] = 'Crossref'
             COUNT['foundc'] += 1
         if doi in persist:
             preprint = check_for_preprint(doi, persist[doi])
