@@ -16,13 +16,25 @@ table.standard {
   border: 1px solid #058d95;
 }
 
+table.borderless {
+  font-size: 12pt;
+  line-height: 16px;
+}
+
+.borderless td {
+  padding-right: 10px;
+  text-align: left;
+  white-space: nowrap;
+  color: #bbc !important;
+}
+
 table.standardc {
   border-collapse: collapse;
   font-size: 12pt;
   line-height: 14px;
 }
 
-.standardc th {
+.standardc th {white-space: nowrap;
   background: #058d95;
   border: 1px solid #058d95;
 }
@@ -41,7 +53,7 @@ table.property {
   color: #334 !important;
 }
 
-.property td {
+.property td {white-space: nowrap;
   text-align: left;
   padding-right: 10px;
 }
@@ -75,7 +87,14 @@ div.scroll {height: 200px;
             width: 90%;
             overflow: scroll;
             border: 1px solid #666;
-            font: 16px monospace;
+            padding: 8px;
+}
+
+div.codescroll {height: 180px;
+            width: 90%;
+            overflow: scroll;
+            border: 1px solid #666;
+            font: 14px monospace;
             color: aqua;
             padding: 8px;
 }

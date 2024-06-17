@@ -4,7 +4,7 @@
 
 from datetime import datetime, timedelta
 import inspect
-from json import JSONEncoder, dumps
+from json import JSONEncoder
 from operator import attrgetter
 import re
 import os
@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "2.0.0"
+__version__ = "3.0.0"
 # Database
 DB = {}
 # Navigation
@@ -316,6 +316,25 @@ def humansize(num, suffix='B'):
     return "{num:.1f}P{suffix}"
 
 
+def get_doi(doi):
+    ''' Add a table of custom JRC fields
+        Keyword arguments:
+          doi: DOI
+        Returns:
+          source: data source
+          data: data from response
+    '''
+    if DL.is_datacite(doi):
+        resp = JRC.call_datacite(doi)
+        source = 'datacite'
+        data = resp['data']['attributes'] if 'data' in resp else {}
+    else:
+        resp = JRC.call_crossref(doi)
+        source = 'crossref'
+        data = resp['message'] if 'message' in resp else {}
+    return source, data
+
+
 def add_jrc_fields(row):
     ''' Add a table of custom JRC fields
         Keyword arguments:
@@ -340,32 +359,333 @@ def add_jrc_fields(row):
     return html
 
 
-def add_relations(data):
+def add_relations(row):
     ''' Create a list of relations
         Keyword arguments:
-          data: DOI record
+          row: DOI record
         Returns:
           HTML
     '''
     html = ""
-    if (not 'relation' in data) or (not data['relation']):
+    if (not 'relation' in row) or (not row['relation']):
         return html
     coll = DB['dis'].dois
-    for rel in data['relation']:
+    print(row['relation'].keys())
+    for rel in row['relation']:
         used = []
-        for itm in data['relation'][rel]:
+        for itm in row['relation'][rel]:
             if itm['id'] in used:
                 continue
             try:
-                row = coll.find_one({"doi": itm['id']})
+                rec = coll.find_one({"doi": itm['id']})
             except Exception as err:
                 raise InvalidUsage(str(err), 500) from err
-            if row:
+            if rec:
                 link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
             else:
                 link = f"<a href='https://dx.doi.org/{itm['id']}' target='_blank'>{itm['id']}</a>"
             html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
             used.append(itm['id'])
+    return html
+
+
+def get_orcid_record(oid):
+    ''' Get a record from the orcid collection by ORCID ID
+        Keyword arguments:
+          oid: ORCID ID
+        Returns:
+          row from orcid collection
+    '''
+    try:
+        row = DB['dis'].orcid.find_one({"orcid": oid})
+    except Exception as err:
+        raise err
+    return row
+
+
+def orcid_name_match(family, given):
+    ''' Get a record from the orcid collection by name
+        Keyword arguments:
+          family: family name
+          given: given name
+        Returns:
+          row from orcid collection
+    '''
+    payload = {#"alumni": {"$exists": False},
+               "family": family, "given": given}
+    try:
+        row = DB['dis'].orcid.find_one(payload)
+    except Exception as err:
+        raise err
+    return row
+
+
+def apply_tags(auth, orc):
+    ''' Set tags for a single author
+        Keyword arguments:
+          auth: author record
+          orc: row from orcid collection
+        Returns:
+          None
+    '''
+    auth['validated'] = bool('employeeId' in orc)
+    tags = []
+    if 'affiliations' in orc:
+        tags.extend(orc['affiliations'])
+    if 'group' in orc:
+        tags.append(orc['group'])
+    if tags:
+        auth['tags'] = tags
+
+
+def doi_has_orcid(auth):
+    ''' Set author attributes for an author that has an ORCID ID in the DOI record
+        Keyword arguments:
+          auth: author record
+          orc: row from orcid collection
+        Returns:
+          True is there was a supplied ORCID ID
+    '''
+    try:
+        orc = get_orcid_record(auth['orcid'])
+    except Exception as err:
+        raise err
+    if orc:
+        auth['in_database'] = True
+        if 'alumni' in orc:
+            auth['alumni'] = True
+        else:
+            # No need to look for for affiliations or search by name
+            auth['janelian'] = True
+            if 'employeeId' in orc:
+                auth['validated'] = True
+        return True
+    return False
+
+
+def has_janelia_affiliation(auth, orc):
+    ''' Set author attributes for an author that has affiliations in the DOI record
+        Keyword arguments:
+          auth: author record
+          orc: row from orcid collection
+        Returns:
+          True if the author has a Janelia affiliation
+    '''
+    for aff in auth['affiliations']:
+        if "Janelia" in aff:
+            auth['in_database'] = bool(orc)
+            auth['asserted'] = True
+            if orc:
+                auth['alumni'] = bool('alumni' in orc)
+                auth['janelian'] = bool(orc and 'alumni' not in orc)
+                if 'employeeId' in orc:
+                    auth['validated'] = True
+                if 'orcid' in orc:
+                    auth['orcid'] = orc['orcid']
+            return True
+    return False
+
+
+def process_author_details(authors):
+    ''' Process a list of authors, adding fields as needed:
+          in_database: boolean indicating if the author has a record in the orcid collection
+          janelian: boolean indicating if the author is a Janelian
+          tags: list of affiliations (lab, group, project, etc.)
+          validated: boolean indicating if the author has been correlated to a People record
+        Keyword arguments:
+          authors: list of detailed authors from a publication
+        Returns:
+          None
+    '''
+    for auth in authors:
+        auth['in_database'] = False
+        auth['janelian'] = False
+        auth['alumni'] = False
+        auth['asserted'] = False
+        orc = None
+        auth_done = False
+        if 'orcid' in auth and doi_has_orcid(auth):
+            auth_done = True
+        orc = orcid_name_match(auth['family'], auth['given'])
+        if (not auth_done) and (not auth['janelian']) and 'affiliations' in auth:
+            # There are affiliations (maybe not Janelia)
+            auth['asserted'] = has_janelia_affiliation(auth, orc)
+            auth_done = auth['asserted']
+        if (not auth_done) and (not auth['janelian']):
+            if orc:
+                auth['in_database'] = True
+                auth['janelian'] = bool('alumni' not in orc)
+                if 'alumni' in orc:
+                    auth['alumni'] = True
+                if 'employeeId' in orc:
+                    auth['validated'] = True
+                if 'orcid' in orc:
+                    auth['orcid'] = orc['orcid']
+        if orc and (auth['janelian'] or auth['asserted']):
+            apply_tags(auth, orc)
+
+
+def tiny_badge(btype, msg, link=None):
+    ''' Create HTML for a [very] small badge
+        Keyword arguments:
+          btype: badge type (success, danger, etc.)
+          msg: message to show on badge
+          link: link to other web page
+        Returns:
+          HTML
+    '''
+    html = f"<span class='badge badge-{btype}' style='font-size: 8pt'>{msg}</span>"
+    if link:
+        html = f"<a href='{link}' target='_blank'>{html}</a>"
+    return html
+
+
+def show_tagged_authors(authors):
+    ''' Create a list of Janelian authors (with badges and tags)
+        Keyword arguments:
+          authors: list of detailed authors from a publication
+        Returns:
+          List of HTML authors
+    '''
+    alist = []
+    for auth in authors:
+        if (not auth['janelian']) and (not auth['asserted']):
+            continue
+        who = f"{auth['given']} {auth['family']}"
+        if 'orcid' in auth:
+            who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
+        badges = []
+        if auth['in_database']:
+            badges.append(f"{tiny_badge('success', 'Known ORCID')}")
+            if auth['alumni']:
+                badges.append(f"{tiny_badge('danger', 'Alumni')}")
+            elif 'validated' not in auth or not auth['validated']:
+                badges.append(f"{tiny_badge('warning', 'Not validated')}")
+            if auth['asserted']:
+                badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+        else:
+            badges.append(f"{tiny_badge('danger', 'Not in database')}")
+            if auth['asserted']:
+                badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+        tags = ""
+        if 'tags' in auth:
+            tags = auth['tags']
+        row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
+        alist.append(row)
+    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>"
+
+
+def add_orcid_badges(orc):
+    ''' Generate badges for an ORCID ID that is in the orcid collection
+        Keyword arguments:
+          orc: row from orcid collection
+        Returns:
+          List of badges
+    '''
+    badges = []
+    badges.append(tiny_badge('success', 'In local database'))
+    if 'alumni' in orc:
+        badges.append(tiny_badge('danger', 'Alumni'))
+    if 'employeeId' not in orc:
+        badges.append(tiny_badge('warning', 'Not validated'))
+    return badges
+
+
+def get_orcid_from_db(oid):
+    ''' Generate HTML for an ORCID ID that is in the orcid collection
+        Keyword arguments:
+          oid: ORCID ID
+        Returns:
+          HTML and a list of DOIs
+    '''
+    try:
+        orc = DB['dis'].orcid.find_one({"orcid": oid})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not orc:
+        return ""
+    badges = add_orcid_badges(orc)
+    html = " ".join(badges)
+    html += "<br><table class='borderless'>"
+    html += f"<tr><td>Given name:</td><td>{', '.join(sorted(orc['given']))}</td></tr>"
+    html += f"<tr><td>Family name:</td><td>{', '.join(sorted(orc['family']))}</td></tr>"
+    if 'employeeId' in orc:
+        link = "<a href='" + f"{app.config['WORKDAY']}{orc['userIdO365']}" \
+               + f"' target='_blank'>{orc['employeeId']}</a>"
+        html += f"<tr><td>Employee ID:</td><td>{link}</td></tr>"
+    if 'affiliations' in orc:
+        html += f"<tr><td>Affiliations:</td><td>{', '.join(orc['affiliations'])}</td></tr>"
+    html += "</table><br>"
+    payload = {"$and": [{"$or": [{"author.given": {"$in": orc['given']}},
+                                 {"creators.givenName": {"$in": orc['given']}}]},
+                        {"$or": [{"author.family": {"$in": orc['family']}},
+                                 {"creators.familyName": {"$in": orc['family']}}]}]
+              }
+    try:
+        rows = DB['dis'].dois.find(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not rows:
+        return html
+    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
+            + '<th>Published</th><th>DOI</th><th>Title</th>' \
+            + '</tr></thead><tbody>'
+    works = []
+    dois = []
+    for row in rows:
+        if row['doi']:
+            doi = f"<a href='https://dx.doi.org/{row['doi']}' target='_blank'>{row['doi']}</a>"
+        else:
+            doi = "&nbsp;"
+        title = DL.get_title(row)
+        dois.append(row['doi'])
+        payload = {"date":  DL.get_publishing_date(row),
+                   "doi": doi,
+                   "title": title
+                  }
+        works.append(payload)
+    for work in sorted(works, key=lambda row: row['date'], reverse=True):
+        html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
+                + f"<td>{work['title']}</td></tr>"
+    if dois:
+        html += "</tbody></table>"
+    return html, dois
+
+
+def add_orcid_works(data, dois):
+    ''' Generate HTML for a list of works from ORCID
+        Keyword arguments:
+          data: ORCID data
+          dois: list of DOIs from dois collection
+        Returns:
+          HTML for a list of works from ORCID
+    '''
+    html = inner = ""
+    for work in data['activities-summary']['works']['group']:
+        wsumm = work['work-summary'][0]
+        date = get_work_publication_date(wsumm)
+        doi = get_work_doi(work)
+        if (not doi) or (doi in dois):
+            continue
+        if not doi:
+            inner += f"<tr><td>{date}</td><td>&nbsp;</td>" \
+                     + f"<td>{wsumm['title']['title']['value']}</td></tr>"
+            continue
+        if work['external-ids']['external-id'][0]['external-id-url']:
+            if work['external-ids']['external-id'][0]['external-id-url']:
+                link = "<a href='" \
+                       + work['external-ids']['external-id'][0]['external-id-url']['value'] \
+                       + f"' target='_blank'>{doi}</a>"
+        else:
+            link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
+        inner += f"<tr><td>{date}</td><td>{link}</td>" \
+                 + f"<td>{wsumm['title']['title']['value']}</td></tr>"
+    if inner:
+        html += '<hr>The additional titles below are from ORCID. Note that titles below may ' \
+                + 'be self-reported, and may not have DOIs available</br>'
+        html += '<table id="works" class="tablesorter standard"><thead><tr>' \
+                + '<th>Published</th><th>DOI</th><th>Title</th>' \
+                + f"</tr></thead><tbody>{inner}</tbody></table>"
     return html
 
 # *****************************************************************************
@@ -424,9 +744,60 @@ def stats():
                       }
     return generate_response(result)
 
+
 # ******************************************************************************
 # * API endpoints                                                              *
 # ******************************************************************************
+@app.route('/doi/authors/<path:doi>')
+def show_doi_authors(doi):
+    '''
+    Return a DOI
+    Return information on authors for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB error
+    '''
+    doi = doi.lstrip('/').rstrip('/')
+    result = initialize_result()
+    coll = DB['dis'].dois
+    try:
+        row = coll.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        return render_template('error.html', urlroot=request.url_root,
+                                title=render_warning("DOI not found"),
+                                message=f"Could not find DOI {doi}")
+    try:
+        authors = DL.get_author_details(row)
+        process_author_details(authors)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    tags = []
+    for auth in authors:
+        if 'tags' in auth:
+            for atag in auth['tags']:
+                if atag not in tags:
+                    tags.append(atag)
+    if tags:
+        tags.sort()
+        result['tags'] = tags
+    result['data'] = authors
+    return generate_response(result)
+
+
 @app.route('/doi/<path:doi>')
 def show_doi(doi):
     '''
@@ -449,8 +820,7 @@ def show_doi(doi):
       500:
         description: MongoDB error
     '''
-    doi = doi.lstrip('/')
-    doi = doi.rstrip('/')
+    doi = doi.lstrip('/').rstrip('/')
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -462,14 +832,7 @@ def show_doi(doi):
         result['rest']['source'] = 'mongo'
         result['data'] = row
         return generate_response(result)
-    if DL.is_datacite(doi):
-        resp = JRC.call_datacite(doi)
-        result['rest']['source'] = 'datacite'
-        result['data'] = resp['data'] if 'data' in resp else {}
-    else:
-        resp = JRC.call_crossref(doi)
-        result['rest']['source'] = 'crossref'
-        result['data'] = resp['message'] if 'message' in resp else {}
+    result['rest']['source'], result['data'] = get_doi(doi)
     if result['data']:
         result['rest']['row_count'] = 1
     return generate_response(result)
@@ -542,8 +905,7 @@ def show_citation(doi):
       500:
         description: MongoDB or formatting error
     '''
-    doi = doi.lstrip('/')
-    doi = doi.rstrip('/')
+    doi = doi.lstrip('/').rstrip('/')
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -637,8 +999,7 @@ def show_flylight_citation(doi):
       500:
         description: MongoDB or formatting error
     '''
-    doi = doi.lstrip('/')
-    doi = doi.rstrip('/')
+    doi = doi.lstrip('/').rstrip('/')
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -679,8 +1040,7 @@ def show_components(doi):
       500:
         description: MongoDB or formatting error
     '''
-    doi = doi.lstrip('/')
-    doi = doi.rstrip('/')
+    doi = doi.lstrip('/').rstrip('/')
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -979,11 +1339,9 @@ def show_home():
 def show_doi_ui(doi):
     ''' Show DOI
     '''
-    doi = doi.lstrip('/')
-    doi = doi.rstrip('/')
-    coll = DB['dis'].dois
+    doi = doi.lstrip('/').rstrip('/')
     try:
-        row = coll.find_one({"doi": doi})
+        row = DB['dis'].dois.find_one({"doi": doi})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if row:
@@ -992,18 +1350,13 @@ def show_doi_ui(doi):
     else:
         html = '<h5 style="color:red">This DOI is not saved locally in the ' \
                + 'Janelia database</h5><br>'
-    if DL.is_datacite(doi):
-        resp = JRC.call_datacite(doi)
-        data = resp['data'] if 'data' in resp else {}
-    else:
-        resp = JRC.call_crossref(doi)
-        data = resp['message'] if 'message' in resp else {}
+    _, data = get_doi(doi)
     if not data:
         return render_template('warning.html', urlroot=request.url_root,
                                 title=render_warning("Could not find DOI", 'warning'),
                                 message=f"Could not find DOI {doi}")
-    authorlist = DL.get_author_list(data, orcid=True)
-    if not authorlist:
+    authors = DL.get_author_list(data, orcid=True)
+    if not authors:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning("Could not generate author list"),
                                 message=f"Could not generate author list for {doi}")
@@ -1012,18 +1365,32 @@ def show_doi_ui(doi):
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning("Could not find title"),
                                 message=f"Could not find title for {doi}")
-    citation = f"{authorlist} {title}."
+    citation = f"{authors} {title}."
     journal = DL.get_journal(data)
     if not journal:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning("Could not find journal"),
                                 message=f"Could not find journal for {doi}")
-    outjson = dumps(data, indent=2).replace("\n", "<br>").replace(" ", "&nbsp;")
     link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
-    html += "<h4>Citation</h4>" + f"<span class='citation'>{citation} {journal}." \
-            + f"<br>DOI: {link}</span><br><br>"
+    rlink = f"/doi/{doi}"
+    chead = 'Citation'
+    if 'type' in data:
+        chead += f" for {data['type'].replace('-', ' ')}"
+        if 'subtype' in data:
+            chead += f" {data['subtype'].replace('-', ' ')}"
+    html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}." \
+            + f"<br>DOI: {link}</span> {tiny_badge('primary', 'Raw data', rlink)}<br><br>"
     html += add_relations(data)
-    html += f"<br><h4>Raw JSON</h4><div class='scroll'>{outjson}</div>"
+    try:
+        authors = DL.get_author_details(row)
+        process_author_details(authors)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                                title=render_warning("Could not process author list"),
+                                message=str(err))
+    alist = show_tagged_authors(authors)
+    if alist:
+        html += f"<br><h4>Janelia authors</h4><div class='scroll'>{''.join(alist)}</div>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
@@ -1054,39 +1421,11 @@ def show_oid_ui(oid):
         who = f"{name['credit-name']['value']}"
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
-    coll = DB['dis'].orcid
-    try:
-        row = coll.find_one({"orcid": oid})
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    if row and 'userIdO365' in row:
-        who = "<a href='" + f"{app.config['WORKDAY']}{row['userIdO365']}" \
-              + f"' target='_blank'>{who}</a>"
-    html = f"<h2>{who}</h2>"
+    orciddata, dois = get_orcid_from_db(oid)
+    html = f"<h3>{who}</h3>{orciddata}"
     # Works
     if 'works' in data['activities-summary'] and data['activities-summary']['works']['group']:
-        html += 'Note that titles below may be self-reported, and may not have DOIs available</br>'
-        html += '<table id="ops" class="tablesorter standard"><thead><tr>' \
-                + '<th>Published</th><th>DOI</th><th>Title</th>' \
-                + '</tr></thead><tbody>'
-        for work in data['activities-summary']['works']['group']:
-            wsumm = work['work-summary'][0]
-            date = get_work_publication_date(wsumm)
-            doi = get_work_doi(work)
-            if not doi:
-                html += f"<tr><td>{date}</td><td>&nbsp;</td>" \
-                        + f"<td>{wsumm['title']['title']['value']}</td></tr>"
-                continue
-            if work['external-ids']['external-id'][0]['external-id-url']:
-                if work['external-ids']['external-id'][0]['external-id-url']:
-                    link = "<a href='" \
-                           + work['external-ids']['external-id'][0]['external-id-url']['value'] \
-                           + f"' target='_blank'>{doi}</a>"
-            else:
-                link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
-            html += f"<tr><td>{date}</td><td>{link}</td>" \
-                    + f"<td>{wsumm['title']['title']['value']}</td></tr>"
-        html += '</tbody></table>'
+        html += add_orcid_works(data, dois)
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"<a href='https://orcid.org/{oid}' " \
                                                    + f"target='_blank'>{oid}</a>", html=html,
@@ -1144,7 +1483,7 @@ def stats_type():
            + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
-        for field in ('type', 'subtype'):
+        for field in ('source', 'type', 'subtype'):
             if field not in row['_id']:
                 row['_id'][field] = ''
         html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
