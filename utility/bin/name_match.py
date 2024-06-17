@@ -176,7 +176,7 @@ janelian_authors = [ a for a in all_authors if is_janelian(a) ]
 for a in janelian_authors:
     print(a.name)
 
-
+#TODO: Search People database by name
     
 
 
