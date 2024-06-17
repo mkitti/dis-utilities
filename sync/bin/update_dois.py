@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import argparse
 import configparser
@@ -535,6 +535,40 @@ def update_config_database(persist):
                 COUNT['update'] += rest['rest']['updated']
 
 
+def add_group_tags(persist):
+    ''' Add tags to DOI records that will be persisted
+        Keyword arguments:
+          persist: dict keyed by DOI with value of the Crossref/DataCite record
+        Returns:
+          None
+    '''
+    coll = coll = DB['dis'].orcid
+    for key, val in tqdm(persist.items(), desc='Add group tags'):
+        try:
+            authors = DL.get_author_details(val, coll)
+        except Exception as err:
+            terminate_program(err)
+        new_tags = []
+        for auth in authors:
+            if 'group' in auth and auth['group'] not in new_tags:
+                new_tags.append(auth['group'])
+        tags = []
+        if 'jrc_tag' in persist:
+            tags.extend(persist['jrc_tag'])
+        else:
+            try:
+                rec = DB['dis'].dois.find_one({"doi": key})
+            except Exception as err:
+                terminate_program(err)
+            if rec and 'jrc_tag' in rec:
+                tags.extend(rec['jrc_tag'])
+        for tag in new_tags:
+            if tag not in tags:
+                tags.append(tag)
+        if tags:
+            persist[key]['jrc_tag'] = tags
+
+
 def update_mongodb(persist):
     ''' Persist DOI records in MongoDB
         Keyword arguments:
@@ -549,6 +583,7 @@ def update_mongodb(persist):
         if key not in EXISTING:
             val['jrc_inserted'] = datetime.today().replace(microsecond=0)
         val['jrc_updated'] = datetime.today().replace(microsecond=0)
+        LOGGER.debug(val)
         if ARG.WRITE:
             coll.update_one({"doi": key}, {"$set": val}, upsert=True)
         if key in EXISTING:
@@ -574,6 +609,7 @@ def update_dois(specified, persist):
             perform_backcheck(specified)
         update_config_database(persist)
     elif ARG.TARGET == 'dis':
+        add_group_tags(persist)
         update_mongodb(persist)
 
 
@@ -593,13 +629,13 @@ def check_for_preprint(doi, rec):
         for rel in rec['relation']['is-preprint-of']:
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
-                    LOGGER.info(f"Added |{rel['id']}|")
+                    LOGGER.info(f"Added relation |{rel['id']}|")
                     subject.append(rel['id'])
     elif rec['type'] == 'journal-article' and 'has-preprint' in rec['relation']:
         for rel in rec['relation']['has-preprint']:
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
-                    LOGGER.info(f"Added |{rel['id']}|")
+                    LOGGER.info(f"Added relation |{rel['id']}|")
                     subject.append(rel['id'])
     if not subject:
         return None
@@ -663,7 +699,6 @@ def process_dois():
             if preprint:
                 persist[doi]['jrc_preprint'] = preprint
                 LOGGER.debug(f"Added preprint {doi} {preprint}")
-        # Are we too early (https://doi.org/api/handles/10.7554/eLife.97706.1)
     update_dois(specified, persist)
 
 
