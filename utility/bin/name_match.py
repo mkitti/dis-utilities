@@ -1,4 +1,5 @@
 """
+
 Goal: identify which article authors correspond to which employee IDs.
 We will only consider authors who:
 1) Have Janelia listed in their affiliations in the DOI metadata, OR
@@ -11,7 +12,9 @@ If the author does not have an ORCID, or they do have an ORCID but it's not in o
 then we must use fuzzy string matching to make a 'best guess' at the closest employee name. 
 We'll do this by creating all reasonable permutations of all employee names, 
 and matching the author name against all possible employee names.
+
 """
+
 import requests
 import os
 import sys
