@@ -22,41 +22,21 @@ import re
 #TODO: Add some of these to requirements.txt?
 
 ################## STUFF YOU SHOULD EDIT ##################
-doi = '10.1098/rsob.230329'
+doi = '10.7554/eLife.80660'
 ##########################################################
-
-
-# Class Author:
-# name_raw
-# name: unidecoded + punctuation removed
-
-# Class Employee:
-# Check ORCID: populate employee ID from our ORCID collection if possible
-# Names: This is a list of all possible names, made by permuting their preferred/legal, and w/ w/o middle initial
-# Employee ID: This can be grabbed from the ORCID database or from this guessing procedure
-# nameFirstPreferred, nameMiddlePreferred, nameLastPreferred, and other fields from the HHMI API.
 
 
 
 class Author:
-    def __init__(self, raw_name, orcid=None):
+    def __init__(self, raw_name, orcid=None, affiliations=None):
         self.raw_name = raw_name
         self.name = self.remove_punctuation(unidecode(raw_name))
         self.orcid = orcid
+        self.affiliations = affiliations if affiliations is not None else []
     
     def remove_punctuation(self, raw_name):
         return(raw_name.translate(str.maketrans('', '', string.punctuation)))
 
-# Example usage
-# author1 = Author("John, Doe!")
-# print(author1.raw_name)  # Output: John, Doe!
-# print(author1.name)      # Output: John Doe
-# print(author1.orcid)     # Output: None
-
-# author2 = Author("Jane, Smith!", orcid="0000-0002-1825-0097")
-# print(author2.raw_name)  # Output: Jane, Smith!
-# print(author2.name)      # Output: Jane Smith
-# print(author2.orcid)     # Output: 0000-0002-1825-0097
 
 class Employee:
     def __init__(self, **kwargs):
@@ -93,7 +73,7 @@ class Employee:
 people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
 orcid_api_url = 'https://dis.int.janelia.org/orcid/'
 dois_api_url = 'https://dis.int.janelia.org/doi/'
-search_term  = max(author_name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
+#search_term  = max(author_name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
     print("Error: Please set the environment variable PEOPLE_API_KEY.")
@@ -139,55 +119,62 @@ def get_doi_record(doi=doi):
     headers = { 'Content-Type': 'application/json' }
     return(get_request(url, headers))
 
-def get_authors_with_orcid_or_janelia(doi_record):
-    selected_author_records = []
-    for author_record in doi_record['data']['author']:
-        if author_record['affiliation']:
-            affiliations = []
-            for name_dic in author_record['affiliation']:
-                 affiliations.append(" ".join(name_dic.values()))
-            affiliation_string = " ".join(affiliations)
-            if bool(re.search(r'\bJanelia\b', affiliation_string)):
-                selected_author_records.append(author_record)
-        elif author_record['ORCID']:
-            selected_author_records.append(author_record)
-        else:
-            pass
-    return(selected_author_records)
-
-
-def create_author_objs(author_records):
-    author_objs = []
-    for author_record in author_records:
-        full_name = ' '.join((author_record['given'], author_record['family']))
-        if author_record['ORCID']:
-            author_objs.append(
-                Author( full_name, orcid=strip_orcid_if_provided_as_url(author_record['ORCID']) )
-            )
-        else:
-            author_objs.append(
-                Author( full_name )
-            )
-    return(author_objs)
-
-
 def search_orcid_collection(orcid):
     url = orcid_api_url + orcid
     headers = { 'Content-Type': 'application/json' }
     return(get_request(url, headers))
 
 
-doi_record = get_doi_record()
-author_records = get_authors_with_orcid_or_janelia(doi_record)
-authors = create_author_objs(author_records)
-for author in authors:
-    if author.orcid:
+# Example author record:
+""" {'ORCID': 'http://orcid.org/0000-0003-0369-9788', 
+ 'affiliation': [
+     {'id': [{'asserted-by': 'publisher', 'id': 'https://ror.org/013sk6x84', 'id-type': 'ROR'}], 
+      'name': 'Janelia Research Campus, Howard Hughes Medical Institute', 
+      'place': ['Ashburn, United States']}
+      ], 
+      'authenticated-orcid': True, 
+      'family': 'Meissner', 
+      'given': 'Geoffrey W', 
+      'sequence': 'first'} """
+
+
+def create_author_objsNEW(doi_record):
+    author_objs = []
+    for author_record in doi_record['data']['author']:
+        if 'given' in author_record and 'family' in author_record:
+            full_name = ' '.join((author_record['given'], author_record['family']))
+            current_author = Author( full_name )
+            if 'affiliation' in author_record and author_record['affiliation']:
+                for affiliation in author_record['affiliation']:
+                    if 'name' in affiliation:
+                        current_author.affiliations.append(affiliation['name'])
+            if 'ORCID' in author_record:
+                current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
+            author_objs.append(current_author)
+    return(author_objs)
+
+def is_janelian(author_obj):
+    result = False
+    if author_obj.orcid:
         try:
             result = search_orcid_collection(author.orcid)
-            print(f"{author.name} is in the DIS ORCID collection.")
+            result = True
         except Exception as e:
-            # Do nothing if the ORCID is not found or an error occurs
             pass
+    if bool(re.search(r'\bJanelia\b', " ".join(author_obj.affiliations))):
+        result = True
+    return(result)
+    
+# ------------------------------------------------------------------------
+
+doi_record = get_doi_record()
+all_authors = create_author_objsNEW(doi_record)
+janelian_authors = [ a for a in all_authors if is_janelian(a) ]
+for a in janelian_authors:
+    print(a.name)
+
+
+    
 
 
 
@@ -208,9 +195,7 @@ for author in authors:
 
 
 
-
-
-
+"""
 def search_people_api(search_term, mode):
     if mode not in {'name', 'id'}:
         raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
@@ -291,3 +276,5 @@ chosen_record = filter_search_results(raw_search_results)
 # handy for debugging: [i for i in enumerate([' '.join((e['nameFirstPreferred'], e['nameLastPreferred'])) for e in raw_search_results])]
 
 
+
+"""
