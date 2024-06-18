@@ -22,6 +22,7 @@ from rapidfuzz import fuzz
 import string
 from unidecode import unidecode
 import re
+import itertools
 #TODO: Add some of these to requirements.txt?
 
 ################## STUFF YOU SHOULD EDIT ##################
@@ -35,62 +36,32 @@ class Author:
         self.raw_name = raw_name
         self.name = self.remove_punctuation(unidecode(raw_name))
         self.orcid = orcid
-        self.affiliations = affiliations if affiliations is not None else []
+        self.affiliations = affiliations if affiliations is not None else [] # Need to avoid the python mutable arguments trap
     
     def remove_punctuation(self, raw_name):
         return(raw_name.translate(str.maketrans('', '', string.punctuation)))
 
 
 class Employee:
-    def __init__(self, **kwargs):
-        self.HHMI_data = kwargs
-        self.names = []
-    
-    def add_HHMI_data(self, additional_dict):
-        self.HHMI_data.update(additional_dict)
-    
-    def extract_names(self): #TODO: put some of the concatenate names functionality into here.
-        # The idea is to create a list of all possible names for a given employee.
-        # In the end, we will compare the author name to a list of employee names, where a particular employee
-        # may be present in the list multiple times under multiple names. 
-        self.names = [
-            self.HHMI_data.get('nameFirstPreferred', ''),
-            self.HHMI_data.get('nameMiddlePreferred', ''),
-            self.HHMI_data.get('nameLastPreferred', '')
-        ]
-
-# Example dictionary
-# employee_data = {
-#     "name": "John Doe",
-#     "position": "Research Scientist",
-#     "department": "Biology"
-# }
-
-# Creating an instance of Employee using the dictionary
-# employee = Employee(**employee_data)
-# print(employee.HHMI_data)
-# Output: {'name': 'John Doe', 'position': 'Research Scientist', 'department': 'Biology'}
+    def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None):
+        self.id = id
+        self.job_title = job_title
+        self.email = email
+        self.first_names = first_names if first_names is not None else [] # Need to avoid the python mutable arguments trap
+        self.middle_names = middle_names if middle_names is not None else []
+        self.last_names = last_names if last_names is not None else []
 
 
 
 people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
 orcid_api_url = 'https://dis.int.janelia.org/orcid/'
 dois_api_url = 'https://dis.int.janelia.org/doi/'
-#search_term  = max(author_name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
     print("Error: Please set the environment variable PEOPLE_API_KEY.")
     sys.exit(1)
 
 
-
-def get_request(url, headers):
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return(response.json())
-    else:
-        print(f"There was an error with the API GET request. Status code: {response.status_code}.\n Error message: {response.reason}")
-        sys.exit(1)
 
 def strip_orcid_if_provided_as_url(orcid):
     prefixes = ["http://orcid.org/", "https://orcid.org/"]
@@ -116,6 +87,13 @@ def replace_slashes_in_doi(doi=doi):
     return( doi.replace("/", "%2F") ) # e.g. 10.1186/s12859-024-05732-7 becomes 10.1186%2Fs12859-024-05732-7
 
 
+def get_request(url, headers):
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return(response.json())
+    else:
+        print(f"There was an error with the API GET request. Status code: {response.status_code}.\n Error message: {response.reason}")
+        sys.exit(1)
 
 def get_doi_record(doi=doi):
     url = dois_api_url + replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))
@@ -127,21 +105,25 @@ def search_orcid_collection(orcid):
     headers = { 'Content-Type': 'application/json' }
     return(get_request(url, headers))
 
+def search_people_api(search_term, mode):
+    if mode not in {'name', 'id'}:
+        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
+    url = ''
+    if mode == 'name':
+        url = people_api_url + 'Search/ByName/' + search_term
+    elif mode == 'id':
+        url = people_api_url + 'Person/GetById/' + search_term
+    headers = { 'APIKey': f'{api_key}', 'Content-Type': 'application/json' }
+    response = get_request(url, headers)
+    if not response:
+        print(f"Searching the HHMI People API for {search_term} yielded no results.")
+        sys.exit(1)
+    else:
+        return(response)
 
-# Example author record:
-""" {'ORCID': 'http://orcid.org/0000-0003-0369-9788', 
- 'affiliation': [
-     {'id': [{'asserted-by': 'publisher', 'id': 'https://ror.org/013sk6x84', 'id-type': 'ROR'}], 
-      'name': 'Janelia Research Campus, Howard Hughes Medical Institute', 
-      'place': ['Ashburn, United States']}
-      ], 
-      'authenticated-orcid': True, 
-      'family': 'Meissner', 
-      'given': 'Geoffrey W', 
-      'sequence': 'first'} """
 
-
-def create_author_objsNEW(doi_record):
+# A function to unpack the gnarly data structure we get from Crossref
+def create_author_objs(doi_record):
     author_objs = []
     for author_record in doi_record['data']['author']:
         if 'given' in author_record and 'family' in author_record:
@@ -167,19 +149,93 @@ def is_janelian(author_obj):
     if bool(re.search(r'\bJanelia\b', " ".join(author_obj.affiliations))):
         result = True
     return(result)
+
+# Now dig into the People API's data structure
+def create_employee(id):
+    idsearch_results = search_people_api(id, 'id')
+    if bool(re.search(r'\bJanelia\b', idsearch_results['locationName'])): # Discard non-Janelian search results
+        job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
+        email = idsearch_results['email'] if 'email' in idsearch_results else None
+        first_names = [ idsearch_results['nameFirstPreferred'], idsearch_results['nameFirst'] ]
+        middle_names = [ idsearch_results['nameMiddlePreferred'], idsearch_results['nameMiddle'] ]
+        last_names = [ idsearch_results['nameLastPreferred'], idsearch_results['nameLast'] ]
+        return(
+            Employee(
+            id,
+            job_title=job_title,
+            email=email,
+            first_names=first_names, 
+            middle_names=middle_names, 
+            last_names=last_names)
+        )
+
+
+def generate_name_permutations(first_names, middle_names, last_names):
+    #TODO: Check hyphenated lastnames, last names with spaces
+    permutations = set()
     
+    # All possible first names + all possible last names
+    for first_name, last_name in itertools.product(first_names, last_names):
+        permutations.add(f"{first_name} {last_name}")
+
+    # All possible first names + all possible middle names + all possible last names
+    for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
+        permutations.add(f"{first_name} {middle_name} {last_name}")
+
+    # All possible first names + all possible middle initials + all possible last names
+    for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
+        middle_initial = middle_name[0]
+        permutations.add(f"{first_name} {middle_initial} {last_name}")
+
+    return sorted(permutations)
+
+
+
 # ------------------------------------------------------------------------
 
-doi_record = get_doi_record()
-all_authors = create_author_objsNEW(doi_record)
-janelian_authors = [ a for a in all_authors if is_janelian(a) ]
-for a in janelian_authors:
-    print(a.name)
 
-#TODO: Search People database by name
+if __name__ == '__main__':
+    doi_record = get_doi_record()
+    all_authors = create_author_objs(doi_record)
+    janelian_authors = [ a for a in all_authors if is_janelian(a) ]
+
+    employee_objs = [] # Includes false positives. For example, if I search 'Virginia',
+    # both Virginia Scarlett and Virginia Ruetten will be in employee_objs.
+    for author in janelian_authors:
+        search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
+        namesearch_results = search_people_api(search_term, 'name')
+        candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
+        for id in candidate_employee_ids:
+            employee_objs.append(create_employee(id))
+
+    # TODO: create a dict where keys are name permutations and values are employee IDs
+    permuted_names = {}
+    for employee in employee_objs:
+        permuted_names_list = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
+        for name in permuted_names_list:
+            permuted_names[name] = employee.id
+
     
+                
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
 
 
 
@@ -199,29 +255,44 @@ for a in janelian_authors:
 
 
 """
-def search_people_api(search_term, mode):
-    if mode not in {'name', 'id'}:
-        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
-    url = ''
-    if mode == 'name':
-        url = people_api_url + 'Search/ByName/' + search_term
-    elif mode == 'id':
-        url = people_api_url + 'Person/GetById/' + search_term
-    headers = { 'APIKey': f'{api_key}', 'Content-Type': 'application/json' }
-    response = get_request(url, headers)
-    if not response.json():
-        print("Your search of the HHMI People API yielded no results.")
-        sys.exit(1)
-    else:
-        return(response.json())
+
+
+SCRAPS; OLD
 
 
 
 
 
-#TODO: Maybe mash up their preferred names and legal names, e.g. to match James Liu <-> Zhe J. Liu?
-#TODO: decode from unicode to ascii to properly handle accented characters use unidecode https://pypi.org/project/Unidecode/
-#TODO: Check hyphenated lastnames
+
+
+# #Checks whether the search yielded multiple records, and if so, returns the highest-scoring record.
+# def filter_namesearch_results(raw_search_results, author_name):
+#     if len(raw_search_results) > 1:
+#         resulting_names = [ concatenate_name_parts(r) for r in raw_search_results ]
+#         scores = []
+#         for result_name in resulting_names:
+#             score = match_two_names(author_name, result_name)
+#             scores.append(score)
+#             print(f"{author_name} vs. {result_name}: {round(score, ndigits = 3)}")
+#         #Get the index of the highest score, and print a warning if
+#         #there are multiple maximum values, e.g., if someone is in the People database twice
+#         max_indices = [i for i, value in enumerate(scores) if value == max(scores)]
+#         if len(max_indices) > 1:
+#             print("Multiple high scoring matches found:")
+#             print([resulting_names[i] for i in max_indices]) #TODO: Add their businessTitle and email in case there are two people who actually have the same name
+#             print("Choosing the first one.")
+#             return(raw_search_results[max_indices[0]])
+#         else:
+#             index_of_highest_match = max_indices[0]
+#             print(f"Choosing {resulting_names[index_of_highest_match]}")
+#             return(raw_search_results[index_of_highest_match])
+#     else:
+#         return(raw_search_results[0])
+
+
+
+
+
 #Strategy: 
 # Decode to ascii, Remove punctuation, and make lower case
 # Order of first/last name doesn't matter
@@ -248,32 +319,21 @@ def concatenate_name_parts(person_record, author_name_np = author_name_np):
         return( firstname_lastname )
 
 
-#Checks whether the search yielded multiple records, and if so, returns the highest-scoring record.
-def filter_search_results(raw_search_results, author_name_np = author_name_np):
-    if len(raw_search_results) > 1:
-        resulting_names = [ concatenate_name_parts(r) for r in raw_search_results ]
-        scores = []
-        for result_name in resulting_names:
-            score = match_two_names(author_name_np, result_name)
-            scores.append(score)
-            print(f"{author_name_np} vs. {result_name}: {round(score, ndigits = 3)}")
-        #Get the index of the highest score, and print a warning if
-        #there are multiple maximum values, e.g., if someone is in the People database twice
-        max_indices = [i for i, value in enumerate(scores) if value == max(scores)]
-        if len(max_indices) > 1:
-            print("Multiple high scoring matches found:")
-            print([resulting_names[i] for i in max_indices]) #TODO: Add their businessTitle and email in case there are two people who actually have the same name
-            print("Choosing the first one.")
-            return(raw_search_results[max_indices[0]])
-        else:
-            index_of_highest_match = max_indices[0]
-            print(f"Choosing {resulting_names[index_of_highest_match]}")
-            return(raw_search_results[index_of_highest_match])
-    else:
-        return(raw_search_results[0])
 
 raw_search_results = search_people_api_by_name(search_term)
 chosen_record = filter_search_results(raw_search_results)
+
+# Example author record, for debugging:
+""" {'ORCID': 'http://orcid.org/0000-0003-0369-9788', 
+ 'affiliation': [
+     {'id': [{'asserted-by': 'publisher', 'id': 'https://ror.org/013sk6x84', 'id-type': 'ROR'}], 
+      'name': 'Janelia Research Campus, Howard Hughes Medical Institute', 
+      'place': ['Ashburn, United States']}
+      ], 
+      'authenticated-orcid': True, 
+      'family': 'Meissner', 
+      'given': 'Geoffrey W', 
+      'sequence': 'first'} """
 
 
 # handy for debugging: [i for i in enumerate([' '.join((e['nameFirstPreferred'], e['nameLastPreferred'])) for e in raw_search_results])]
