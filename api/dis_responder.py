@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "3.0.0"
+__version__ = "3.1.0"
 # Database
 DB = {}
 # Navigation
@@ -370,7 +370,6 @@ def add_relations(row):
     if (not 'relation' in row) or (not row['relation']):
         return html
     coll = DB['dis'].dois
-    print(row['relation'].keys())
     for rel in row['relation']:
         used = []
         for itm in row['relation'][rel]:
@@ -387,142 +386,6 @@ def add_relations(row):
             html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
             used.append(itm['id'])
     return html
-
-
-def get_orcid_record(oid):
-    ''' Get a record from the orcid collection by ORCID ID
-        Keyword arguments:
-          oid: ORCID ID
-        Returns:
-          row from orcid collection
-    '''
-    try:
-        row = DB['dis'].orcid.find_one({"orcid": oid})
-    except Exception as err:
-        raise err
-    return row
-
-
-def orcid_name_match(family, given):
-    ''' Get a record from the orcid collection by name
-        Keyword arguments:
-          family: family name
-          given: given name
-        Returns:
-          row from orcid collection
-    '''
-    payload = {#"alumni": {"$exists": False},
-               "family": family, "given": given}
-    try:
-        row = DB['dis'].orcid.find_one(payload)
-    except Exception as err:
-        raise err
-    return row
-
-
-def apply_tags(auth, orc):
-    ''' Set tags for a single author
-        Keyword arguments:
-          auth: author record
-          orc: row from orcid collection
-        Returns:
-          None
-    '''
-    auth['validated'] = bool('employeeId' in orc)
-    tags = []
-    if 'affiliations' in orc:
-        tags.extend(orc['affiliations'])
-    if 'group' in orc:
-        tags.append(orc['group'])
-    if tags:
-        auth['tags'] = tags
-
-
-def doi_has_orcid(auth):
-    ''' Set author attributes for an author that has an ORCID ID in the DOI record
-        Keyword arguments:
-          auth: author record
-          orc: row from orcid collection
-        Returns:
-          True is there was a supplied ORCID ID
-    '''
-    try:
-        orc = get_orcid_record(auth['orcid'])
-    except Exception as err:
-        raise err
-    if orc:
-        auth['in_database'] = True
-        if 'alumni' in orc:
-            auth['alumni'] = True
-        else:
-            # No need to look for for affiliations or search by name
-            auth['janelian'] = True
-            if 'employeeId' in orc:
-                auth['validated'] = True
-        return True
-    return False
-
-
-def has_janelia_affiliation(auth, orc):
-    ''' Set author attributes for an author that has affiliations in the DOI record
-        Keyword arguments:
-          auth: author record
-          orc: row from orcid collection
-        Returns:
-          True if the author has a Janelia affiliation
-    '''
-    for aff in auth['affiliations']:
-        if "Janelia" in aff:
-            auth['in_database'] = bool(orc)
-            auth['asserted'] = True
-            if orc:
-                auth['alumni'] = bool('alumni' in orc)
-                auth['janelian'] = bool(orc and 'alumni' not in orc)
-                if 'employeeId' in orc:
-                    auth['validated'] = True
-                if 'orcid' in orc:
-                    auth['orcid'] = orc['orcid']
-            return True
-    return False
-
-
-def process_author_details(authors):
-    ''' Process a list of authors, adding fields as needed:
-          in_database: boolean indicating if the author has a record in the orcid collection
-          janelian: boolean indicating if the author is a Janelian
-          tags: list of affiliations (lab, group, project, etc.)
-          validated: boolean indicating if the author has been correlated to a People record
-        Keyword arguments:
-          authors: list of detailed authors from a publication
-        Returns:
-          None
-    '''
-    for auth in authors:
-        auth['in_database'] = False
-        auth['janelian'] = False
-        auth['alumni'] = False
-        auth['asserted'] = False
-        orc = None
-        auth_done = False
-        if 'orcid' in auth and doi_has_orcid(auth):
-            auth_done = True
-        orc = orcid_name_match(auth['family'], auth['given'])
-        if (not auth_done) and (not auth['janelian']) and 'affiliations' in auth:
-            # There are affiliations (maybe not Janelia)
-            auth['asserted'] = has_janelia_affiliation(auth, orc)
-            auth_done = auth['asserted']
-        if (not auth_done) and (not auth['janelian']):
-            if orc:
-                auth['in_database'] = True
-                auth['janelian'] = bool('alumni' not in orc)
-                if 'alumni' in orc:
-                    auth['alumni'] = True
-                if 'employeeId' in orc:
-                    auth['validated'] = True
-                if 'orcid' in orc:
-                    auth['orcid'] = orc['orcid']
-        if orc and (auth['janelian'] or auth['asserted']):
-            apply_tags(auth, orc)
 
 
 def tiny_badge(btype, msg, link=None):
@@ -549,6 +412,7 @@ def show_tagged_authors(authors):
     '''
     alist = []
     for auth in authors:
+        print(auth)
         if (not auth['janelian']) and (not auth['asserted']):
             continue
         who = f"{auth['given']} {auth['family']}"
@@ -567,9 +431,12 @@ def show_tagged_authors(authors):
             badges.append(f"{tiny_badge('danger', 'Not in database')}")
             if auth['asserted']:
                 badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
-        tags = ""
+        tags = []
+        if 'group' in auth:
+            tags.append(auth['group'])
         if 'tags' in auth:
-            tags = auth['tags']
+            tags.extend(auth['tags'])
+        tags.sort()
         row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
         alist.append(row)
     return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>"
@@ -781,8 +648,7 @@ def show_doi_authors(doi):
                                 title=render_warning("DOI not found"),
                                 message=f"Could not find DOI {doi}")
     try:
-        authors = DL.get_author_details(row)
-        process_author_details(authors)
+        authors = DL.get_author_details(row, DB['dis'].orcid)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     tags = []
@@ -1382,8 +1248,7 @@ def show_doi_ui(doi):
             + f"<br>DOI: {link}</span> {tiny_badge('primary', 'Raw data', rlink)}<br><br>"
     html += add_relations(data)
     try:
-        authors = DL.get_author_details(row)
-        process_author_details(authors)
+        authors = DL.get_author_details(row, DB['dis'].orcid)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning("Could not process author list"),
