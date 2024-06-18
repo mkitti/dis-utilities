@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 
 import argparse
 import configparser
@@ -37,8 +37,7 @@ WRITE = {'doi': "INSERT INTO doi_data (doi,title,first_author,"
          'delete_doi': "DELETE FROM doi_data WHERE doi=%s",
         }
 # Configuration
-CKEY = {"flyboy": "dois",
-        "dis": "testdois"}
+CKEY = {"flyboy": "dois"}
 CROSSREF = {}
 DATACITE = {}
 CROSSREF_CALL = {}
@@ -51,6 +50,7 @@ MAX_CROSSREF_TRIES = 3
 SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
+DEFAULT_TAGS = ['Scientific Computing Software']
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
          'notfound': 0, 'noupdate': 0, 'noauthor': 0,
          'insert': 0, 'update': 0, 'delete': 0, 'foundfb': 0, 'flyboy': 0}
@@ -552,6 +552,10 @@ def add_group_tags(persist):
         for auth in authors:
             if 'group' in auth and auth['group'] not in new_tags:
                 new_tags.append(auth['group'])
+            if 'tags' in auth:
+                for dtag in DEFAULT_TAGS:
+                    if dtag in auth['tags'] and dtag not in new_tags:
+                        new_tags.append(dtag)
         tags = []
         if 'jrc_tag' in persist:
             tags.extend(persist['jrc_tag'])
