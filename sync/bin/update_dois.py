@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.2.0'
+__version__ = '1.3.0'
 
 import argparse
 import configparser
@@ -50,6 +50,7 @@ MAX_CROSSREF_TRIES = 3
 SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
+PROJECT = {}
 DEFAULT_TAGS = ['Scientific Computing Software']
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
          'notfound': 0, 'noupdate': 0, 'noauthor': 0,
@@ -109,6 +110,12 @@ def initialize_program():
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
+    try:
+        rows = DB['dis'].project_map.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        PROJECT[row['name']] = row['project']
 
 
 def get_dis_dois_from_mongo():
@@ -556,6 +563,11 @@ def add_group_tags(persist):
                 for dtag in DEFAULT_TAGS:
                     if dtag in auth['tags'] and dtag not in new_tags:
                         new_tags.append(dtag)
+            if 'name' in auth:
+                if auth['name'] not in PROJECT:
+                    LOGGER.warning(f"Project {auth['name']} is not defined")
+                elif PROJECT[auth['name']] and auth['name'] not in new_tags:
+                    new_tags.append(PROJECT[auth['name']])
         tags = []
         if 'jrc_tag' in persist:
             tags.extend(persist['jrc_tag'])
