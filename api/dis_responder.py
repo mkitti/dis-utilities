@@ -20,7 +20,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "3.1.0"
+__version__ = "3.2.0"
 # Database
 DB = {}
 # Navigation
@@ -492,11 +492,6 @@ def get_orcid_from_db(oid):
         rows = DB['dis'].dois.find(payload)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
-    if not rows:
-        return html
-    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
-            + '<th>Published</th><th>DOI</th><th>Title</th>' \
-            + '</tr></thead><tbody>'
     works = []
     dois = []
     for row in rows:
@@ -511,6 +506,12 @@ def get_orcid_from_db(oid):
                    "title": title
                   }
         works.append(payload)
+    if not works:
+        return html, []
+    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
+            + '<th>Published</th><th>DOI</th><th>Title</th>' \
+            + '</tr></thead><tbody>'
+
     for work in sorted(works, key=lambda row: row['date'], reverse=True):
         html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
                 + f"<td>{work['title']}</td></tr>"

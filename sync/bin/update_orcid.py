@@ -2,9 +2,10 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.2.0'
+__version__ = '1.3.0'
 
 import argparse
+import collections
 from datetime import datetime
 import getpass
 from operator import attrgetter
@@ -23,7 +24,8 @@ DB = {}
 SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # Counters
-COUNT = {'records': 0, 'orcid': 0, 'insert': 0, 'update': 0}
+#COUNT = {'records': 0, 'orcid': 0, 'insert': 0, 'update': 0}
+COUNT = collections.defaultdict(lambda: 0, {})
 # General
 PRESENT = {}
 NEW_ORCID = {}
@@ -295,11 +297,11 @@ def generate_email():
             msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
     msg += f"The following ORCID IDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for oid, val in NEW_ORCID.items():
-        msg += f"\n{oid}: {val}\n"
+        msg += f"\n{oid}: {val}"
     try:
         LOGGER.info(f"Sending email to {RECEIVERS}")
         JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
-                       "New DOIs")
+                       "New ORCID IDs")
     except Exception as err:
         LOGGER.error(err)
 
