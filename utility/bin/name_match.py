@@ -23,6 +23,7 @@ import string
 from unidecode import unidecode
 import re
 import itertools
+from collections import OrderedDict
 #TODO: Add some of these to requirements.txt?
 
 ################## STUFF YOU SHOULD EDIT ##################
@@ -32,11 +33,12 @@ doi = '10.7554/eLife.80660'
 
 
 class Author:
-    def __init__(self, raw_name, orcid=None, affiliations=None):
+    def __init__(self, raw_name, orcid=None, affiliations=None, employee_id=None):
         self.raw_name = raw_name
         self.name = self.remove_punctuation(unidecode(raw_name))
         self.orcid = orcid
         self.affiliations = affiliations if affiliations is not None else [] # Need to avoid the python mutable arguments trap
+        self.employee_id = employee_id
     
     def remove_punctuation(self, raw_name):
         return(raw_name.translate(str.maketrans('', '', string.punctuation)))
@@ -51,6 +53,20 @@ class Employee:
         self.middle_names = middle_names if middle_names is not None else []
         self.last_names = last_names if last_names is not None else []
 
+    def generate_name_permutations(self):
+        #TODO: Check hyphenated lastnames, last names with spaces
+        permutations = set()
+        # All possible first names + all possible last names
+        for first_name, last_name in itertools.product(self.first_names, self.last_names):
+            permutations.add(f"{first_name} {last_name}")
+        # All possible first names + all possible middle names + all possible last names
+        for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
+            permutations.add(f"{first_name} {middle_name} {last_name}")
+        # All possible first names + all possible middle initials + all possible last names
+        for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
+            middle_initial = middle_name[0]
+            permutations.add(f"{first_name} {middle_initial} {last_name}")
+        return sorted(permutations)
 
 
 people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
@@ -123,8 +139,8 @@ def search_people_api(search_term, mode):
 
 
 # A function to unpack the gnarly data structure we get from Crossref
-def create_author_objs(doi_record):
-    author_objs = []
+def create_author_objects(doi_record):
+    author_objects = []
     for author_record in doi_record['data']['author']:
         if 'given' in author_record and 'family' in author_record:
             full_name = ' '.join((author_record['given'], author_record['family']))
@@ -135,8 +151,8 @@ def create_author_objs(doi_record):
                         current_author.affiliations.append(affiliation['name'])
             if 'ORCID' in author_record:
                 current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
-            author_objs.append(current_author)
-    return(author_objs)
+            author_objects.append(current_author)
+    return(author_objects)
 
 def is_janelian(author_obj):
     result = False
@@ -169,25 +185,48 @@ def create_employee(id):
             last_names=last_names)
         )
 
-
-def generate_name_permutations(first_names, middle_names, last_names):
-    #TODO: Check hyphenated lastnames, last names with spaces
-    permutations = set()
+def get_employee_id_for_author(author):
+    if author.orcid:
+        try:
+            orcid_record = search_orcid_collection(author.orcid) # I am searching the ORCID collection twice:
+            # once to check whether they are Janelian, and later to get their employee ID. This could be 
+            # optimized for efficiency.
+            return(orcid_record['employeeId'])
+        except Exception as e:
+            print(f'WARNING: {author.name} has an ORCID and a Janelia affiliation, but is not in our ORCID collection.')
     
-    # All possible first names + all possible last names
-    for first_name, last_name in itertools.product(first_names, last_names):
-        permutations.add(f"{first_name} {last_name}")
+    employees_from_api_search = [] # Includes false positives. For example, if I search 'Virginia',
+    # both Virginia Scarlett and Virginia Ruetten will be in employees_from_api_search.
+    search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
+    namesearch_results = search_people_api(search_term, 'name')
+    candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
+    for id in candidate_employee_ids:
+        employees_from_api_search.append(create_employee(id))
 
-    # All possible first names + all possible middle names + all possible last names
-    for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
-        permutations.add(f"{first_name} {middle_name} {last_name}")
+    permuted_names = OrderedDict()
+    for employee in employees_from_api_search:
+        employee_permuted_names = employee.generate_name_permutations()
+        for name in employee_permuted_names:
+            permuted_names[name] = employee.id
 
-    # All possible first names + all possible middle initials + all possible last names
-    for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
-        middle_initial = middle_name[0]
-        permutations.add(f"{first_name} {middle_initial} {last_name}")
-
-    return sorted(permutations)
+    fuzzy_match_scores = []
+    permuted_names_list = permuted_names.keys()
+    for permuted_name in permuted_names_list:
+        fuzzy_match_scores[name] = fuzz.token_sort_ratio(author.name.lower(), permuted_name.lower())
+    #Get the index of the highest score, and print a warning if
+    #there are multiple maximum values, e.g., if someone is in the People database twice
+    max_indices = [i for i, value in enumerate(fuzzy_match_scores) if value == max(fuzzy_match_scores)]
+    if len(max_indices) > 1:
+        print("Multiple high scoring matches found:")
+        print([permuted_names_list[i] for i in max_indices]) #TODO: Add their businessTitle and email in case there are two people who actually have the same name
+        print("Choosing the first one.")
+        return(permuted_names_list[max_indices[0]])
+    else:
+        index_of_highest_match = max_indices[0]
+        print(f"Choosing {permuted_names_list[index_of_highest_match]}")
+        return(
+            permuted_names[permuted_names_list[index_of_highest_match]]
+            )
 
 
 
@@ -196,24 +235,15 @@ def generate_name_permutations(first_names, middle_names, last_names):
 
 if __name__ == '__main__':
     doi_record = get_doi_record()
-    all_authors = create_author_objs(doi_record)
+    all_authors = create_author_objects(doi_record)
     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
 
-    employee_objs = [] # Includes false positives. For example, if I search 'Virginia',
-    # both Virginia Scarlett and Virginia Ruetten will be in employee_objs.
     for author in janelian_authors:
-        search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
-        namesearch_results = search_people_api(search_term, 'name')
-        candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
-        for id in candidate_employee_ids:
-            employee_objs.append(create_employee(id))
+        author.employee_id = get_employee_id_for_author(author)
+           
 
-    # TODO: create a dict where keys are name permutations and values are employee IDs
-    permuted_names = {}
-    for employee in employee_objs:
-        permuted_names_list = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
-        for name in permuted_names_list:
-            permuted_names[name] = employee.id
+
+    
 
     
                 
@@ -262,6 +292,13 @@ SCRAPS; OLD
 
 
 
+# Order of first/last name doesn't matter
+def match_two_names(name1, name2):
+    name1_dec, name2_dec = unidecode(name1), unidecode(name2)
+    name1_no_punc, name2_no_punc = name1_dec.translate(str.maketrans('', '', string.punctuation)), name2_dec.translate(str.maketrans('', '', string.punctuation))
+    return(
+        fuzz.token_sort_ratio(name1_no_punc.lower(), name2_no_punc.lower())
+        )
 
 
 
@@ -295,13 +332,7 @@ SCRAPS; OLD
 
 #Strategy: 
 # Decode to ascii, Remove punctuation, and make lower case
-# Order of first/last name doesn't matter
-def match_two_names(name1, name2):
-    name1_dec, name2_dec = unidecode(name1), unidecode(name2)
-    name1_no_punc, name2_no_punc = name1_dec.translate(str.maketrans('', '', string.punctuation)), name2_dec.translate(str.maketrans('', '', string.punctuation))
-    return(
-        fuzz.token_sort_ratio(name1_no_punc.lower(), name2_no_punc.lower())
-        )
+
 
 # If the author name is three words and the middle word is a single letter, AND they have a middle name in HHMI People, 
 # then include the middle initial from HHMI People in their name.
