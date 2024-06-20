@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.3.0'
+__version__ = '1.5.0'
 
 import argparse
 import configparser
@@ -110,6 +110,8 @@ def initialize_program():
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
+    if ARG.TARGET == 'flyboy':
+        return
     try:
         rows = DB['dis'].project_map.find({})
     except Exception as err:
@@ -542,6 +544,29 @@ def update_config_database(persist):
                 COUNT['update'] += rest['rest']['updated']
 
 
+def get_tags(authors):
+    ''' Find tags for a DOI using the authors
+        Keyword arguments:
+          authors: list of detailed authors
+        Returns:
+          List of tags
+    '''
+    new_tags = []
+    for auth in authors:
+        if 'group' in auth and auth['group'] not in new_tags:
+            new_tags.append(auth['group'])
+        if 'tags' in auth:
+            for dtag in DEFAULT_TAGS:
+                if dtag in auth['tags'] and dtag not in new_tags:
+                    new_tags.append(dtag)
+        if 'name' in auth:
+            if auth['name'] not in PROJECT:
+                LOGGER.warning(f"Project {auth['name']} is not defined")
+            elif PROJECT[auth['name']] and auth['name'] not in new_tags:
+                new_tags.append(PROJECT[auth['name']])
+    return new_tags
+
+
 def add_group_tags(persist):
     ''' Add tags to DOI records that will be persisted
         Keyword arguments:
@@ -555,19 +580,7 @@ def add_group_tags(persist):
             authors = DL.get_author_details(val, coll)
         except Exception as err:
             terminate_program(err)
-        new_tags = []
-        for auth in authors:
-            if 'group' in auth and auth['group'] not in new_tags:
-                new_tags.append(auth['group'])
-            if 'tags' in auth:
-                for dtag in DEFAULT_TAGS:
-                    if dtag in auth['tags'] and dtag not in new_tags:
-                        new_tags.append(dtag)
-            if 'name' in auth:
-                if auth['name'] not in PROJECT:
-                    LOGGER.warning(f"Project {auth['name']} is not defined")
-                elif PROJECT[auth['name']] and auth['name'] not in new_tags:
-                    new_tags.append(PROJECT[auth['name']])
+        new_tags = get_tags(authors)
         tags = []
         if 'jrc_tag' in persist:
             tags.extend(persist['jrc_tag'])
@@ -661,6 +674,29 @@ def check_for_preprint(doi, rec):
     return None
 
 
+def persist_if_updated(doi, msg, persist):
+    """ Decide if we need to persist a DOI
+        Keyword arguments:
+          doi: DOI
+          msg: message from DOI record
+          persist: dict of DOIs to persist
+        Returns:
+          None
+    """
+    if DL.is_datacite(doi):
+        # DataCite
+        if datacite_needs_update(doi, msg['data']):
+            persist[doi] = msg['data']['attributes']
+            persist[doi]['jrc_obtained_from'] = 'DataCite'
+        COUNT['foundd'] += 1
+    else:
+        # Crossref
+        if crossref_needs_update(doi, msg['message']):
+            persist[doi] = msg['message']
+            persist[doi]['jrc_obtained_from'] = 'Crossref'
+        COUNT['foundc'] += 1
+
+
 def process_dois():
     """ Process a list of DOIs
         Keyword arguments:
@@ -698,18 +734,7 @@ def process_dois():
         msg = get_doi_record(doi)
         if not msg:
             continue
-        if DL.is_datacite(doi):
-            # DataCite
-            if datacite_needs_update(doi, msg['data']):
-                persist[doi] = msg['data']['attributes']
-                persist[doi]['jrc_obtained_from'] = 'DataCite'
-            COUNT['foundd'] += 1
-        else:
-            # Crossref
-            if crossref_needs_update(doi, msg['message']):
-                persist[doi] = msg['message']
-                persist[doi]['jrc_obtained_from'] = 'Crossref'
-            COUNT['foundc'] += 1
+        persist_if_updated(doi, msg, persist)
         if doi in persist:
             preprint = check_for_preprint(doi, persist[doi])
             if preprint:
