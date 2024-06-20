@@ -69,4 +69,4 @@ if __name__ == '__main__':
     
         for citation in sorted(results):
             if citation:   # a REST error will produce a None object; we don't want to print that.
-                print(citation)
+                print(f"{citation}\n")
