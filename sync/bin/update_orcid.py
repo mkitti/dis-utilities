@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.3.0'
+__version__ = '1.4.0'
 
 import argparse
 import collections
@@ -188,6 +188,112 @@ def people_by_name(first, surname):
     return filtered
 
 
+def process_middle_initials(oids, oid):
+    ''' Add name combinations for first names in the forms "F. M." or "F."
+        with or without the periods.
+        Keyword arguments:
+          oid: ORCID ID
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    for first in oids[oid]['given']:
+        if re.search(r"[A-Za-z]\. [A-Za-z]\.$", first):
+            continue
+        if re.search(r"[A-Za-z]\.[A-Za-z]\.$", first):
+            new = first.replace('.', ' ')
+            if new not in oids[oid]['given']:
+                oids[oid]['given'].append(new)
+        elif re.search(r" [A-Za-z]\.$", first):
+            new = first.rstrip('.')
+            if new not in oids[oid]['given']:
+                oids[oid]['given'].append(new)
+
+
+def find_name_combos(idresp, oids, oid):
+    ''' Add name combinations
+        Keyword arguments:
+          idresp: record from HHMI's People service
+          oid: ORCID ID
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    if idresp:
+        for source in ('nameFirst', 'nameFirstPreferred'):
+            if source in idresp and idresp[source] and idresp[source] not in oids[oid]['given']:
+                oids[oid]['given'].append(idresp[source])
+        for source in ('nameLast', 'nameLastPreferred'):
+            if source in idresp and idresp[source] and idresp[source] not in oids[oid]['family']:
+                oids[oid]['family'].append(idresp[source])
+        for source in ('nameMiddle', 'nameMiddlePreferred'):
+            if source not in idresp or not idresp[source]:
+                continue
+            for first in oids[oid]['given']:
+                if ' ' in first:
+                    continue
+                new = f"{first} {idresp[source][0]}"
+                if new not in oids[oid]['given']:
+                    oids[oid]['given'].append(new)
+                new += '.'
+                if new not in oids[oid]['given']:
+                    oids[oid]['given'].append(new)
+    process_middle_initials(oids, oid)
+
+
+def find_affiliations(first, surname, idresp, oids, oid):
+    ''' Add affiliations
+        Keyword arguments:
+          first: given name
+          surname: family name
+          idresp: record from HHMI's People service
+          oid: ORCID ID
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    if idresp:
+        if 'affiliations' in idresp and idresp['affiliations']:
+            oids[oid]['affiliations'] = []
+            for aff in idresp['affiliations']:
+                if aff['supOrgName'] not in oids[oid]['affiliations']:
+                    oids[oid]['affiliations'].append(aff['supOrgName'])
+    if 'affiliations' in oids[oid]:
+        LOGGER.info(f"Added {first} {surname} from People " \
+                    + f"({', '.join(oids[oid]['affiliations'])})")
+    else:
+        LOGGER.info(f"Added {first} {surname} from People")
+
+
+def add_people_information(first, surname, oids, oid):
+    ''' Correlate a name from ORCID with HHMI's People service
+        Keyword arguments:
+          first: given name
+          surname: family name
+          oid: ORCID ID
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    found = False
+    people = people_by_name(first, surname)
+    if people:
+        if len(people) == 1:
+            found = True
+            oids[oid]['employeeId'] = people[0]['employeeId']
+            oids[oid]['userIdO365'] = people[0]['userIdO365']
+            if 'group leader' in people[0]['businessTitle'].lower():
+                oids[oid]['group'] = f"{first} {surname} Lab"
+            elif people[0]['businessTitle'] == 'JRC Alumni':
+                oids[oid]['alumni'] = True
+            idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
+            find_name_combos(idresp, oids, oid)
+            find_affiliations(first, surname, idresp, oids, oid)
+        else:
+            LOGGER.error(f"Found more than one record in People for {first} {surname}")
+    return found
+
+
 def correlate_person(oid, oids):
     ''' Correlate a name from ORCID with HHMI's People service
         Keyword arguments:
@@ -197,32 +303,11 @@ def correlate_person(oid, oids):
           None
     '''
     val = oids[oid]
-    found = False
     for surname in val['family']:
         for first in val['given']:
-            people = people_by_name(first, surname)
-            if people:
-                if len(people) == 1:
-                    found = True
-                    oids[oid]['employeeId'] = people[0]['employeeId']
-                    oids[oid]['userIdO365'] = people[0]['userIdO365']
-                    if 'group leader' in people[0]['businessTitle'].lower():
-                        oids[oid]['group'] = f"{first} {surname} Lab"
-                    elif people[0]['businessTitle'] == 'JRC Alumni':
-                        oids[oid]['alumni'] = True
-                    idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
-                    if idresp and 'affiliations' in idresp and idresp['affiliations']:
-                        oids[oid]['affiliations'] = []
-                        for aff in idresp['affiliations']:
-                            if aff['supOrgName'] not in oids[oid]['affiliations']:
-                                oids[oid]['affiliations'].append(aff['supOrgName'])
-                    if 'affiliations' in oids[oid]:
-                        LOGGER.info(f"Added {first} {surname} from People " \
-                                    + f"({', '.join(oids[oid]['affiliations'])})")
-                    else:
-                        LOGGER.info(f"Added {first} {surname} from People")
-                    break
-                LOGGER.error(f"Found more than one record in People for {first} {surname}")
+            found = add_people_information(first, surname, oids, oid)
+            if found:
+                break
         if found:
             break
     #if not found:
@@ -320,6 +405,7 @@ def update_orcid():
         if family and given:
             add_name(ARG.ORCID, oids, family, given)
             COUNT['orcid'] += 1
+            add_janelia_info(oids)
     else:
         # Get ORCID IDs from the doi collection
         dcoll = DB['dis'].dois
