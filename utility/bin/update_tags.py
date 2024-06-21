@@ -139,8 +139,8 @@ def update_single_doi(rec):
     authors = DL.get_author_details(rec, DB['dis'].orcid)
     current = []
     tags, janelians, tagauth = get_tags(authors)
-    LOGGER.warning(f"No tags for DOI {rec['doi']}")
     if not tags:
+        LOGGER.warning(f"No tags for DOI {rec['doi']}")
         return
     tags.sort()
     tagd = {}
