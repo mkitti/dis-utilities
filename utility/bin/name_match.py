@@ -52,21 +52,39 @@ class Employee:
         self.first_names = first_names if first_names is not None else [] # Need to avoid the python mutable arguments trap
         self.middle_names = middle_names if middle_names is not None else []
         self.last_names = last_names if last_names is not None else []
-
     def generate_name_permutations(self):
         #TODO: Check hyphenated lastnames, last names with spaces
         permutations = set()
         # All possible first names + all possible last names
         for first_name, last_name in itertools.product(self.first_names, self.last_names):
-            permutations.add(f"{first_name} {last_name}")
+            result = f"{first_name} {last_name}"
+            permutations.add(result)
         # All possible first names + all possible middle names + all possible last names
-        for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-            permutations.add(f"{first_name} {middle_name} {last_name}")
-        # All possible first names + all possible middle initials + all possible last names
-        for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-            middle_initial = middle_name[0]
-            permutations.add(f"{first_name} {middle_initial} {last_name}")
+        if self.middle_names:
+            if any(item for item in self.middle_names if item): # check for ['', '']
+                for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
+                    result = f"{first_name} {middle_name} {last_name}"
+                    permutations.add(result)
+            # All possible first names + all possible middle initials + all possible last names
+                for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
+                    middle_initial = middle_name[0]
+                    result = f"{first_name} {middle_initial} {last_name}"
+                    permutations.add(result)
         return sorted(permutations)
+
+class Guess(Employee):
+    def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
+        super().__init__(id, job_title, email, first_names, middle_names, last_names)
+        self.name = name
+        self.score = score
+    @classmethod
+    def from_employee(cls, employee, name=None, score=None):
+        return cls(employee.id, employee.job_title, employee.email, employee.first_names, employee.middle_names, employee.last_names, name, score)
+
+
+class MissingPerson:
+    """ This class indicates that searching the HHMI People API yielded no results. """
+    pass
 
 
 people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
@@ -132,8 +150,9 @@ def search_people_api(search_term, mode):
     headers = { 'APIKey': f'{api_key}', 'Content-Type': 'application/json' }
     response = get_request(url, headers)
     if not response:
-        print(f"Searching the HHMI People API for {search_term} yielded no results.")
-        sys.exit(1)
+        #print(f"Searching the HHMI People API for {search_term} yielded no results.")
+        #sys.exit(1)
+        return(MissingPerson())
     else:
         return(response)
 
@@ -169,7 +188,7 @@ def is_janelian(author_obj):
 # Now dig into the People API's data structure
 def create_employee(id):
     idsearch_results = search_people_api(id, 'id')
-    if bool(re.search(r'\bJanelia\b', idsearch_results['locationName'])): # Discard non-Janelian search results
+    if not isinstance(idsearch_results, MissingPerson):
         job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
         email = idsearch_results['email'] if 'email' in idsearch_results else None
         first_names = [ idsearch_results['nameFirstPreferred'], idsearch_results['nameFirst'] ]
@@ -184,51 +203,51 @@ def create_employee(id):
             middle_names=middle_names, 
             last_names=last_names)
         )
+    else:
+        return(MissingPerson())
 
-def get_employee_id_for_author(author):
-    if author.orcid:
-        try:
-            orcid_record = search_orcid_collection(author.orcid) # I am searching the ORCID collection twice:
-            # once to check whether they are Janelian, and later to get their employee ID. This could be 
-            # optimized for efficiency.
-            return(orcid_record['employeeId'])
-        except Exception as e:
-            print(f'WARNING: {author.name} has an ORCID and a Janelia affiliation, but is not in our ORCID collection.')
-    
+
+def guess_employee(author):
     employees_from_api_search = [] # Includes false positives. For example, if I search 'Virginia',
     # both Virginia Scarlett and Virginia Ruetten will be in employees_from_api_search.
     search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
     namesearch_results = search_people_api(search_term, 'name')
-    candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
-    for id in candidate_employee_ids:
-        employees_from_api_search.append(create_employee(id))
-
-    permuted_names = OrderedDict()
-    for employee in employees_from_api_search:
-        employee_permuted_names = employee.generate_name_permutations()
-        for name in employee_permuted_names:
-            permuted_names[name] = employee.id
-
-    fuzzy_match_scores = []
-    permuted_names_list = permuted_names.keys()
-    for permuted_name in permuted_names_list:
-        fuzzy_match_scores[name] = fuzz.token_sort_ratio(author.name.lower(), permuted_name.lower())
-    #Get the index of the highest score, and print a warning if
-    #there are multiple maximum values, e.g., if someone is in the People database twice
-    max_indices = [i for i, value in enumerate(fuzzy_match_scores) if value == max(fuzzy_match_scores)]
-    if len(max_indices) > 1:
-        print("Multiple high scoring matches found:")
-        print([permuted_names_list[i] for i in max_indices]) #TODO: Add their businessTitle and email in case there are two people who actually have the same name
-        print("Choosing the first one.")
-        return(permuted_names_list[max_indices[0]])
-    else:
-        index_of_highest_match = max_indices[0]
-        print(f"Choosing {permuted_names_list[index_of_highest_match]}")
+    if not isinstance(namesearch_results, MissingPerson):
+        candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
+        for id in candidate_employee_ids:
+            idsearch_results = create_employee(id)
+            if not isinstance(idsearch_results, MissingPerson):
+                employees_from_api_search.append(create_employee(id))
+        permuted_names = OrderedDict()
+        for employee in employees_from_api_search:
+            employee_permuted_names = employee.generate_name_permutations()
+            for name in employee_permuted_names:
+                permuted_names[name] = employee.id
+        fuzzy_match_scores = []
+        permuted_names_list = permuted_names.keys()
+        for permuted_name in permuted_names_list:
+            fuzzy_match_scores[name] = fuzz.token_sort_ratio(author.name.lower(), permuted_name.lower())
+        #Get the index of the highest score, and print a warning if
+        #there are multiple maximum values, e.g., if someone is in the People database twice
+        # TODO: Maybe change this to use Guess objects instead of relying so much on list indices?
+        winner_index_list = [ i for i, value in enumerate(fuzzy_match_scores) if value == max(fuzzy_match_scores) ]
+        winner_index = winner_index_list[0]
+        if len(winner_index_list) > 1:
+            print("Multiple high scoring matches found:")
+            print([permuted_names_list[i] for i in winner_index_list]) 
+            print("Choosing the first one.")
         return(
-            permuted_names[permuted_names_list[index_of_highest_match]]
+            Guess.from_employee(
+                employees_from_api_search[winner_index], 
+                permuted_names_list[winner_index],
+                fuzzy_match_scores[winner_index])
             )
+    else:
+        return(MissingPerson())
 
 
+
+# guess_employee(janelian_authors[2])
 
 # ------------------------------------------------------------------------
 
@@ -239,7 +258,26 @@ if __name__ == '__main__':
     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
 
     for author in janelian_authors:
-        author.employee_id = get_employee_id_for_author(author)
+        if author.orcid:
+            orcid_record = search_orcid_collection(author.orcid) # I am searching the ORCID collection twice:
+            # once to check whether they are Janelian, and later to get their employee ID. This could be 
+            # optimized for efficiency.
+            if 'employeeId' in orcid_record['data'][0]:
+                print(f"{author.name} is in our ORCID collection, and has an employee ID: ORCID:{author.orcid}, employee ID: {orcid_record['data'][0]['employeeId']}") 
+            else:
+                print(f'{author.name} is in our ORCID collection, but does not have an employee ID.')
+                best_guess = guess_employee(author)
+                if type(best_guess) is MissingPerson:
+                    print(f"{author.name} could not be found in the HHMI People API.")
+                else:
+                    print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
+        else:
+            print(f'{author.name} does not have an ORCID.')
+            best_guess = guess_employee(author)
+            if type(best_guess) is MissingPerson:
+                print(f"{author.name} could not be found in the HHMI People API.")
+            else:
+                print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
            
 
 
@@ -355,7 +393,7 @@ raw_search_results = search_people_api_by_name(search_term)
 chosen_record = filter_search_results(raw_search_results)
 
 # Example author record, for debugging:
-""" {'ORCID': 'http://orcid.org/0000-0003-0369-9788', 
+ {'ORCID': 'http://orcid.org/0000-0003-0369-9788', 
  'affiliation': [
      {'id': [{'asserted-by': 'publisher', 'id': 'https://ror.org/013sk6x84', 'id-type': 'ROR'}], 
       'name': 'Janelia Research Campus, Howard Hughes Medical Institute', 
@@ -364,7 +402,7 @@ chosen_record = filter_search_results(raw_search_results)
       'authenticated-orcid': True, 
       'family': 'Meissner', 
       'given': 'Geoffrey W', 
-      'sequence': 'first'} """
+      'sequence': 'first'}
 
 
 # handy for debugging: [i for i in enumerate([' '.join((e['nameFirstPreferred'], e['nameLastPreferred'])) for e in raw_search_results])]
