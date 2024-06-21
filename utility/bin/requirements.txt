@@ -2,3 +2,4 @@ inquirer
 requests
 tqdm
 git+https://github.com/JaneliaSciComp/jrc_common.git
+git+https://github.com/JaneliaSciComp/doi_common.git
