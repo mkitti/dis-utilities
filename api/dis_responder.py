@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "3.2.0"
+__version__ = "4.0.0"
 # Database
 DB = {}
 # Navigation
