@@ -61,7 +61,7 @@ class CustomJSONEncoder(JSONEncoder):
 
 
 class InvalidUsage(Exception):
-    ''' Return an error response
+    ''' Class to populate error return for JSON.
     '''
     status_code = 400
 
@@ -78,8 +78,25 @@ class InvalidUsage(Exception):
         retval = dict(self.payload or ())
         retval['rest'] = {'status_code': self.status_code,
                           'error': True,
-                          'error_text': self.message}
+                          'error_text': f"An exception of type {type(self).__name__} occurred. " \
+                                        + f"Arguments:\n{self.args}"}
         return retval
+
+
+class CustomException(Exception):
+    ''' Class to populate error return for HTML.
+    '''
+    def __init__(self,message, preface=""):
+        super().__init__(message)
+        self.original = type(message).__name__
+        self.args = message.args
+        cfunc = inspect.stack()[1][3]
+        self.preface = f"In {cfunc}, {preface}" if preface else f"Error in {cfunc}."
+
+
+# ******************************************************************************
+# * Flask                                                                      *
+# ******************************************************************************
 
 app = Flask(__name__, template_folder="templates")
 app.json_encoder = CustomJSONEncoder
@@ -89,10 +106,6 @@ app.json_encoder = CustomJSONEncoder
 app.config["STARTDT"] = datetime.now()
 app.config["LAST_TRANSACTION"] = time()
 
-
-# ******************************************************************************
-# * Flask                                                                      *
-# ******************************************************************************
 
 @app.before_request
 def before_request():
@@ -137,6 +150,21 @@ def handle_invalid_usage(error):
     return response
 
 
+def error_message(err):
+    ''' Create an error message from an exception
+        Keyword arguments:
+          err: exception
+        Returns:
+          Error message
+    '''
+    if isinstance(err, CustomException):
+        msg = f"{err.preface}\n" if err.preface else ""
+        msg += f"An exception of type {err.original} occurred. Arguments:\n{err.args}"
+    else:
+        msg = f"An exception of type {type(err).__name__} occurred. Arguments:\n{err.args}"
+    return msg
+
+
 def inspect_error(err, errtype):
     ''' Render an error with inspection
         Keyword arguments:
@@ -144,7 +172,7 @@ def inspect_error(err, errtype):
         Returns:
           Error template
     '''
-    mess = f"{inspect.stack()[0][3]} An exception of type {type(err).__name__} occurred. " \
+    mess = f"In {inspect.stack()[1][3]}, An exception of type {type(err).__name__} occurred. " \
            + f"Arguments:\n{err.args}"
     return render_template('error.html', urlroot=request.url_root,
                            title=render_warning(errtype), message=mess)
@@ -369,20 +397,12 @@ def add_relations(row):
     html = ""
     if (not 'relation' in row) or (not row['relation']):
         return html
-    coll = DB['dis'].dois
     for rel in row['relation']:
         used = []
         for itm in row['relation'][rel]:
             if itm['id'] in used:
                 continue
-            try:
-                rec = coll.find_one({"doi": itm['id']})
-            except Exception as err:
-                raise InvalidUsage(str(err), 500) from err
-            if rec:
-                link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
-            else:
-                link = f"<a href='https://dx.doi.org/{itm['id']}' target='_blank'>{itm['id']}</a>"
+            link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
             html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
             used.append(itm['id'])
     return html
@@ -468,9 +488,9 @@ def get_orcid_from_db(oid):
     try:
         orc = DB['dis'].orcid.find_one({"orcid": oid})
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
-        return ""
+        return "", []
     badges = add_orcid_badges(orc)
     html = " ".join(badges)
     html += "<br><table class='borderless'>"
@@ -491,12 +511,12 @@ def get_orcid_from_db(oid):
     try:
         rows = DB['dis'].dois.find(payload)
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        raise CustomException(err, "Could not find in dois collection by name.") from err
     works = []
     dois = []
     for row in rows:
         if row['doi']:
-            doi = f"<a href='https://dx.doi.org/{row['doi']}' target='_blank'>{row['doi']}</a>"
+            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
         else:
             doi = "&nbsp;"
         title = DL.get_title(row)
@@ -545,7 +565,7 @@ def add_orcid_works(data, dois):
                        + work['external-ids']['external-id'][0]['external-id-url']['value'] \
                        + f"' target='_blank'>{doi}</a>"
         else:
-            link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
+            link = f"<a href='/doiui/{doi}'>{doi}</a>"
         inner += f"<tr><td>{date}</td><td>{link}</td>" \
                  + f"<td>{wsumm['title']['title']['value']}</td></tr>"
     if inner:
@@ -639,15 +659,14 @@ def show_doi_authors(doi):
     '''
     doi = doi.lstrip('/').rstrip('/')
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
+        coll = DB['dis'].dois
         row = coll.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
-        return render_template('error.html', urlroot=request.url_root,
-                                title=render_warning("DOI not found"),
-                                message=f"Could not find DOI {doi}")
+        result['data'] = []
+        return generate_response(result)
     try:
         authors = DL.get_author_details(row, DB['dis'].orcid)
     except Exception as err:
@@ -1210,7 +1229,7 @@ def show_doi_ui(doi):
     try:
         row = DB['dis'].dois.find_one({"doi": doi})
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        return inspect_error(err, 'Could not get DOI')
     if row:
         html = '<h5 style="color:lime">This DOI is saved locally in the Janelia database</h5>'
         html += add_jrc_fields(row)
@@ -1248,20 +1267,18 @@ def show_doi_ui(doi):
     html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}." \
             + f"<br>DOI: {link}</span> {tiny_badge('primary', 'Raw data', rlink)}<br><br>"
     html += add_relations(data)
-    try:
-        authors = DL.get_author_details(row, DB['dis'].orcid)
-    except Exception as err:
-        return render_template('error.html', urlroot=request.url_root,
-                                title=render_warning("Could not process author list"),
-                                message=str(err))
-    alist = show_tagged_authors(authors)
-    if alist:
-        html += f"<br><h4>Janelia authors</h4><div class='scroll'>{''.join(alist)}</div>"
+    if row:
+        try:
+            authors = DL.get_author_details(row, DB['dis'].orcid)
+        except Exception as err:
+            return inspect_error(err, 'Could not process author list details')
+        alist = show_tagged_authors(authors)
+        if alist:
+            html += f"<br><h4>Janelia authors</h4><div class='scroll'>{''.join(alist)}</div>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
-
 
 # ******************************************************************************
 # * ORCID endpoints                                                            *
@@ -1276,18 +1293,23 @@ def show_oid_ui(oid):
         data = resp.json()
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
-                                title=render_warning("Could not retrieve ORCID ID"),
-                                message=str(err))
+                               title=render_warning("Could not retrieve ORCID ID"),
+                               message=error_message(err))
     if 'person' not in data:
         return render_template('warning.html', urlroot=request.url_root,
-                                title=render_warning(f"Could not find ORCID ID {oid}", 'warning'),
-                                message=data['user-message'])
+                               title=render_warning(f"Could not find ORCID ID {oid}", 'warning'),
+                               message=data['user-message'])
     name = data['person']['name']
     if name['credit-name']:
         who = f"{name['credit-name']['value']}"
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
-    orciddata, dois = get_orcid_from_db(oid)
+    try:
+        orciddata, dois = get_orcid_from_db(oid)
+    except CustomException as err:
+        return render_template('error.html', urlroot=request.url_root,
+                                title=render_warning(f"Could not find ORCID ID {oid}", 'warning'),
+                                message=error_message(err))
     html = f"<h3>{who}</h3>{orciddata}"
     # Works
     if 'works' in data['activities-summary'] and data['activities-summary']['works']['group']:
