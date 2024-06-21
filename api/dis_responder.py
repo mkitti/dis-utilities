@@ -6,12 +6,14 @@ from datetime import datetime, timedelta
 import inspect
 from json import JSONEncoder
 from operator import attrgetter
-import re
 import os
+import random
+import re
+import string
 import sys
 from time import time
 import bson
-from flask import (Flask, make_response, render_template, request, jsonify)
+from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
 from flask_swagger import swagger
 import requests
@@ -25,12 +27,12 @@ __version__ = "3.2.0"
 DB = {}
 # Navigation
 NAV = {"Home": "",
-       "Stats" : {"DOI type": "stats_type",
-                  "DOI publisher": "stats_publisher",
-                  "Database": "stats_database"
-                },
-       #"ORCID": {"Lookup": "orcid"
-       #         }
+       "DOIs": {"DOIs by type": "dois_type",
+                "DOIs by publisher": "dois_publisher",
+                "DOIs by tag": "dois_tag"
+            },
+       "Stats" : {"Database": "stats_database"
+                 },
       }
 
 # ******************************************************************************
@@ -576,6 +578,33 @@ def add_orcid_works(data, dois):
                 + f"</tr></thead><tbody>{inner}</tbody></table>"
     return html
 
+
+def random_string(strlen=8):
+    ''' Generate a random string of letters and digits
+        Keyword arguments:
+          strlen: length of generated string
+    '''
+    components = string.ascii_letters + string.digits
+    return ''.join(random.choice(components) for i in range(strlen))
+
+
+def create_downloadable(name, header, template, content):
+    ''' Generate a downloadable content file
+        Keyword arguments:
+          name: base file name
+          header: table header
+          template: header row template
+          content: table content
+        Returns:
+          File name
+    '''
+    fname = f"{name}_{random_string()}_{datetime.today().strftime('%Y%m%d%H%M%S')}.tsv"
+    with open(f"/tmp/{fname}", "w", encoding="utf8") as text_file:
+        text_file.write(template % tuple(header))
+        text_file.write(content)
+    return f'<a class="btn btn-outline-success" href="/download/{fname}" ' \
+                + 'role="button">Download table</a>'
+
 # *****************************************************************************
 # * Documentation                                                             *
 # *****************************************************************************
@@ -600,7 +629,7 @@ def show_swagger():
     return render_template('swagger_ui.html')
 
 # *****************************************************************************
-# * Admin endpoints                                                         *
+# * Admin endpoints                                                           *
 # *****************************************************************************
 
 @app.route("/stats")
@@ -634,7 +663,7 @@ def stats():
 
 
 # ******************************************************************************
-# * API endpoints                                                              *
+# * API endpoints (DOI)                                                        *
 # ******************************************************************************
 @app.route('/doi/authors/<path:doi>')
 def show_doi_authors(doi):
@@ -947,6 +976,50 @@ def show_components(doi):
     return generate_response(result)
 
 
+@app.route('/doi/custom', methods=['OPTIONS', 'POST'])
+def show_dois_custom():
+    '''
+    Return DOIs for a given find query
+    Return a list of DOI records for a given query.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: query
+        name: query
+        schema:
+          type: string
+        required: true
+        description: MongoDB query
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB or formatting error
+    '''
+    result = initialize_result()
+    ipd = receive_payload()
+    if "query" not in ipd or not ipd['query']:
+        raise InvalidUsage("You must specify a custom query")
+    result['rest']['source'] = 'mongo'
+    result['rest']['query'] = ipd['query']
+    result['data'] = []
+    coll = DB['dis'].dois
+    try:
+        rows = coll.find(ipd['query'], {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not rows:
+        generate_response(result)
+    for row in rows:
+        result['data'].append(row)
+        result['rest']['row_count'] += 1
+    return generate_response(result)
+
+# ******************************************************************************
+# * API endpoints (ORCID)                                                      *
+# ******************************************************************************
+
 @app.route('/orcid')
 def show_oids():
     '''
@@ -1046,35 +1119,9 @@ def show_oidapi(oid):
         result['rest']['row_count'] = 1
     return generate_response(result)
 
-
-@app.route('/groups')
-def show_groups():
-    '''
-    Show groups from ORCID
-    Return records whose IDs are in a group
-    ---
-    tags:
-      - Groups
-    responses:
-      200:
-        description: groups
-      500:
-        description: MongoDB error
-    '''
-    result = initialize_result()
-    coll = DB['dis'].orcid
-    payload = {"group": {"$exists": True}}
-    try:
-        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    result['rest']['source'] = 'mongo'
-    result['data'] = []
-    for row in rows:
-        result['data'].append(row)
-    result['rest']['row_count'] = len(result['data'])
-    return generate_response(result)
-
+# ******************************************************************************
+# * API endpoints (Tags)                                                       *
+# ******************************************************************************
 
 @app.route('/components', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
 @app.route('/components/<string:ctype>', methods=['OPTIONS', 'POST'])
@@ -1098,7 +1145,7 @@ def show_multiple_components(ctype='dis'):
           type: string
         required: true
         description: Group tag
-    responses:
+    @responses:
       200:
         description: Component data
       500:
@@ -1130,46 +1177,9 @@ def show_multiple_components(ctype='dis'):
         result['rest']['row_count'] += 1
     return generate_response(result)
 
-
-@app.route('/tags', methods=['OPTIONS', 'POST'])
-def show_multiple_tag_dois():
-    '''
-    Return DOIs for a given group tag
-    Return a list of DOI records for a given group tag.
-    ---
-    tags:
-      - Tags
-    parameters:
-      - in: query
-        name: group
-        schema:
-          type: string
-        required: true
-        description: Group tag
-    responses:
-      200:
-        description: DOI data
-      500:
-        description: MongoDB or formatting error
-    '''
-    result = initialize_result()
-    ipd = receive_payload()
-    if "group" not in ipd or not (ipd['group']) or not isinstance(ipd['group'], str):
-        raise InvalidUsage("You must specify a group")
-    result['rest']['source'] = 'mongo'
-    result['data'] = []
-    coll = DB['dis'].dois
-    try:
-        rows = coll.find({"jrc_tag": ipd['group']}, {'_id': 0})
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    if not rows:
-        generate_response(result)
-    for row in rows:
-        result['data'].append(row)
-        result['rest']['row_count'] += 1
-    return generate_response(result)
-
+# ******************************************************************************
+# * API endpoints (Types)                                                      *
+# ******************************************************************************
 
 @app.route('/types')
 def show_types():
@@ -1206,8 +1216,51 @@ def show_types():
     return generate_response(result)
 
 # ******************************************************************************
+# * API endpoints (Groups)                                                     *
+# ******************************************************************************
+
+@app.route('/groups')
+def show_groups():
+    '''
+    Show groups from ORCID
+    Return records whose IDs are in a group
+    ---
+    tags:
+      - Groups
+    responses:
+      200:
+        description: groups
+      500:
+        description: MongoDB error
+    '''
+    result = initialize_result()
+    coll = DB['dis'].orcid
+    payload = {"group": {"$exists": True}}
+    try:
+        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    result['rest']['source'] = 'mongo'
+    result['data'] = []
+    for row in rows:
+        result['data'].append(row)
+    result['rest']['row_count'] = len(result['data'])
+    return generate_response(result)
+
+# ******************************************************************************
 # * Web endpoints                                                              *
 # ******************************************************************************
+@app.route('/download/<string:fname>')
+def download(fname):
+    ''' Downloadable content
+    '''
+    try:
+        return send_file('/tmp/' + fname, download_name=fname)  # pylint: disable=E1123
+    except Exception as err:
+        return render_template("error.html", urlroot=request.url_root,
+                               title='Download error', message=err)
+
+
 @app.route('/')
 @app.route('/home')
 def show_home():
@@ -1216,7 +1269,6 @@ def show_home():
     response = make_response(render_template('home.html', urlroot=request.url_root,
                                              navbar=generate_navbar('Home')))
     return response
-
 
 # ******************************************************************************
 # * DOI endpoints                                                              *
@@ -1278,6 +1330,158 @@ def show_doi_ui(doi):
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_type')
+def dois_type():
+    ''' Show data types
+    '''
+    payload = [{"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
+                                   "subtype": "$subtype"},
+                           "count": {"$sum": 1}}},
+               {"$sort" : {"count": -1}}]
+    try:
+        coll = DB['dis'].dois
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+           + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        for field in ('source', 'type', 'subtype'):
+            if field not in row['_id']:
+                row['_id'][field] = ''
+        html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
+                + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="DOI types", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_publisher')
+def dois_publisher():
+    ''' Show publishers with counts
+    '''
+    payload = [{"$group": {"_id": {"publisher": "$publisher"},
+                           "count": {"$sum": 1}}},
+               {"$sort" : {"count": -1}}]
+    try:
+        coll = DB['dis'].dois
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+           + '<th>Publisher</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        onclick = "onclick='nav_post(\"publisher\",\"" + row['_id']['publisher'] + "\")'"
+        link = f"<a href='#' {onclick}>{row['_id']['publisher']}</a>"
+        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="DOI publishers", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_tag')
+def dois_tag():
+    ''' Show tags with counts
+    '''
+    payload = [{"$unwind" : "$jrc_tag"},
+               {"$project": {"_id": 0, "jrc_tag": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag"}, "count":{"$sum": 1}}},
+               {"$sort": {"_id.lib": 1, "_id.tag": 1}}
+              ]
+    try:
+        coll = DB['dis'].dois
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+           + '<th>Tag</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        print(row)
+        onclick = "onclick='nav_post(\"jrc_tag\",\"" + row['_id']['tag'] + "\")'"
+        link = f"<a href='#' {onclick}>{row['_id']['tag']}</a>"
+        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="DOI publishers", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/doiui/custom', methods=['OPTIONS', 'POST'])
+def show_doiui_custom():
+    '''
+    Return DOIs for a given find query
+    Return a list of DOI records for a given query.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: query
+        name: field
+        schema:
+          type: string
+        required: true
+        description: MongoDB field
+      - in: query
+        name: value
+        schema:
+          type: string
+        required: true
+        description: field value
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB or formatting error
+    '''
+    ipd = receive_payload()
+    print(ipd)
+    for key in ('field', 'value'):
+        if key not in ipd or not ipd[key]:
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning(f"Missing {key}"),
+                                   message=f"You must specity a {key}")
+    coll = DB['dis'].dois
+    try:
+        rows = coll.find({ipd['field']: ipd['value']}, {'_id': 0})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs"),
+                               message=error_message(err))
+    if not rows:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("DOIs not found"),
+                               message=f"No DOIs were found for {ipd['field']}={ipd['value']}")
+    header = ['Published', 'DOI', 'Title']
+    html = "<table id='dois' class='tablesorter standard'><thead><tr>" \
+           + ''.join([f"<th>{itm}</th>" for itm in header]) + "</tr></thead><tbody>"
+    works = []
+    for row in rows:
+        published = DL.get_publishing_date(row)
+        title = DL.get_title(row)
+        link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
+        works.append({"published": published, "link": link, "title": title, "doi": row['doi']})
+    fileoutput = ""
+    ftemplate = "\t".join(["%s"]*len(header)) + "\n"
+    for row in sorted(works, key=lambda row: row['published'], reverse=True):
+        html += f"<tr><td>{row['published']}</td><td>{row['link']}</td>" \
+                + f"<td>{row['title']}</td></tr>"
+        fileoutput += ftemplate % (row['published'], row['doi'], row['title'])
+    html += '</tbody></table>'
+    html = create_downloadable(ipd['field'], header, ftemplate, fileoutput) + html
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title=f"DOIs for {ipd['field']} {ipd['value']}",
+                                             html=html, navbar=generate_navbar('DOIs')))
     return response
 
 # ******************************************************************************
@@ -1354,59 +1558,6 @@ def show_names_ui(name):
 # ******************************************************************************
 # * Stat endpoints                                                             *
 # ******************************************************************************
-@app.route('/stats_type')
-def stats_type():
-    ''' Show data types
-    '''
-    payload = [{"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
-                                   "subtype": "$subtype"},
-                           "count": {"$sum": 1}}},
-               {"$sort" : {"count": -1}}]
-    try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
-           + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
-           + '</tr></thead><tbody>'
-    for row in rows:
-        for field in ('source', 'type', 'subtype'):
-            if field not in row['_id']:
-                row['_id'][field] = ''
-        html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
-                + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
-    html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI types", html=html,
-                                             navbar=generate_navbar('Stats')))
-    return response
-
-
-@app.route('/stats_publisher')
-def stats_publisher():
-    ''' Show publishers
-    '''
-    payload = [{"$group": {"_id": {"publisher": "$publisher"},
-                           "count": {"$sum": 1}}},
-               {"$sort" : {"count": -1}}]
-    try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
-           + '<th>Publisher</th><th>Count</th>' \
-           + '</tr></thead><tbody>'
-    for row in rows:
-        html += f"<tr><td>{row['_id']['publisher']}</td><td>{row['count']:,}</td></tr>"
-    html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI publishers", html=html,
-                                             navbar=generate_navbar('Stats')))
-    return response
-
-
 @app.route('/stats_database')
 def stats_database():
     ''' Show database stats
