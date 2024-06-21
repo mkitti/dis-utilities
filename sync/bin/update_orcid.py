@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.4.0'
+__version__ = '1.5.0'
 
 import argparse
 import collections
@@ -258,11 +258,25 @@ def find_affiliations(first, surname, idresp, oids, oid):
             for aff in idresp['affiliations']:
                 if aff['supOrgName'] not in oids[oid]['affiliations']:
                     oids[oid]['affiliations'].append(aff['supOrgName'])
+        # Add ccDescr
+        if 'affiliations' not in oids[oid]:
+            if 'group' not in oids[oid] and 'ccDescr' in idresp and idresp['ccDescr']:
+                oids[oid]['affiliations'] = []
+                oids[oid]['affiliations'].append(idresp['ccDescr'])
+        # Add managedTeams
+        if 'managedTeams' in idresp:
+            if 'affiliations' not in oids[oid]:
+                oids[oid]['affiliations'] = []
+            for mtr in idresp['managedTeams']:
+                if 'supOrgName' in mtr and mtr['supOrgName'] and mtr['supOrgName'] not in oids[oid]['affiliations']:
+                    oids[oid]['affiliations'].append(mtr['supOrgName'])
     if 'affiliations' in oids[oid]:
+        oids[oid]['affiliations'].sort()
         LOGGER.info(f"Added {first} {surname} from People " \
                     + f"({', '.join(oids[oid]['affiliations'])})")
     else:
         LOGGER.info(f"Added {first} {surname} from People")
+    LOGGER.debug(f"{oids[oid]['given']} {oids[oid]['family']} ")
 
 
 def add_people_information(first, surname, oids, oid):
@@ -338,7 +352,7 @@ def add_janelia_info(oids):
     for oid in tqdm(oids, desc='Janalians from orcid collection'):
         if oid in PRESENT:
             preserve_mongo_names(PRESENT[oid], oids)
-        if oid in PRESENT and 'employeeId' in PRESENT[oid]:
+        if oid in PRESENT and 'employeeId' in PRESENT[oid] and not ARG.FORCE:
             continue
         correlate_person(oid, oids)
 
@@ -442,6 +456,8 @@ if __name__ == '__main__':
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
+    PARSER.add_argument('--force', dest='FORCE', action='store_true',
+                        default=False, help='Update ORCID ID whether correlated or not')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
                         default=False, help='Write to database/config system')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',

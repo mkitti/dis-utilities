@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '0.0.1'
+__version__ = '0.0.2'
 
 import argparse
 import collections
@@ -97,25 +97,36 @@ def get_tags(authors):
         Returns:
           tags: list of tags
           janelians: list of Janelia author names
+          tagauth: dict of authors by tag
     """
     tags = []
     janelians = []
+    tagauth = {}
     for auth in authors:
+        atags = []
         if auth['janelian']:
             janelians.append(f"{auth['given']} {auth['family']}")
         if 'group' in auth:
-            if auth['group'] not in tags:
-                tags.append(auth['group'])
+            if auth['group'] not in atags:
+                atags.append(auth['group'])
         if 'tags' in auth:
             for tag in auth['tags']:
-                if tag not in tags:
-                    tags.append(tag)
+                if tag not in atags:
+                    atags.append(tag)
         if 'name' in auth:
             if auth['name'] not in PROJECT:
                 LOGGER.warning(f"Project {auth['name']} is not defined")
-            elif PROJECT[auth['name']] and PROJECT[auth['name']] not in tags:
-                tags.append(PROJECT[auth['name']])
-    return tags, janelians
+            elif PROJECT[auth['name']] and PROJECT[auth['name']] not in atags:
+                atags.append(PROJECT[auth['name']])
+        for tag in atags:
+            if tag not in tags:
+                tags.append(tag)
+            if tag not in tagauth:
+                tagauth[tag] = []
+            if auth['family'] not in tagauth[tag]:
+                tagauth[tag].append(auth['family'])
+                tagauth[tag].sort()
+    return tags, janelians, tagauth
 
 
 def update_single_doi(rec):
@@ -127,29 +138,35 @@ def update_single_doi(rec):
     """
     authors = DL.get_author_details(rec, DB['dis'].orcid)
     current = []
-    if 'jrc_tag' in rec:
-        current.extend(rec['jrc_tag'])
-    tags, janelians = get_tags(authors)
+    tags, janelians, tagauth = get_tags(authors)
     LOGGER.warning(f"No tags for DOI {rec['doi']}")
     if not tags:
         return
     tags.sort()
+    tagd = {}
+    for tag in tags:
+        newtag = f"{tag} ({', '.join(tagauth[tag])})"
+        if tag in rec['jrc_tag']:
+            current.append(newtag)
+        tagd[newtag] = tag
     print(f"DOI: {rec['doi']}")
     print(f"{DL.get_title(rec)}")
     print(', '.join(janelians))
     today = datetime.today().strftime('%Y-%m-%d')
-    quest = [inquirer.Checkbox('checklist',
+    quest = [inquirer.Checkbox('checklist', carousel=True,
                                message='Select tags',
-                               choices=tags, default=current),
-             inquirer.List('reviewed',
-                           message=f"Set jrc_reviewed to {today}",
+                               choices=tagd, default=current),
+             inquirer.List('newsletter',
+                           message=f"Set jrc_newsletter to {today}",
                            choices=['Yes', 'No'])
             ]
     ans = inquirer.prompt(quest, theme=BlueComposure())
-    print(ans)
-    payload = {"jrc_tag": ans['checklist']}
-    if 'reviewed' in ans and ans['reviewed'] == 'Yes':
-        payload['jrc_reviewed'] = today
+    tags = []
+    for tag in ans['checklist']:
+        tags.append(tagd[tag])
+    payload = {"jrc_tag": tags}
+    if 'newsletter' in ans and ans['newsletter'] == 'Yes':
+        payload['jrc_newsletter'] = today
     COUNT['selected'] += 1
     if ARG.WRITE:
         coll = DB['dis'].dois

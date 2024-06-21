@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.5.0'
+__version__ = '1.6.0'
 
 import argparse
 import configparser
@@ -51,7 +51,7 @@ SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
 PROJECT = {}
-DEFAULT_TAGS = ['Scientific Computing Software']
+DEFAULT_TAGS = ['Janelia Experimental Technology (jET)', 'Scientific Computing Software']
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
          'notfound': 0, 'noupdate': 0, 'noauthor': 0,
          'insert': 0, 'update': 0, 'delete': 0, 'foundfb': 0, 'flyboy': 0}

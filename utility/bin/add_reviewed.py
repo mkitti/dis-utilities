@@ -1,5 +1,5 @@
 ''' add_reviewed.py
-    Update the jrc_reviewed date for one or more DOIs
+    Update the jrc_newsletter date for one or more DOIs
 '''
 
 import argparse
@@ -64,11 +64,11 @@ def update_single_doi(doi):
         LOGGER.warning(f"{doi} was not found")
         COUNT["notfound"] += 1
         return
-    payload = {"jrc_reviewed": ARG.DATE}
+    payload = {"jrc_newsletter": ARG.DATE}
     if ARG.WRITE:
         try:
             if ARG.REMOVE:
-                coll.update_one({"doi": doi}, {"$unset": {"jrc_reviewed": 1}})
+                coll.update_one({"doi": doi}, {"$unset": {"jrc_newsletter": 1}})
             else:
                 coll.update_one({"doi": doi}, {"$set": payload})
         except Exception as err:
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     PARSER.add_argument('--date', dest='DATE', action='store',
                         help='Newsletter date (defaults to today)')
     PARSER.add_argument('--remove', dest='REMOVE', action='store_true',
-                        default=False, help='Remove jrc_reviewed from DOI(s)')
+                        default=False, help='Remove jrc_newsletter from DOI(s)')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
