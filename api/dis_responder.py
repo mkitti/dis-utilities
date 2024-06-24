@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.1.0"
+__version__ = "4.2.0"
 # Database
 DB = {}
 # Navigation
@@ -457,7 +457,6 @@ def show_tagged_authors(authors):
     '''
     alist = []
     for auth in authors:
-        print(auth) #PLUG
         if (not auth['janelian']) and (not auth['asserted']):
             continue
         who = f"{auth['given']} {auth['family']}"
@@ -1207,7 +1206,7 @@ def show_multiple_components(ctype='dis'):
           type: string
         required: true
         description: Group tag
-    @responses:
+    responses:
       200:
         description: Component data
       500:
