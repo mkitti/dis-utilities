@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.0.0"
+__version__ = "4.1.0"
 # Database
 DB = {}
 # Navigation
@@ -172,7 +172,7 @@ def inspect_error(err, errtype):
         Keyword arguments:
           err: exception
         Returns:
-          Error template
+          Error screen
     '''
     mess = f"In {inspect.stack()[1][3]}, An exception of type {type(err).__name__} occurred. " \
            + f"Arguments:\n{err.args}"
@@ -397,7 +397,7 @@ def add_relations(row):
           HTML
     '''
     html = ""
-    if (not 'relation' in row) or (not row['relation']):
+    if ("relation" not in row) or (not row['relation']):
         return html
     for rel in row['relation']:
         used = []
@@ -425,6 +425,29 @@ def tiny_badge(btype, msg, link=None):
     return html
 
 
+def get_badges(auth):
+    ''' Create a list of badges for an author
+        Keyword arguments:
+          auth: detailed author record
+        Returns:
+          List of HTML badges
+    '''
+    badges = []
+    if auth['in_database']:
+        badges.append(f"{tiny_badge('success', 'Known ORCID')}")
+        if auth['alumni']:
+            badges.append(f"{tiny_badge('danger', 'Alumni')}")
+        elif 'validated' not in auth or not auth['validated']:
+            badges.append(f"{tiny_badge('warning', 'Not validated')}")
+        if auth['asserted']:
+            badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+    else:
+        badges.append(f"{tiny_badge('danger', 'Not in database')}")
+        if auth['asserted']:
+            badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+    return badges
+
+
 def show_tagged_authors(authors):
     ''' Create a list of Janelian authors (with badges and tags)
         Keyword arguments:
@@ -434,30 +457,20 @@ def show_tagged_authors(authors):
     '''
     alist = []
     for auth in authors:
-        print(auth)
+        print(auth) #PLUG
         if (not auth['janelian']) and (not auth['asserted']):
             continue
         who = f"{auth['given']} {auth['family']}"
         if 'orcid' in auth:
             who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
-        badges = []
-        if auth['in_database']:
-            badges.append(f"{tiny_badge('success', 'Known ORCID')}")
-            if auth['alumni']:
-                badges.append(f"{tiny_badge('danger', 'Alumni')}")
-            elif 'validated' not in auth or not auth['validated']:
-                badges.append(f"{tiny_badge('warning', 'Not validated')}")
-            if auth['asserted']:
-                badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
-        else:
-            badges.append(f"{tiny_badge('danger', 'Not in database')}")
-            if auth['asserted']:
-                badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+        badges = get_badges(auth)
         tags = []
         if 'group' in auth:
             tags.append(auth['group'])
         if 'tags' in auth:
-            tags.extend(auth['tags'])
+            for tag in auth['tags']:
+                if tag not in tags:
+                    tags.append(tag)
         tags.sort()
         row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
         alist.append(row)
@@ -588,22 +601,32 @@ def random_string(strlen=8):
     return ''.join(random.choice(components) for i in range(strlen))
 
 
-def create_downloadable(name, header, template, content):
+def create_downloadable(name, header, content):
     ''' Generate a downloadable content file
         Keyword arguments:
           name: base file name
           header: table header
-          template: header row template
           content: table content
         Returns:
           File name
     '''
     fname = f"{name}_{random_string()}_{datetime.today().strftime('%Y%m%d%H%M%S')}.tsv"
     with open(f"/tmp/{fname}", "w", encoding="utf8") as text_file:
-        text_file.write(template % tuple(header))
-        text_file.write(content)
+        text_file.write("\t".join(header) + "\n" + content)
     return f'<a class="btn btn-outline-success" href="/download/{fname}" ' \
-                + 'role="button">Download table</a>'
+                + 'role="button">Download tab-delimited file</a>'
+
+
+def dloop(row, keys, sep="\t"):
+    ''' Generate a string of joined velues from a dictionary
+        Keyword arguments:
+          row: dictionary
+          keys: list of keys
+          sep: separator
+        Returns:
+          Joined values from a dictionary
+    '''
+    return sep.join([str(row[fld]) for fld in keys])
 
 # *****************************************************************************
 # * Documentation                                                             *
@@ -668,7 +691,7 @@ def stats():
 @app.route('/doi/authors/<path:doi>')
 def show_doi_authors(doi):
     '''
-    Return a DOI
+    Return a DOI's authors
     Return information on authors for a given DOI.
     ---
     tags:
@@ -710,6 +733,45 @@ def show_doi_authors(doi):
         tags.sort()
         result['tags'] = tags
     result['data'] = authors
+    return generate_response(result)
+
+
+@app.route('/doi/janelians/<path:doi>')
+def show_doi_janelians(doi):
+    '''
+    Return a DOI's Janelia authors
+    Return information on Janelia authors for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB error
+    '''
+    result = initialize_result()
+    resp = show_doi_authors(doi)
+    data = resp.json
+    result['data'] = []
+    tags = []
+    for auth in data['data']:
+        if auth['janelian']:
+            result['data'].append(auth)
+            if 'tags' in auth:
+                for atag in auth['tags']:
+                    if atag not in tags:
+                        tags.append(atag)
+    if tags:
+        tags.sort()
+        result['tags'] = tags
     return generate_response(result)
 
 
@@ -1406,7 +1468,6 @@ def dois_tag():
            + '<th>Tag</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
-        print(row)
         onclick = "onclick='nav_post(\"jrc_tag\",\"" + row['_id']['tag'] + "\")'"
         link = f"<a href='#' {onclick}>{row['_id']['tag']}</a>"
         html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
@@ -1445,15 +1506,13 @@ def show_doiui_custom():
         description: MongoDB or formatting error
     '''
     ipd = receive_payload()
-    print(ipd)
     for key in ('field', 'value'):
         if key not in ipd or not ipd[key]:
             return render_template('error.html', urlroot=request.url_root,
                                    title=render_warning(f"Missing {key}"),
-                                   message=f"You must specity a {key}")
-    coll = DB['dis'].dois
+                                   message=f"You must specify a {key}")
     try:
-        rows = coll.find({ipd['field']: ipd['value']}, {'_id': 0})
+        rows = DB['dis'].dois.find({ipd['field']: ipd['value']})
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get DOIs"),
@@ -1472,13 +1531,12 @@ def show_doiui_custom():
         link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
         works.append({"published": published, "link": link, "title": title, "doi": row['doi']})
     fileoutput = ""
-    ftemplate = "\t".join(["%s"]*len(header)) + "\n"
     for row in sorted(works, key=lambda row: row['published'], reverse=True):
-        html += f"<tr><td>{row['published']}</td><td>{row['link']}</td>" \
-                + f"<td>{row['title']}</td></tr>"
-        fileoutput += ftemplate % (row['published'], row['doi'], row['title'])
+        html += "<tr><td>" + dloop(row, ['published', 'link', 'title'], "</td><td>") + "</td></tr>"
+        row['title'] = row['title'].replace("\n", " ")
+        fileoutput += dloop(row, ['published', 'doi', 'title']) + "\n"
     html += '</tbody></table>'
-    html = create_downloadable(ipd['field'], header, ftemplate, fileoutput) + html
+    html = create_downloadable(ipd['field'], header, fileoutput) + html
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"DOIs for {ipd['field']} {ipd['value']}",
                                              html=html, navbar=generate_navbar('DOIs')))
@@ -1582,8 +1640,8 @@ def stats_database():
            + '<th>Collection</th><th>Documents</th><th>Size</th><th>Free space</th>' \
            + '<th>Indices</th></tr></thead><tbody>'
     for coll, val in sorted(collection.items()):
-        html += f"<tr><td>{coll}</td><td>{val['docs']:,}</td><td>{val['size']}</td>" \
-                + f"<td>{val['free']}%</td><td>{val['idx']}</td></tr>"
+        html += f"<tr><td>{coll}</td><td>" + dloop(val, ['docs', 'size', 'free', 'idx'],
+                                                   "</td><td>") + "</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="Database statistics", html=html,
