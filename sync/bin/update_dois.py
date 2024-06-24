@@ -397,7 +397,7 @@ def crossref_needs_update(doi, msg):
     """
     if 'deposited' not in msg or 'date-time' not in msg['deposited']:
         return True
-    if not doi in EXISTING:
+    if doi not in EXISTING:
         return True
     rec = EXISTING[doi]
     if 'deposited' not in rec or 'date-time' not in rec['deposited']:
@@ -425,7 +425,7 @@ def datacite_needs_update(doi, msg):
     """
     if 'attributes' not in msg or 'updated' not in msg['attributes']:
         return True
-    if not doi in EXISTING:
+    if doi not in EXISTING:
         return True
     rec = EXISTING[doi]
     stored = convert_timestamp(rec['updated'])
