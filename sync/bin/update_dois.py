@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.6.0'
+__version__ = '1.7.0'
 
 import argparse
 import configparser
@@ -659,13 +659,13 @@ def check_for_preprint(doi, rec):
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
                     LOGGER.info(f"Added relation |{rel['id']}|")
-                    subject.append(rel['id'])
+                    subject.append(rel['id'].lower())
     elif rec['type'] == 'journal-article' and 'has-preprint' in rec['relation']:
         for rel in rec['relation']['has-preprint']:
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
                     LOGGER.info(f"Added relation |{rel['id']}|")
-                    subject.append(rel['id'])
+                    subject.append(rel['id'].lower())
     if not subject:
         return None
     if len(subject) == 1:
@@ -710,7 +710,8 @@ def process_dois():
         terminate_program("No DOIs were found")
     specified = {} # Dict of distinct DOIs received as input (value is True)
     persist = {} # DOIs that will be persisted in a database (value is record)
-    for doi in tqdm(rows['dois'], desc='DOIs'):
+    for odoi in tqdm(rows['dois'], desc='DOIs'):
+        doi = odoi.lower()
         COUNT['found'] += 1
         if doi in specified:
             COUNT['duplicate'] += 1

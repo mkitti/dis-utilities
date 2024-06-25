@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.2.0"
+__version__ = "4.3.0"
 # Database
 DB = {}
 # Navigation
@@ -708,7 +708,7 @@ def show_doi_authors(doi):
       500:
         description: MongoDB error
     '''
-    doi = doi.lstrip('/').rstrip('/')
+    doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     try:
         coll = DB['dis'].dois
@@ -796,7 +796,7 @@ def show_doi(doi):
       500:
         description: MongoDB error
     '''
-    doi = doi.lstrip('/').rstrip('/')
+    doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -881,7 +881,7 @@ def show_citation(doi):
       500:
         description: MongoDB or formatting error
     '''
-    doi = doi.lstrip('/').rstrip('/')
+    doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -935,7 +935,7 @@ def show_multiple_citations(ctype='dis'):
     coll = DB['dis'].dois
     for doi in ipd['dois']:
         try:
-            row = coll.find_one({"doi": doi}, {'_id': 0})
+            row = coll.find_one({"doi": doi.tolower()}, {'_id': 0})
         except Exception as err:
             raise InvalidUsage(str(err), 500) from err
         if not row:
@@ -975,7 +975,7 @@ def show_flylight_citation(doi):
       500:
         description: MongoDB or formatting error
     '''
-    doi = doi.lstrip('/').rstrip('/')
+    doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -1016,7 +1016,7 @@ def show_components(doi):
       500:
         description: MongoDB or formatting error
     '''
-    doi = doi.lstrip('/').rstrip('/')
+    doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     coll = DB['dis'].dois
     try:
@@ -1338,7 +1338,7 @@ def show_home():
 def show_doi_ui(doi):
     ''' Show DOI
     '''
-    doi = doi.lstrip('/').rstrip('/')
+    doi = doi.lstrip('/').rstrip('/').lower()
     try:
         row = DB['dis'].dois.find_one({"doi": doi})
     except Exception as err:
@@ -1628,7 +1628,7 @@ def stats_database():
             for key, val in stat['indexSizes'].items():
                 indices.append(f"{key} ({humansize(val)})")
             free = stat['freeStorageSize'] / stat['storageSize'] * 100
-            collection[cname] = {"docs": stat['count'],
+            collection[cname] = {"docs": f"{stat['count']:,}",
                                  "size": humansize(stat['size']),
                                  "free": f"{free:.2f}",
                                  "idx": ", ".join(indices)
