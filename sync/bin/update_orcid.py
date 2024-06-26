@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.6.0'
+__version__ = '1.7.0'
 
 import argparse
 import collections
@@ -323,6 +323,29 @@ def generate_email():
         LOGGER.error(err)
 
 
+def handle_name(oids):
+    ''' Handle a name from the command line
+        Keyword arguments:
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    add_name('', oids, ARG.FAMILY.capitalize(), ARG.GIVEN.capitalize())
+    COUNT['orcid'] += 1
+    correlate_person('', oids)
+    if 'employeeId' not in oids['']:
+        terminate_program("Could not find a record in People")
+    try:
+        row = DB['dis'].orcid.find_one({"employeeId": oids['']['employeeId']})
+    except Exception as err:
+        terminate_program(err)
+    if row:
+        terminate_program("Record already exists")
+    if not should_continue(oids['']):
+        LOGGER.warning("Record was not inserted")
+        terminate_program()
+
+
 def should_continue(rec):
     ''' Ask user if we should continue
         Keyword arguments:
@@ -348,14 +371,7 @@ def update_orcid():
     LOGGER.info(f"Started run (version {__version__})")
     oids = {}
     if ARG.GIVEN and ARG.FAMILY:
-        # There's no checking for dups - caveat emptor!
-        add_name('', oids, ARG.FAMILY.capitalize(), ARG.GIVEN.capitalize())
-        COUNT['orcid'] += 1
-        correlate_person('', oids)
-        if oids['']['family']:
-            if not should_continue(oids['']):
-                LOGGER.warning("Record was not inserted")
-                terminate_program()
+        handle_name(oids)
     elif ARG.ORCID:
         ARG.FORCE = True
         family, given = get_name(ARG.ORCID)
