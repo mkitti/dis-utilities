@@ -12,8 +12,6 @@ The script recommends employee ids for authors where an 85% match or higher was 
 
 #TODO: Troubleshoot Nirmala Iyer
 #TODO: Use https://dis.int.janelia.org/doi/janelians/10.7554/eLife.80660 to identify alumni
-#TODO: Ask Sulav about research areas, do they need employee Ids, where they get tags from
-#Ask if they want jrc_tags in components
 
 
 import requests
@@ -249,54 +247,6 @@ def guess_employee(author):
 
 
 
-
-
-
-
-# def guess_employee(author):
-#     employees_from_api_search = [] # Includes false positives. For example, if I search 'Virginia',
-#     # both Virginia Scarlett and Virginia Ruetten will be in employees_from_api_search.
-#     search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
-#     namesearch_results = search_people_api(search_term, 'name')
-#     if not isinstance(namesearch_results, MissingPerson):
-#         candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
-#         for id in candidate_employee_ids:
-#             idsearch_results = create_employee(id)
-#             if not isinstance(idsearch_results, MissingPerson):
-#                 employees_from_api_search.append(create_employee(id))
-#         permuted_names = OrderedDict()
-#         for employee in employees_from_api_search:
-#             employee_permuted_names = employee.generate_name_permutations()
-#             for name in employee_permuted_names:
-#                 permuted_names[name] = employee.id
-#         fuzzy_match_scores = []
-#         permuted_names_list = permuted_names.keys()
-#         for permuted_name in permuted_names_list:
-#             fuzzy_match_scores.append( fuzz.token_sort_ratio(author.name.lower(), permuted_name.lower()) )
-#         #Get the index of the highest score, and print a warning if
-#         #there are multiple maximum values, e.g., if someone is in the People database twice
-#         # TODO: Maybe change this to use Guess objects instead of relying so much on list indices?
-#         winner_index_list = [ i for i, value in enumerate(fuzzy_match_scores) if value == max(fuzzy_match_scores) ]
-#         winner_index = winner_index_list[0]
-#         if len(winner_index_list) > 1:
-#             print("Multiple high scoring matches found:")
-#             print([permuted_names_list[i] for i in winner_index_list]) 
-#             print("Choosing the first one.")
-#         return(
-#             Guess.from_employee(
-#                 employees_from_api_search[winner_index], 
-#                 permuted_names_list[winner_index],
-#                 fuzzy_match_scores[winner_index])
-#             )
-#     else:
-#         return(MissingPerson())
-
-
-
-
-
-
-# guess_employee(janelian_authors[2])
 
 # ------------------------------------------------------------------------
 
