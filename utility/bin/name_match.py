@@ -1,17 +1,12 @@
 """
 
 Goal: identify which article authors correspond to which employee IDs.
-We will only consider authors who:
-1) Have Janelia listed in their affiliations in the DOI metadata, OR
-2) Are in our ORCID collection.
-The second case is easy. If they are in the ORCID collection, 
-then there will be an employeeId property, and we're done.
-In the first case, we still check if they have an ORCID that simply isn't in our collection.
-In this case, we want to print a message that informs the user of this.
-If the author does not have an ORCID, or they do have an ORCID but it's not in our ORCID collection, 
-then we must use fuzzy string matching to make a 'best guess' at the closest employee name. 
-We'll do this by creating all reasonable permutations of all employee names, 
+First, try to find an employee id in our ORCID collection. 
+If the author does not have an employee id in our ORCID collection, then we 
+must use fuzzy string matching to make a 'best guess' at the closest employee name. 
+We do this by creating all reasonable permutations of all employee names, 
 and matching the author name against all possible employee names.
+The script recommends employee ids for authors where an 85% match or higher was found.
 
 """
 
