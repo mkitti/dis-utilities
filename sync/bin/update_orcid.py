@@ -2,19 +2,22 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.5.0'
+__version__ = '1.6.0'
 
 import argparse
 import collections
 from datetime import datetime
 import getpass
+import json
 from operator import attrgetter
 import os
 import re
 import sys
+import inquirer
 import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
+import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,logging-fstring-interpolation
 
@@ -66,7 +69,7 @@ def initialize_program():
         except Exception as err:
             terminate_program(err)
     try:
-        rows = DB['dis'].orcid.find({})
+        rows = DB['dis'].orcid.find({"orcid": {"$exists": True}})
     except Exception as err:
         terminate_program(err)
     for row in rows:
@@ -180,103 +183,11 @@ def people_by_name(first, surname):
     filtered = []
     for person in people:
         if person['locationName'] != 'Janelia Research Campus':
-        # or person['photoURL'].endswith('PlaceHolder.png'):
             continue
         if person['nameLastPreferred'].lower() == surname.lower() \
            and person['nameFirstPreferred'].lower() == first.lower():
             filtered.append(person)
     return filtered
-
-
-def process_middle_initials(oids, oid):
-    ''' Add name combinations for first names in the forms "F. M." or "F."
-        with or without the periods.
-        Keyword arguments:
-          oid: ORCID ID
-          oids: ORCID ID dict
-        Returns:
-          None
-    '''
-    for first in oids[oid]['given']:
-        if re.search(r"[A-Za-z]\. [A-Za-z]\.$", first):
-            continue
-        if re.search(r"[A-Za-z]\.[A-Za-z]\.$", first):
-            new = first.replace('.', ' ')
-            if new not in oids[oid]['given']:
-                oids[oid]['given'].append(new)
-        elif re.search(r" [A-Za-z]\.$", first):
-            new = first.rstrip('.')
-            if new not in oids[oid]['given']:
-                oids[oid]['given'].append(new)
-
-
-def find_name_combos(idresp, oids, oid):
-    ''' Add name combinations
-        Keyword arguments:
-          idresp: record from HHMI's People service
-          oid: ORCID ID
-          oids: ORCID ID dict
-        Returns:
-          None
-    '''
-    if idresp:
-        for source in ('nameFirst', 'nameFirstPreferred'):
-            if source in idresp and idresp[source] and idresp[source] not in oids[oid]['given']:
-                oids[oid]['given'].append(idresp[source])
-        for source in ('nameLast', 'nameLastPreferred'):
-            if source in idresp and idresp[source] and idresp[source] not in oids[oid]['family']:
-                oids[oid]['family'].append(idresp[source])
-        for source in ('nameMiddle', 'nameMiddlePreferred'):
-            if source not in idresp or not idresp[source]:
-                continue
-            for first in oids[oid]['given']:
-                if ' ' in first:
-                    continue
-                new = f"{first} {idresp[source][0]}"
-                if new not in oids[oid]['given']:
-                    oids[oid]['given'].append(new)
-                new += '.'
-                if new not in oids[oid]['given']:
-                    oids[oid]['given'].append(new)
-    process_middle_initials(oids, oid)
-
-
-def find_affiliations(first, surname, idresp, oids, oid):
-    ''' Add affiliations
-        Keyword arguments:
-          first: given name
-          surname: family name
-          idresp: record from HHMI's People service
-          oid: ORCID ID
-          oids: ORCID ID dict
-        Returns:
-          None
-    '''
-    if idresp:
-        if 'affiliations' in idresp and idresp['affiliations']:
-            oids[oid]['affiliations'] = []
-            for aff in idresp['affiliations']:
-                if aff['supOrgName'] not in oids[oid]['affiliations']:
-                    oids[oid]['affiliations'].append(aff['supOrgName'])
-        # Add ccDescr
-        if 'affiliations' not in oids[oid]:
-            if 'group' not in oids[oid] and 'ccDescr' in idresp and idresp['ccDescr']:
-                oids[oid]['affiliations'] = []
-                oids[oid]['affiliations'].append(idresp['ccDescr'])
-        # Add managedTeams
-        if 'managedTeams' in idresp:
-            if 'affiliations' not in oids[oid]:
-                oids[oid]['affiliations'] = []
-            for mtr in idresp['managedTeams']:
-                if 'supOrgName' in mtr and mtr['supOrgName'] and mtr['supOrgName'] not in oids[oid]['affiliations']:
-                    oids[oid]['affiliations'].append(mtr['supOrgName'])
-    if 'affiliations' in oids[oid]:
-        oids[oid]['affiliations'].sort()
-        LOGGER.info(f"Added {first} {surname} from People " \
-                    + f"({', '.join(oids[oid]['affiliations'])})")
-    else:
-        LOGGER.info(f"Added {first} {surname} from People")
-    LOGGER.debug(f"{oids[oid]['given']} {oids[oid]['family']} ")
 
 
 def add_people_information(first, surname, oids, oid):
@@ -301,8 +212,9 @@ def add_people_information(first, surname, oids, oid):
             elif people[0]['businessTitle'] == 'JRC Alumni':
                 oids[oid]['alumni'] = True
             idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
-            find_name_combos(idresp, oids, oid)
-            find_affiliations(first, surname, idresp, oids, oid)
+            if idresp:
+                DL.get_name_combinations(idresp, oids[oid])
+                DL.get_affiliations(idresp, oids[oid])
         else:
             LOGGER.error(f"Found more than one record in People for {first} {surname}")
     return found
@@ -349,7 +261,7 @@ def add_janelia_info(oids):
         Returns:
           None
     '''
-    for oid in tqdm(oids, desc='Janalians from orcid collection'):
+    for oid in tqdm(oids, desc='Janelians from orcid collection'):
         if oid in PRESENT:
             preserve_mongo_names(PRESENT[oid], oids)
         if oid in PRESENT and 'employeeId' in PRESENT[oid] and not ARG.FORCE:
@@ -366,7 +278,11 @@ def write_records(oids):
     '''
     coll = DB['dis'].orcid
     for oid, val in tqdm(oids.items(), desc='Updating orcid collection'):
-        result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
+        if oid:
+            result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
+        else:
+            print(f"INSERT {val}")
+            result = coll.insert_one(val)
         if hasattr(result, 'matched_count') and result.matched_count:
             COUNT['update'] += 1
         else:
@@ -396,6 +312,8 @@ def generate_email():
             msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
     msg += f"The following ORCID IDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for oid, val in NEW_ORCID.items():
+        if not oid:
+            oid = '(no ORCID)'
         msg += f"\n{oid}: {val}"
     try:
         LOGGER.info(f"Sending email to {RECEIVERS}")
@@ -403,6 +321,21 @@ def generate_email():
                        "New ORCID IDs")
     except Exception as err:
         LOGGER.error(err)
+
+
+def should_continue(rec):
+    ''' Ask user if we should continue
+        Keyword arguments:
+          rec: orcid collection record
+        Returns:
+          True or False
+    '''
+    print(json.dumps(rec, indent=2))
+    quest = [inquirer.Confirm("continue", message="Insert this record?", default=True)]
+    ans = inquirer.prompt(quest)
+    if not ans or not ans['continue']:
+        return False
+    return True
 
 
 def update_orcid():
@@ -414,12 +347,25 @@ def update_orcid():
     '''
     LOGGER.info(f"Started run (version {__version__})")
     oids = {}
-    if ARG.ORCID:
+    if ARG.GIVEN and ARG.FAMILY:
+        # There's no checking for dups - caveat emptor!
+        add_name('', oids, ARG.FAMILY.capitalize(), ARG.GIVEN.capitalize())
+        COUNT['orcid'] += 1
+        correlate_person('', oids)
+        if oids['']['family']:
+            if not should_continue(oids['']):
+                LOGGER.warning("Record was not inserted")
+                terminate_program()
+    elif ARG.ORCID:
+        ARG.FORCE = True
         family, given = get_name(ARG.ORCID)
         if family and given:
             add_name(ARG.ORCID, oids, family, given)
             COUNT['orcid'] += 1
             add_janelia_info(oids)
+            if not should_continue(oids[ARG.ORCID]):
+                LOGGER.warning("Record was not inserted")
+                terminate_program()
     else:
         # Get ORCID IDs from the doi collection
         dcoll = DB['dis'].dois
@@ -453,6 +399,10 @@ if __name__ == '__main__':
         description="Add ORCID information to MongoDB:orcid")
     PARSER.add_argument('--orcid', dest='ORCID', action='store',
                         help='ORCID ID')
+    PARSER.add_argument('--given', dest='GIVEN', action='store',
+                        help='Given name')
+    PARSER.add_argument('--family', dest='FAMILY', action='store',
+                        help='Family name')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
