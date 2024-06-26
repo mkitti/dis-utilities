@@ -15,6 +15,12 @@ and matching the author name against all possible employee names.
 
 """
 
+#TODO: Troubleshoot Nirmala Iyer
+#TODO: Use https://dis.int.janelia.org/doi/janelians/10.7554/eLife.80660 to identify alumni
+#TODO: Ask Sulav about research areas, do they need employee Ids, where they get tags from
+#Ask if they want jrc_tags in components
+
+
 import requests
 import os
 import sys
@@ -58,19 +64,22 @@ class Employee:
         permutations = set()
         # All possible first names + all possible last names
         for first_name, last_name in itertools.product(self.first_names, self.last_names):
-            result = f"{first_name} {last_name}"
-            permutations.add(result)
+            permutations.add(
+                f"{first_name} {last_name}"
+            )
         # All possible first names + all possible middle names + all possible last names
         if self.middle_names:
             if any(item for item in self.middle_names if item): # check for ['', '']
                 for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-                    result = f"{first_name} {middle_name} {last_name}"
-                    permutations.add(result)
+                    permutations.add(
+                        f"{first_name} {middle_name} {last_name}"
+                    )
             # All possible first names + all possible middle initials + all possible last names
                 for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
                     middle_initial = middle_name[0]
-                    result = f"{first_name} {middle_initial} {last_name}"
-                    permutations.add(result)
+                    permutations.add(
+                        f"{first_name} {middle_initial} {last_name}"
+                    )
         return sorted(permutations)
 
 class Guess(Employee):
