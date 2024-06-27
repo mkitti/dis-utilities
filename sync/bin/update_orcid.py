@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.7.0'
+__version__ = '1.8.0'
 
 import argparse
 import collections
@@ -27,9 +27,9 @@ DB = {}
 SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # Counters
-#COUNT = {'records': 0, 'orcid': 0, 'insert': 0, 'update': 0}
 COUNT = collections.defaultdict(lambda: 0, {})
 # General
+SUP_IGNORE = ['SUPERVISORY_ORGANIZATION-3-798', '026731']
 PRESENT = {}
 NEW_ORCID = {}
 
@@ -190,6 +190,31 @@ def people_by_name(first, surname):
     return filtered
 
 
+def update_group_status(rec, idresp):
+    ''' Add group tags to the record
+        Keyword arguments:
+          rec: orcid record
+          idresp: People service response
+        Returns:
+          None
+    '''
+    if 'managedTeams' not in idresp:
+        return
+    lab = ''
+    for team in idresp['managedTeams']:
+        if team['supOrgSubType'] == 'Lab' and team['supOrgName'].endswith(' Lab'):
+            if team['supOrgCode'] in SUP_IGNORE:
+                continue
+            if lab:
+                terminate_program(f"Multiple labs found for {idresp['nameFirstPreferred']} " \
+                                  + idresp['nameLastPreferred'])
+            lab = team['supOrgName']
+            if 'group' in rec:
+                LOGGER.warning(f"{rec['group']} -> {lab}")
+            rec['group'] = lab
+            rec['group_code'] = team['supOrgCode']
+
+
 def add_people_information(first, surname, oids, oid):
     ''' Correlate a name from ORCID with HHMI's People service
         Keyword arguments:
@@ -209,10 +234,11 @@ def add_people_information(first, surname, oids, oid):
             oids[oid]['userIdO365'] = people[0]['userIdO365']
             if 'group leader' in people[0]['businessTitle'].lower():
                 oids[oid]['group'] = f"{first} {surname} Lab"
-            elif people[0]['businessTitle'] == 'JRC Alumni':
+            if people[0]['businessTitle'] == 'JRC Alumni':
                 oids[oid]['alumni'] = True
             idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
             if idresp:
+                update_group_status(oids[oid], idresp)
                 DL.get_name_combinations(idresp, oids[oid])
                 DL.get_affiliations(idresp, oids[oid])
         else:
