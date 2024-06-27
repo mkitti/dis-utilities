@@ -116,7 +116,7 @@ if __name__ == '__main__':
     GROUP_A.add_argument('--file', dest='FILE', action='store',
                          help='File of DOIs to process')
     PARSER.add_argument('--date', dest='DATE', action='store',
-                        help='Newsletter date (defaults to today)')
+                        help='Newsletter date (defaults to today). Format: YYYY-MM-DD')
     PARSER.add_argument('--remove', dest='REMOVE', action='store_true',
                         default=False, help='Remove jrc_newsletter from DOI(s)')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
