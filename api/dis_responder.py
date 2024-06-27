@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.3.0"
+__version__ = "4.4.0"
 # Database
 DB = {}
 # Navigation
@@ -31,6 +31,9 @@ NAV = {"Home": "",
                 "DOIs by publisher": "dois_publisher",
                 "DOIs by tag": "dois_tag"
             },
+       "ORCID": {"Groups": "groups",
+                 "Affiliations": "orcid_tag"
+                },
        "Stats" : {"Database": "stats_database"
                  },
       }
@@ -65,13 +68,10 @@ class CustomJSONEncoder(JSONEncoder):
 class InvalidUsage(Exception):
     ''' Class to populate error return for JSON.
     '''
-    status_code = 400
-
-    def __init__(self, message, status_code=None, payload=None):
+    def __init__(self, message, status_code=400, payload=None):
         Exception.__init__(self)
         self.message = message
-        if status_code is not None:
-            self.status_code = status_code
+        self.status_code = status_code
         self.payload = payload
 
     def to_dict(self):
@@ -80,7 +80,8 @@ class InvalidUsage(Exception):
         retval = dict(self.payload or ())
         retval['rest'] = {'status_code': self.status_code,
                           'error': True,
-                          'error_text': f"An exception of type {type(self).__name__} occurred. " \
+                          'error_text': f"{self.message}\n" \
+                                        + f"An exception of type {type(self).__name__} occurred. " \
                                         + f"Arguments:\n{self.args}"}
         return retval
 
@@ -434,11 +435,13 @@ def get_badges(auth):
     '''
     badges = []
     if auth['in_database']:
-        badges.append(f"{tiny_badge('success', 'Known ORCID')}")
+        badges.append(f"{tiny_badge('success', 'In database')}")
         if auth['alumni']:
             badges.append(f"{tiny_badge('danger', 'Alumni')}")
         elif 'validated' not in auth or not auth['validated']:
             badges.append(f"{tiny_badge('warning', 'Not validated')}")
+        if 'orcid' not in auth or not auth['orcid']:
+            badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
         if auth['asserted']:
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
     else:
@@ -460,8 +463,10 @@ def show_tagged_authors(authors):
         if (not auth['janelian']) and (not auth['asserted']):
             continue
         who = f"{auth['given']} {auth['family']}"
-        if 'orcid' in auth:
+        if 'orcid' in auth and auth['orcid']:
             who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
+        elif 'employeeId' in auth and auth['employeeId']:
+            who = f"<a href='/userui/{auth['employeeId']}'>{who}</a>"
         badges = get_badges(auth)
         tags = []
         if 'group' in auth:
@@ -484,7 +489,9 @@ def add_orcid_badges(orc):
           List of badges
     '''
     badges = []
-    badges.append(tiny_badge('success', 'In local database'))
+    badges.append(tiny_badge('success', 'In database'))
+    if 'orcid' not in orc or not orc['orcid']:
+        badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
     if 'alumni' in orc:
         badges.append(tiny_badge('danger', 'Alumni'))
     if 'employeeId' not in orc:
@@ -492,15 +499,16 @@ def add_orcid_badges(orc):
     return badges
 
 
-def get_orcid_from_db(oid):
-    ''' Generate HTML for an ORCID ID that is in the orcid collection
+def get_orcid_from_db(oid, use_eid=False):
+    ''' Generate HTML for an ORCID or employeeId that is in the orcid collection
         Keyword arguments:
-          oid: ORCID ID
+          oid: ORCID or employeeId
         Returns:
           HTML and a list of DOIs
     '''
+    payload = {"employeeId": oid} if use_eid else {"orcid": oid}
     try:
-        orc = DB['dis'].orcid.find_one({"orcid": oid})
+        orc = DB['dis'].orcid.find_one(payload)
     except Exception as err:
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
@@ -626,6 +634,26 @@ def dloop(row, keys, sep="\t"):
           Joined values from a dictionary
     '''
     return sep.join([str(row[fld]) for fld in keys])
+
+
+def generate_user_table(rows):
+    ''' Generate a user table
+    '''
+    html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
+           + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        if 'orcid' in row:
+            link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
+        elif 'employeeId' in row:
+            link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
+        else:
+            link = 'No ORCID found'
+        html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
+                + f"<td>{', '.join(row['family'])}</td></tr>"
+    html += '</tbody></table>'
+    return html
+
 
 # *****************************************************************************
 # * Documentation                                                             *
@@ -1077,6 +1105,96 @@ def show_dois_custom():
         result['rest']['row_count'] += 1
     return generate_response(result)
 
+
+@app.route('/components', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
+@app.route('/components/<string:ctype>', methods=['OPTIONS', 'POST'])
+def show_multiple_components(ctype='dis'):
+    '''
+    Return DOI components for a given tag
+    Return a list of citation components for a given tag.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: ctype
+        schema:
+          type: string
+        required: false
+        description: Citation type (dis or flylight)
+      - in: query
+        name: tag
+        schema:
+          type: string
+        required: true
+        description: Group tag
+    responses:
+      200:
+        description: Component data
+      500:
+        description: MongoDB or formatting error
+    '''
+    result = initialize_result()
+    ipd = receive_payload()
+    if "tag" not in ipd or not (ipd['tag']) or not isinstance(ipd['tag'], str):
+        raise InvalidUsage("You must specify a tag")
+    result['rest']['source'] = 'mongo'
+    result['data'] = []
+    coll = DB['dis'].dois
+    try:
+        rows = coll.find({"jrc_tag": ipd['tag']}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not rows:
+        generate_response(result)
+    for row in rows:
+        record = {"doi": row['doi'],
+                  "authors": DL.get_author_list(row, style=ctype, returntype="list"),
+                  "title": DL.get_title(row),
+                  "journal": DL.get_journal(row),
+                  "publishing_date": DL.get_publishing_date(row)
+                 }
+        if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
+            record['abstract'] = row['abstract']
+        result['data'].append(record)
+        result['rest']['row_count'] += 1
+    return generate_response(result)
+
+
+@app.route('/types')
+def show_types():
+    '''
+    Show data types
+    Return DOI data types, subtypes, and counts
+    ---
+    tags:
+      - DOI
+    responses:
+      200:
+        description: types
+      500:
+        description: MongoDB error
+    '''
+    result = initialize_result()
+    coll = DB['dis'].dois
+    payload = [{"$group": {"_id": {"type": "$type", "subtype": "$subtype"},"count": {"$sum": 1}}}]
+    try:
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    result['rest']['source'] = 'mongo'
+    result['data'] = {}
+    for row in rows:
+        if 'type' not in row['_id']:
+            result['data']['datacite'] = {"count": row['count'], "subtype": None}
+        else:
+            typ = row['_id']['type']
+            result['data'][typ] = {"count": row['count']}
+            result['data'][typ]['subtype'] = row['_id']['subtype'] if 'subtype' in row['_id'] \
+                                             else None
+    result['rest']['row_count'] = len(result['data'])
+    return generate_response(result)
+
 # ******************************************************************************
 # * API endpoints (ORCID)                                                      *
 # ******************************************************************************
@@ -1180,136 +1298,9 @@ def show_oidapi(oid):
         result['rest']['row_count'] = 1
     return generate_response(result)
 
-# ******************************************************************************
-# * API endpoints (Tags)                                                       *
-# ******************************************************************************
-
-@app.route('/components', defaults={'ctype': 'dis'}, methods=['OPTIONS', 'POST'])
-@app.route('/components/<string:ctype>', methods=['OPTIONS', 'POST'])
-def show_multiple_components(ctype='dis'):
-    '''
-    Return components for a given group tag
-    Return a list of citation components for a given group tag.
-    ---
-    tags:
-      - Tags
-    parameters:
-      - in: path
-        name: ctype
-        schema:
-          type: string
-        required: false
-        description: Citation type (dis or flylight)
-      - in: query
-        name: group
-        schema:
-          type: string
-        required: true
-        description: Group tag
-    responses:
-      200:
-        description: Component data
-      500:
-        description: MongoDB or formatting error
-    '''
-    result = initialize_result()
-    ipd = receive_payload()
-    if "group" not in ipd or not (ipd['group']) or not isinstance(ipd['group'], str):
-        raise InvalidUsage("You must specify a group")
-    result['rest']['source'] = 'mongo'
-    result['data'] = []
-    coll = DB['dis'].dois
-    try:
-        rows = coll.find({"jrc_tag": ipd['group']}, {'_id': 0})
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    if not rows:
-        generate_response(result)
-    for row in rows:
-        record = {"doi": row['doi'],
-                  "authors": DL.get_author_list(row, style=ctype, returntype="list"),
-                  "title": DL.get_title(row),
-                  "journal": DL.get_journal(row),
-                  "publishing_date": DL.get_publishing_date(row)
-                 }
-        if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
-            record['abstract'] = row['abstract']
-        result['data'].append(record)
-        result['rest']['row_count'] += 1
-    return generate_response(result)
 
 # ******************************************************************************
-# * API endpoints (Types)                                                      *
-# ******************************************************************************
-
-@app.route('/types')
-def show_types():
-    '''
-    Show data types
-    Return data types, subtypes, and counts
-    ---
-    tags:
-      - Types
-    responses:
-      200:
-        description: types
-      500:
-        description: MongoDB error
-    '''
-    result = initialize_result()
-    coll = DB['dis'].dois
-    payload = [{"$group": {"_id": {"type": "$type", "subtype": "$subtype"},"count": {"$sum": 1}}}]
-    try:
-        rows = coll.aggregate(payload)
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    result['rest']['source'] = 'mongo'
-    result['data'] = {}
-    for row in rows:
-        if 'type' not in row['_id']:
-            result['data']['datacite'] = {"count": row['count'], "subtype": None}
-        else:
-            typ = row['_id']['type']
-            result['data'][typ] = {"count": row['count']}
-            result['data'][typ]['subtype'] = row['_id']['subtype'] if 'subtype' in row['_id'] \
-                                             else None
-    result['rest']['row_count'] = len(result['data'])
-    return generate_response(result)
-
-# ******************************************************************************
-# * API endpoints (Groups)                                                     *
-# ******************************************************************************
-
-@app.route('/groups')
-def show_groups():
-    '''
-    Show groups from ORCID
-    Return records whose IDs are in a group
-    ---
-    tags:
-      - Groups
-    responses:
-      200:
-        description: groups
-      500:
-        description: MongoDB error
-    '''
-    result = initialize_result()
-    coll = DB['dis'].orcid
-    payload = {"group": {"$exists": True}}
-    try:
-        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    result['rest']['source'] = 'mongo'
-    result['data'] = []
-    for row in rows:
-        result['data'].append(row)
-    result['rest']['row_count'] = len(result['data'])
-    return generate_response(result)
-
-# ******************************************************************************
-# * Web endpoints                                                              *
+# * UI endpoints (general)                                                     *
 # ******************************************************************************
 @app.route('/download/<string:fname>')
 def download(fname):
@@ -1332,7 +1323,7 @@ def show_home():
     return response
 
 # ******************************************************************************
-# * DOI endpoints                                                              *
+# * UI endpoints (DOI)                                                         *
 # ******************************************************************************
 @app.route('/doiui/<path:doi>')
 def show_doi_ui(doi):
@@ -1384,7 +1375,7 @@ def show_doi_ui(doi):
         try:
             authors = DL.get_author_details(row, DB['dis'].orcid)
         except Exception as err:
-            return inspect_error(err, 'Could not process author list details')
+            return inspect_error(err, 'Could not get author list details')
         alist = show_tagged_authors(authors)
         if alist:
             html += f"<br><h4>Janelia authors</h4><div class='scroll'>{''.join(alist)}</div>"
@@ -1406,7 +1397,9 @@ def dois_type():
         coll = DB['dis'].dois
         rows = coll.aggregate(payload)
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get types from dois collection"),
+                               message=error_message(err))
     html = '<table id="types" class="tablesorter standard"><thead><tr>' \
            + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
            + '</tr></thead><tbody>'
@@ -1434,7 +1427,10 @@ def dois_publisher():
         coll = DB['dis'].dois
         rows = coll.aggregate(payload)
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get publishers " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
     html = '<table id="types" class="tablesorter standard"><thead><tr>' \
            + '<th>Publisher</th><th>Count</th>' \
            + '</tr></thead><tbody>'
@@ -1456,13 +1452,15 @@ def dois_tag():
     payload = [{"$unwind" : "$jrc_tag"},
                {"$project": {"_id": 0, "jrc_tag": 1}},
                {"$group": {"_id": {"tag": "$jrc_tag"}, "count":{"$sum": 1}}},
-               {"$sort": {"_id.lib": 1, "_id.tag": 1}}
+               {"$sort": {"_id.tag": 1}}
               ]
     try:
         coll = DB['dis'].dois
         rows = coll.aggregate(payload)
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get tags from dois collection"),
+                               message=error_message(err))
     html = '<table id="types" class="tablesorter standard"><thead><tr>' \
            + '<th>Tag</th><th>Count</th>' \
            + '</tr></thead><tbody>'
@@ -1541,8 +1539,9 @@ def show_doiui_custom():
                                              html=html, navbar=generate_navbar('DOIs')))
     return response
 
+
 # ******************************************************************************
-# * ORCID endpoints                                                            *
+# * UI endpoints (ORCID)                                                       *
 # ******************************************************************************
 @app.route('/orcidui/<string:oid>')
 def show_oid_ui(oid):
@@ -1582,6 +1581,23 @@ def show_oid_ui(oid):
     return response
 
 
+@app.route('/userui/<string:eid>')
+def show_user_ui(eid):
+    ''' Show user record by employeeId
+    '''
+    try:
+        orciddata, _ = get_orcid_from_db(eid, use_eid=True)
+    except CustomException as err:
+        return render_template('error.html', urlroot=request.url_root,
+                                title=render_warning(f"Could not find employee ID {eid}",
+                                                     'warning'),
+                                message=error_message(err))
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title=f"Employee ID {eid}", html=orciddata,
+                                             navbar=generate_navbar('ORCID')))
+    return response
+
+
 @app.route('/namesui/<string:name>')
 def show_names_ui(name):
     ''' Show user names
@@ -1597,23 +1613,75 @@ def show_names_ui(name):
                                     message=f"Could not find any name matching {name}")
         rows = coll.find(payload).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
-           + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
-           + '</tr></thead><tbody>'
-    for row in rows:
-        link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
-        html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
-                + f"<td>{', '.join(row['family'])}</td></tr>"
-    html += '</tbody></table>'
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not count names in dois collection"),
+                               message=error_message(err))
+    html = generate_user_table(rows)
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"Search term: {name}", html=html,
                                              navbar=generate_navbar('ORCID')))
     return response
 
 
+@app.route('/orcid_tag')
+def orcid_tag():
+    ''' Show ORCID tags (affiliations) with counts
+    '''
+    payload = [{"$unwind" : "$affiliations"},
+               {"$project": {"_id": 0, "affiliations": 1}},
+               {"$group": {"_id": {"affiliation": "$affiliations"}, "count":{"$sum": 1}}},
+               {"$sort": {"_id.affiliation": 1}}
+              ]
+    try:
+        rows = DB['dis'].orcid.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get affiliations " \
+                                                    + "from orcid collection"),
+                               message=error_message(err))
+    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+           + '<th>Affiliation</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        link = f"<a href='/affiliation/{row['_id']['affiliation']}'>{row['_id']['affiliation']}</a>"
+        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="ORCID affiliations", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/affiliation/<string:aff>')
+def orcid_affiliation(aff):
+    ''' Show ORCID tags (affiliations) with counts
+    '''
+    payload = {"jrc_tag": aff}
+    try:
+        cnt = DB['dis'].dois.count_documents(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not count affiliations " \
+                                                    + "in dois collection"),
+                               message=error_message(err))
+    html = f"<p>Number of tagged DOIs: {cnt:,}</p>"
+    payload = {"affiliations": aff}
+    try:
+        rows = DB['dis'].orcid.find(payload).collation({"locale": "en"}).sort("family", 1)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get affiliations from " \
+                                                    + "orcid collection"),
+                               message=error_message(err))
+    html += generate_user_table(rows)
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title=f"{aff} affiliation",
+                                             html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
 # ******************************************************************************
-# * Stat endpoints                                                             *
+# * UI endpoints (stats)                                                       *
 # ******************************************************************************
 @app.route('/stats_database')
 def stats_database():
@@ -1634,7 +1702,9 @@ def stats_database():
                                  "idx": ", ".join(indices)
                                 }
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get collection stats"),
+                               message=error_message(err))
     html = '<table id="collections" class="tablesorter standard"><thead><tr>' \
            + '<th>Collection</th><th>Documents</th><th>Size</th><th>Free space</th>' \
            + '<th>Indices</th></tr></thead><tbody>'
@@ -1646,6 +1716,57 @@ def stats_database():
                                              title="Database statistics", html=html,
                                              navbar=generate_navbar('Stats')))
     return response
+
+# ******************************************************************************
+# * Multi-role endpoints (ORCID)                                               *
+# ******************************************************************************
+
+@app.route('/groups')
+def show_groups():
+    '''
+    Show group owners from ORCID
+    Return records whose ORCIDs have a group
+    ---
+    tags:
+      - ORCID
+    responses:
+      200:
+        description: groups
+      500:
+        description: MongoDB error
+    '''
+    result = initialize_result()
+    expected = 'html' if 'Accept' in request.headers \
+                         and 'html' in request.headers['Accept'] else 'json'
+    coll = DB['dis'].orcid
+    payload = {"group": {"$exists": True}}
+    try:
+        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
+    except Exception as err:
+        if expected == 'html':
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning("Could not get groups from MongoDB"),
+                                   message=error_message(err))
+        raise InvalidUsage(str(err), 500) from err
+    if expected == 'json':
+        result['rest']['source'] = 'mongo'
+        result['data'] = []
+        for row in rows:
+            result['data'].append(row)
+        result['rest']['row_count'] = len(result['data'])
+        return generate_response(result)
+    html = '<table class="standard"><thead><tr><th>Name</th><th>ORCID</th><th>Group</th>' \
+           + '<th>Affiliations</th></tr></thead><tbody>'
+    for row in rows:
+        if 'affiliations' not in row:
+            row['affiliations'] = ''
+        html += f"<tr><td>{row['given'][0]} {row['family'][0]}</td>" \
+                + f"<td style='width: 180px'><a href='/orcidui/{row['orcid']}'>" \
+                + f"{row['orcid']}</a></td><td>{row['group']}</td>" \
+                + f"<td>{', '.join(row['affiliations'])}</td></tr>"
+    html += '</tbody></table>'
+    return render_template('general.html', urlroot=request.url_root, title='Groups', html=html,
+                           navbar=generate_navbar('ORCID'))
 
 # *****************************************************************************
 
