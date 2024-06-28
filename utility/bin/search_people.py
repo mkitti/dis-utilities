@@ -55,9 +55,9 @@ def perform_search():
         if ARG.JANELIA:
             if 'Janelia' not in rec['locationName']:
                 continue
-            key = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
+            key = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']} {rec['employeeId']}"
         else:
-            key = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']} ({rec['locationName']})"
+            key = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']} {rec['employeeId']} ({rec['locationName']})"
         people[key] = rec
     if not people:
         terminate_program(f"{ARG.NAME} was not found")
