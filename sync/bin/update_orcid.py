@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.8.0'
+__version__ = '2.0.0'
 
 import argparse
 import collections
@@ -29,7 +29,6 @@ RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # Counters
 COUNT = collections.defaultdict(lambda: 0, {})
 # General
-SUP_IGNORE = ['SUPERVISORY_ORGANIZATION-3-798', '026731']
 PRESENT = {}
 NEW_ORCID = {}
 
@@ -203,16 +202,44 @@ def update_group_status(rec, idresp):
     lab = ''
     for team in idresp['managedTeams']:
         if team['supOrgSubType'] == 'Lab' and team['supOrgName'].endswith(' Lab'):
-            if team['supOrgCode'] in SUP_IGNORE:
+            if team['supOrgCode'] in DISCONFIG['sup_ignore']:
                 continue
             if lab:
                 terminate_program(f"Multiple labs found for {idresp['nameFirstPreferred']} " \
                                   + idresp['nameLastPreferred'])
             lab = team['supOrgName']
-            if 'group' in rec:
-                LOGGER.warning(f"{rec['group']} -> {lab}")
             rec['group'] = lab
             rec['group_code'] = team['supOrgCode']
+
+
+def get_person(people):
+    ''' Get a person record
+        Keyword arguments:
+          people: list of people
+        Returns:
+          Person record
+    '''
+    if len(people) == 1:
+        idresp = JRC.call_people_by_id(people[0]['employeeId'])
+        return people[0], idresp
+    latest = ''
+    saved = {"person": None, "idresp": None}
+    idresp = None
+    for person in people:
+        first = person['nameFirstPreferred']
+        last = person['nameLastPreferred']
+        idresp = JRC.call_people_by_id(person['employeeId'])
+        if 'terminationDate' in idresp and idresp['terminationDate']:
+            LOGGER.warning(f"{first} {last} was terminated {idresp['terminationDate']}")
+            continue
+        if 'hireDate' in idresp and idresp['hireDate']:
+            if not latest or idresp['hireDate'] > latest:
+                latest = idresp['hireDate']
+                saved['person'] = person
+                saved['idresp'] = idresp
+    if saved['person']:
+        LOGGER.warning(f"Selected {first} {last} {latest}")
+    return saved['person'], saved['idresp']
 
 
 def add_people_information(first, surname, oids, oid):
@@ -228,7 +255,8 @@ def add_people_information(first, surname, oids, oid):
     found = False
     people = people_by_name(first, surname)
     if people:
-        if len(people) == 1:
+        person, idresp = get_person(people)
+        if person:
             found = True
             oids[oid]['employeeId'] = people[0]['employeeId']
             oids[oid]['userIdO365'] = people[0]['userIdO365']
@@ -236,13 +264,12 @@ def add_people_information(first, surname, oids, oid):
                 oids[oid]['group'] = f"{first} {surname} Lab"
             if people[0]['businessTitle'] == 'JRC Alumni':
                 oids[oid]['alumni'] = True
-            idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
             if idresp:
                 update_group_status(oids[oid], idresp)
                 DL.get_name_combinations(idresp, oids[oid])
                 DL.get_affiliations(idresp, oids[oid])
         else:
-            LOGGER.error(f"Found more than one record in People for {first} {surname}")
+            LOGGER.error(f"No usable record in People for {first} {surname}")
     return found
 
 
@@ -459,6 +486,6 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
-    REST = JRC.get_config("rest_services")
+    DISCONFIG = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     update_orcid()
     terminate_program()
