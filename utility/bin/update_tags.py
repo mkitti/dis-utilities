@@ -190,7 +190,8 @@ def update_tags():
     if not dois:
         terminate_program("No DOIs were found")
     coll = DB['dis'].dois
-    for doi in dois:
+    for odoi in dois:
+        doi = odoi.lower()
         try:
             rec = coll.find_one({"doi": doi})
         except Exception as err:
