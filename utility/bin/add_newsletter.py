@@ -130,8 +130,13 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
-    if ARG.DATE and ARG.REMOVE:
-        terminate_program("Specifying --date and --remove isn't permitted")
+    if ARG.DATE:
+        if ARG.REMOVE:
+            terminate_program("Specifying --date and --remove isn't permitted")
+        try:
+            datetime.strptime(ARG.DATE, '%Y-%m-%d')
+        except ValueError:
+            terminate_program(f"{ARG.DATE} is an invalid date")
     initialize_program()
     process_dois()
     terminate_program()
