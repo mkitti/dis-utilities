@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.5.0"
+__version__ = "4.6.0"
 # Database
 DB = {}
 # Navigation
@@ -561,10 +561,16 @@ def get_migration_data(doi):
             rec['tags'] = tags
     rec['authors'] = authors
     # Additional data
-    rec['title'] = DL.get_title(row)
     if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
         rec['abstract'] = row['abstract']
     rec['journal'] = DL.get_journal(row)
+    if 'jrc_publishing_date' in row:
+        rec['jrc_publishing_date'] = row['jrc_publishing_date']
+    if 'publisher' in row:
+        rec['publisher'] = row['publisher']
+    rec['title'] = DL.get_title(row)
+    if 'URL' in row:
+        rec['url'] = row['URL']
     return rec
 
 # ******************************************************************************
