@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.6.0"
+__version__ = "4.7.0"
 # Database
 DB = {}
 # Navigation
@@ -347,9 +347,9 @@ def get_orcid_from_db(oid, use_eid=False):
         Returns:
           HTML and a list of DOIs
     '''
-    payload = {"employeeId": oid} if use_eid else {"orcid": oid}
+    print("Lookup ORCID")
     try:
-        orc = DB['dis'].orcid.find_one(payload)
+        orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
     except Exception as err:
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
@@ -1670,8 +1670,12 @@ def show_oid_ui(oid):
         orciddata, dois = get_orcid_from_db(oid)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
-                                title=render_warning(f"Could not find ORCID ID {oid}", 'warning'),
+                                title=render_warning(f"Could not find ORCID ID {oid}", 'error'),
                                 message=error_message(err))
+    if not orciddata:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find ORCID ID {oid}", 'warning'),
+                               message="Could not find any information for this ORCID ID")
     html = f"<h3>{who}</h3>{orciddata}"
     # Works
     if 'works' in data['activities-summary'] and data['activities-summary']['works']['group']:
@@ -1694,6 +1698,10 @@ def show_user_ui(eid):
                                 title=render_warning(f"Could not find employee ID {eid}",
                                                      'warning'),
                                 message=error_message(err))
+    if not orciddata:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find employee ID {eid}", 'warning'),
+                               message="Could not find any information for this employee ID")
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"Employee ID {eid}", html=orciddata,
                                              navbar=generate_navbar('ORCID')))
@@ -1860,11 +1868,12 @@ def show_groups():
     html = '<table class="standard"><thead><tr><th>Name</th><th>ORCID</th><th>Group</th>' \
            + '<th>Affiliations</th></tr></thead><tbody>'
     for row in rows:
+        print(row)
         if 'affiliations' not in row:
             row['affiliations'] = ''
+        link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>" if 'orcid' in row else ''
         html += f"<tr><td>{row['given'][0]} {row['family'][0]}</td>" \
-                + f"<td style='width: 180px'><a href='/orcidui/{row['orcid']}'>" \
-                + f"{row['orcid']}</a></td><td>{row['group']}</td>" \
+                + f"<td style='width: 180px'>{link}</td><td>{row['group']}</td>" \
                 + f"<td>{', '.join(row['affiliations'])}</td></tr>"
     html += '</tbody></table>'
     return render_template('general.html', urlroot=request.url_root, title='Groups', html=html,
