@@ -67,6 +67,7 @@ def initialize_program():
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
+    # Initialize the PRESENT dict with rows that have ORCIDs
     try:
         rows = DB['dis'].orcid.find({"orcid": {"$exists": True}})
     except Exception as err:
