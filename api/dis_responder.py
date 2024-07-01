@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.4.0"
+__version__ = "4.5.0"
 # Database
 DB = {}
 # Navigation
@@ -137,9 +137,8 @@ def before_request():
         return generate_response(result)
     return None
 
-
 # ******************************************************************************
-# * Utility functions                                                          *
+# * Error utility functions                                                    *
 # ******************************************************************************
 
 @app.errorhandler(InvalidUsage)
@@ -181,6 +180,39 @@ def inspect_error(err, errtype):
                            title=render_warning(errtype), message=mess)
 
 
+def render_warning(msg, severity='error', size='lg'):
+    ''' Render warning HTML
+        Keyword arguments:
+          msg: message
+          severity: severity (warning, error, or success)
+          size: glyph size
+        Returns:
+          HTML rendered warning
+    '''
+    icon = 'exclamation-triangle'
+    color = 'goldenrod'
+    if severity == 'error':
+        color = 'red'
+    elif severity == 'success':
+        icon = 'check-circle'
+        color = 'lime'
+    elif severity == 'na':
+        icon = 'minus-circle'
+        color = 'gray'
+    elif severity == 'missing':
+        icon = 'minus-circle'
+    elif severity == 'no':
+        icon = 'times-circle'
+        color = 'red'
+    elif severity == 'warning':
+        icon = 'exclamation-circle'
+    return f"<span class='fas fa-{icon} fa-{size}' style='color:{color}'></span>" \
+           + f"&nbsp;{msg}"
+
+# ******************************************************************************
+# * Navigation utility functions                                               *
+# ******************************************************************************
+
 def generate_navbar(active):
     ''' Generate the web navigation bar
         Keyword arguments:
@@ -212,6 +244,9 @@ def generate_navbar(active):
     nav += '</ul></div></nav>'
     return nav
 
+# ******************************************************************************
+# * Payload utility functions                                                  *
+# ******************************************************************************
 
 def receive_payload():
     ''' Get a request payload (form or JSON).
@@ -263,6 +298,9 @@ def generate_response(result):
     result["rest"]["elapsed_time"] = str(timedelta(seconds=time() - app.config["START_TIME"]))
     return jsonify(**result)
 
+# ******************************************************************************
+# * ORCID utility functions                                                    *
+# ******************************************************************************
 
 def get_work_publication_date(wsumm):
     ''' Get a publication date from an ORCID work summary
@@ -300,203 +338,6 @@ def get_work_doi(work):
         if 'external-id-value' in eid:
             return eid['external-id-url']['value']
     return ''
-
-
-def render_warning(msg, severity='error', size='lg'):
-    ''' Render warning HTML
-        Keyword arguments:
-          msg: message
-          severity: severity (warning, error, or success)
-          size: glyph size
-        Returns:
-          HTML rendered warning
-    '''
-    icon = 'exclamation-triangle'
-    color = 'goldenrod'
-    if severity == 'error':
-        color = 'red'
-    elif severity == 'success':
-        icon = 'check-circle'
-        color = 'lime'
-    elif severity == 'na':
-        icon = 'minus-circle'
-        color = 'gray'
-    elif severity == 'missing':
-        icon = 'minus-circle'
-    elif severity == 'no':
-        icon = 'times-circle'
-        color = 'red'
-    elif severity == 'warning':
-        icon = 'exclamation-circle'
-    return f"<span class='fas fa-{icon} fa-{size}' style='color:{color}'></span>" \
-           + f"&nbsp;{msg}"
-
-
-def humansize(num, suffix='B'):
-    ''' Return a human-readable storage size
-        Keyword arguments:
-          num: size
-          suffix: default suffix
-        Returns:
-          string
-    '''
-    for unit in ['', 'K', 'M', 'G', 'T']:
-        if abs(num) < 1024.0:
-            return f"{num:.1f}{unit}{suffix}"
-        num /= 1024.0
-    return "{num:.1f}P{suffix}"
-
-
-def get_doi(doi):
-    ''' Add a table of custom JRC fields
-        Keyword arguments:
-          doi: DOI
-        Returns:
-          source: data source
-          data: data from response
-    '''
-    if DL.is_datacite(doi):
-        resp = JRC.call_datacite(doi)
-        source = 'datacite'
-        data = resp['data']['attributes'] if 'data' in resp else {}
-    else:
-        resp = JRC.call_crossref(doi)
-        source = 'crossref'
-        data = resp['message'] if 'message' in resp else {}
-    return source, data
-
-
-def add_jrc_fields(row):
-    ''' Add a table of custom JRC fields
-        Keyword arguments:
-          row: DOI record
-        Returns:
-          HTML
-    '''
-    jrc = {}
-    prog = re.compile("^jrc_")
-    for key, val in row.items():
-        if not re.match(prog, key):
-            continue
-        if isinstance(val, list):
-            val = ", ".join(val)
-        jrc[key] = val
-    if not jrc:
-        return ""
-    html = '<table class="standard">'
-    for key in sorted(jrc):
-        html += f"<tr><td>{key}</td><td>{jrc[key]}</td></tr>"
-    html += "</table><br>"
-    return html
-
-
-def add_relations(row):
-    ''' Create a list of relations
-        Keyword arguments:
-          row: DOI record
-        Returns:
-          HTML
-    '''
-    html = ""
-    if ("relation" not in row) or (not row['relation']):
-        return html
-    for rel in row['relation']:
-        used = []
-        for itm in row['relation'][rel]:
-            if itm['id'] in used:
-                continue
-            link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
-            html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
-            used.append(itm['id'])
-    return html
-
-
-def tiny_badge(btype, msg, link=None):
-    ''' Create HTML for a [very] small badge
-        Keyword arguments:
-          btype: badge type (success, danger, etc.)
-          msg: message to show on badge
-          link: link to other web page
-        Returns:
-          HTML
-    '''
-    html = f"<span class='badge badge-{btype}' style='font-size: 8pt'>{msg}</span>"
-    if link:
-        html = f"<a href='{link}' target='_blank'>{html}</a>"
-    return html
-
-
-def get_badges(auth):
-    ''' Create a list of badges for an author
-        Keyword arguments:
-          auth: detailed author record
-        Returns:
-          List of HTML badges
-    '''
-    badges = []
-    if auth['in_database']:
-        badges.append(f"{tiny_badge('success', 'In database')}")
-        if auth['alumni']:
-            badges.append(f"{tiny_badge('danger', 'Alumni')}")
-        elif 'validated' not in auth or not auth['validated']:
-            badges.append(f"{tiny_badge('warning', 'Not validated')}")
-        if 'orcid' not in auth or not auth['orcid']:
-            badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
-        if auth['asserted']:
-            badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
-    else:
-        badges.append(f"{tiny_badge('danger', 'Not in database')}")
-        if auth['asserted']:
-            badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
-    return badges
-
-
-def show_tagged_authors(authors):
-    ''' Create a list of Janelian authors (with badges and tags)
-        Keyword arguments:
-          authors: list of detailed authors from a publication
-        Returns:
-          List of HTML authors
-    '''
-    alist = []
-    for auth in authors:
-        if (not auth['janelian']) and (not auth['asserted']):
-            continue
-        who = f"{auth['given']} {auth['family']}"
-        if 'orcid' in auth and auth['orcid']:
-            who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
-        elif 'employeeId' in auth and auth['employeeId']:
-            who = f"<a href='/userui/{auth['employeeId']}'>{who}</a>"
-        badges = get_badges(auth)
-        tags = []
-        if 'group' in auth:
-            tags.append(auth['group'])
-        if 'tags' in auth:
-            for tag in auth['tags']:
-                if tag not in tags:
-                    tags.append(tag)
-        tags.sort()
-        row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
-        alist.append(row)
-    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>"
-
-
-def add_orcid_badges(orc):
-    ''' Generate badges for an ORCID ID that is in the orcid collection
-        Keyword arguments:
-          orc: row from orcid collection
-        Returns:
-          List of badges
-    '''
-    badges = []
-    badges.append(tiny_badge('success', 'In database'))
-    if 'orcid' not in orc or not orc['orcid']:
-        badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
-    if 'alumni' in orc:
-        badges.append(tiny_badge('danger', 'Alumni'))
-    if 'employeeId' not in orc:
-        badges.append(tiny_badge('warning', 'Not validated'))
-    return badges
 
 
 def get_orcid_from_db(oid, use_eid=False):
@@ -599,6 +440,228 @@ def add_orcid_works(data, dois):
     return html
 
 
+def generate_user_table(rows):
+    ''' Generate a user table
+    '''
+    html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
+           + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        if 'orcid' in row:
+            link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
+        elif 'employeeId' in row:
+            link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
+        else:
+            link = 'No ORCID found'
+        html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
+                + f"<td>{', '.join(row['family'])}</td></tr>"
+    html += '</tbody></table>'
+    return html
+
+# ******************************************************************************
+# * DOI utility functions                                                      *
+# ******************************************************************************
+
+def get_doi(doi):
+    ''' Add a table of custom JRC fields
+        Keyword arguments:
+          doi: DOI
+        Returns:
+          source: data source
+          data: data from response
+    '''
+    if DL.is_datacite(doi):
+        resp = JRC.call_datacite(doi)
+        source = 'datacite'
+        data = resp['data']['attributes'] if 'data' in resp else {}
+    else:
+        resp = JRC.call_crossref(doi)
+        source = 'crossref'
+        data = resp['message'] if 'message' in resp else {}
+    return source, data
+
+
+def add_jrc_fields(row):
+    ''' Add a table of custom JRC fields
+        Keyword arguments:
+          row: DOI record
+        Returns:
+          HTML
+    '''
+    jrc = {}
+    prog = re.compile("^jrc_")
+    for key, val in row.items():
+        if not re.match(prog, key):
+            continue
+        if isinstance(val, list):
+            val = ", ".join(val)
+        jrc[key] = val
+    if not jrc:
+        return ""
+    html = '<table class="standard">'
+    for key in sorted(jrc):
+        html += f"<tr><td>{key}</td><td>{jrc[key]}</td></tr>"
+    html += "</table><br>"
+    return html
+
+
+def add_relations(row):
+    ''' Create a list of relations
+        Keyword arguments:
+          row: DOI record
+        Returns:
+          HTML
+    '''
+    html = ""
+    if ("relation" not in row) or (not row['relation']):
+        return html
+    for rel in row['relation']:
+        used = []
+        for itm in row['relation'][rel]:
+            if itm['id'] in used:
+                continue
+            link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
+            html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
+            used.append(itm['id'])
+    return html
+
+
+def get_migration_data(doi):
+    ''' Create a migration record for a single DOI
+        Keyword arguments:
+          doi: DOI
+        Returns:
+          migration dictionary
+    '''
+    rec = {}
+    try:
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        return rec
+    # Author
+    try:
+        authors = DL.get_author_details(row, DB['dis'].orcid)
+    except Exception as err:
+        raise InvalidUsage("COuld not get author details: " + str(err), 500) from err
+    tagname = []
+    tags = []
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+    if 'jrc_tag' in row:
+        for atag in row['jrc_tag']:
+            if atag not in tagname:
+                code = orgs[atag] if atag in orgs else None
+                tagname.append(atag)
+                tags.append({"name": atag, "code": code})
+        if tags:
+            rec['tags'] = tags
+    rec['authors'] = authors
+    # Additional data
+    rec['title'] = DL.get_title(row)
+    if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
+        rec['abstract'] = row['abstract']
+    rec['journal'] = DL.get_journal(row)
+    return rec
+
+# ******************************************************************************
+# * Badge utility functions                                                    *
+# ******************************************************************************
+
+def tiny_badge(btype, msg, link=None):
+    ''' Create HTML for a [very] small badge
+        Keyword arguments:
+          btype: badge type (success, danger, etc.)
+          msg: message to show on badge
+          link: link to other web page
+        Returns:
+          HTML
+    '''
+    html = f"<span class='badge badge-{btype}' style='font-size: 8pt'>{msg}</span>"
+    if link:
+        html = f"<a href='{link}' target='_blank'>{html}</a>"
+    return html
+
+
+def get_badges(auth):
+    ''' Create a list of badges for an author
+        Keyword arguments:
+          auth: detailed author record
+        Returns:
+          List of HTML badges
+    '''
+    badges = []
+    if auth['in_database']:
+        badges.append(f"{tiny_badge('success', 'In database')}")
+        if auth['alumni']:
+            badges.append(f"{tiny_badge('danger', 'Alumni')}")
+        elif 'validated' not in auth or not auth['validated']:
+            badges.append(f"{tiny_badge('warning', 'Not validated')}")
+        if 'orcid' not in auth or not auth['orcid']:
+            badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
+        if auth['asserted']:
+            badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+    else:
+        badges.append(f"{tiny_badge('danger', 'Not in database')}")
+        if auth['asserted']:
+            badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+    return badges
+
+
+def show_tagged_authors(authors):
+    ''' Create a list of Janelian authors (with badges and tags)
+        Keyword arguments:
+          authors: list of detailed authors from a publication
+        Returns:
+          List of HTML authors
+    '''
+    alist = []
+    for auth in authors:
+        if (not auth['janelian']) and (not auth['asserted']):
+            continue
+        who = f"{auth['given']} {auth['family']}"
+        if 'orcid' in auth and auth['orcid']:
+            who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
+        elif 'employeeId' in auth and auth['employeeId']:
+            who = f"<a href='/userui/{auth['employeeId']}'>{who}</a>"
+        badges = get_badges(auth)
+        tags = []
+        if 'group' in auth:
+            tags.append(auth['group'])
+        if 'tags' in auth:
+            for tag in auth['tags']:
+                if tag not in tags:
+                    tags.append(tag)
+        tags.sort()
+        row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
+        alist.append(row)
+    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>"
+
+
+def add_orcid_badges(orc):
+    ''' Generate badges for an ORCID ID that is in the orcid collection
+        Keyword arguments:
+          orc: row from orcid collection
+        Returns:
+          List of badges
+    '''
+    badges = []
+    badges.append(tiny_badge('success', 'In database'))
+    if 'orcid' not in orc or not orc['orcid']:
+        badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
+    if 'alumni' in orc:
+        badges.append(tiny_badge('danger', 'Alumni'))
+    if 'employeeId' not in orc:
+        badges.append(tiny_badge('warning', 'Not validated'))
+    return badges
+
+# ******************************************************************************
+# * General utility functions                                                  *
+# ******************************************************************************
+
 def random_string(strlen=8):
     ''' Generate a random string of letters and digits
         Keyword arguments:
@@ -624,6 +687,21 @@ def create_downloadable(name, header, content):
                 + 'role="button">Download tab-delimited file</a>'
 
 
+def humansize(num, suffix='B'):
+    ''' Return a human-readable storage size
+        Keyword arguments:
+          num: size
+          suffix: default suffix
+        Returns:
+          string
+    '''
+    for unit in ['', 'K', 'M', 'G', 'T']:
+        if abs(num) < 1024.0:
+            return f"{num:.1f}{unit}{suffix}"
+        num /= 1024.0
+    return "{num:.1f}P{suffix}"
+
+
 def dloop(row, keys, sep="\t"):
     ''' Generate a string of joined velues from a dictionary
         Keyword arguments:
@@ -634,25 +712,6 @@ def dloop(row, keys, sep="\t"):
           Joined values from a dictionary
     '''
     return sep.join([str(row[fld]) for fld in keys])
-
-
-def generate_user_table(rows):
-    ''' Generate a user table
-    '''
-    html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
-           + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
-           + '</tr></thead><tbody>'
-    for row in rows:
-        if 'orcid' in row:
-            link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
-        elif 'employeeId' in row:
-            link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
-        else:
-            link = 'No ORCID found'
-        html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
-                + f"<td>{', '.join(row['family'])}</td></tr>"
-    html += '</tbody></table>'
-    return html
 
 
 # *****************************************************************************
@@ -750,15 +809,20 @@ def show_doi_authors(doi):
         authors = DL.get_author_details(row, DB['dis'].orcid)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
+    tagname = []
     tags = []
-    for auth in authors:
-        if 'tags' in auth:
-            for atag in auth['tags']:
-                if atag not in tags:
-                    tags.append(atag)
-    if tags:
-        tags.sort()
-        result['tags'] = tags
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if 'jrc_tag' in row:
+        for atag in row['jrc_tag']:
+            if atag not in tagname:
+                code = orgs[atag] if atag in orgs else None
+                tagname.append(atag)
+                tags.append({"name": atag, "code": code})
+        if tags:
+            result['tags'] = tags
     result['data'] = authors
     return generate_response(result)
 
@@ -799,6 +863,38 @@ def show_doi_janelians(doi):
     if tags:
         tags.sort()
         result['tags'] = tags
+    return generate_response(result)
+
+
+@app.route('/doi/migration/<path:doi>')
+def show_doi_migration(doi):
+    '''
+    Return a DOI's migration record
+    Return migration information for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB error
+    '''
+    doi = doi.lstrip('/').rstrip('/').lower()
+    result = initialize_result()
+    try:
+        rec = get_migration_data(doi)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    rec['doi'] = doi
+    result['data'] = rec
     return generate_response(result)
 
 
