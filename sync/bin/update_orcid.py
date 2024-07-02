@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 import argparse
 import collections
@@ -431,8 +431,11 @@ def update_orcid():
         family, given = get_name(ARG.ORCID)
         if family and given:
             add_name(ARG.ORCID, oids, family, given)
+            oids[ARG.ORCID]['orcid'] = ARG.ORCID
             COUNT['orcid'] += 1
             add_janelia_info(oids)
+            if 'employeeId' not in oids[ARG.ORCID]:
+                oids[ARG.ORCID]['alumni'] = True
             if not should_continue(oids[ARG.ORCID]):
                 LOGGER.warning("Record was not inserted")
                 terminate_program()
