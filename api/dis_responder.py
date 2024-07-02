@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.7.0"
+__version__ = "4.8.0"
 # Database
 DB = {}
 # Navigation
@@ -533,9 +533,10 @@ def get_migration_data(doi):
         Returns:
           migration dictionary
     '''
+    project = {'_id': 0}
     rec = {}
     try:
-        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, project)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -901,6 +902,54 @@ def show_doi_migration(doi):
         raise InvalidUsage(str(err), 500) from err
     rec['doi'] = doi
     result['data'] = rec
+    result['rest']['source'] = 'mongo'
+    result['rest']['row_count'] = len(result['data'])
+    return generate_response(result)
+
+
+@app.route('/doi/migrations/<string:idate>')
+def show_doi_migrations(idate):
+    '''
+    Return migration records for DOIs inserted since a specified date
+    Return migration records for DOIs inserted since a specified date.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: idate
+        schema:
+          type: string
+        required: true
+        description: Earliest insertion date in ISO format (YYYY-MM-DD)
+    responses:
+      200:
+        description: DOI data
+      500:
+        description: MongoDB error
+    '''
+    result = initialize_result()
+    try:
+        isodate = datetime.strptime(idate,'%Y-%m-%d')
+    except Exception as err:
+        raise InvalidUsage(str(err), 400) from err
+    try:
+        rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    print("BACK FROM MONGO")
+    result['rest']['row_count'] = 0
+    result['rest']['source'] = 'mongo'
+    result['data'] = []
+    for row in rows:
+        try:
+            doi = row['doi']
+            rec = get_migration_data(doi)
+            rec['doi'] = doi
+            result['data'].append(rec)
+        except Exception as err:
+            raise InvalidUsage(str(err), 500) from err
+    result['rest']['row_count'] = len(result['data'])
     return generate_response(result)
 
 
@@ -969,13 +1018,12 @@ def show_inserted(idate):
     '''
     result = initialize_result()
     try:
-        coll = DB['dis'].dois
         isodate = datetime.strptime(idate,'%Y-%m-%d')
     except Exception as err:
         raise InvalidUsage(str(err), 400) from err
     print(isodate)
     try:
-        rows = coll.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
+        rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['row_count'] = 0
