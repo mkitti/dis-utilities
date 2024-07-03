@@ -169,7 +169,7 @@ def add_from_orcid(oids):
 
 
 def people_by_name(first, surname):
-    ''' Search for a name in the people system
+    ''' Search for a surname in the people system
         Keyword arguments:
           first: first name
           surname: last name
@@ -218,7 +218,7 @@ def get_person(people):
         Keyword arguments:
           people: list of people
         Returns:
-          Person record
+          Person record and person ID record
     '''
     if len(people) == 1:
         idresp = JRC.call_people_by_id(people[0]['employeeId'])
