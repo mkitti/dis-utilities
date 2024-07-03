@@ -1,5 +1,5 @@
 """
-New version of name_match.py that will connect to the database directly instead of making REST requests.
+New version of name_match.py that will connect to the DIS database directly instead of making REST requests.
 """
 
 
@@ -21,6 +21,12 @@ import sys
 ################## STUFF YOU SHOULD EDIT ##################
 doi = '10.7554/eLife.80660'
 ##########################################################
+
+people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
+api_key = os.environ.get('PEOPLE_API_KEY')
+if not api_key:
+    print("Error: Please set the environment variable PEOPLE_API_KEY.")
+    sys.exit(1)
 
 DB = {}
 PROJECT = {}
@@ -141,14 +147,42 @@ class MultipleHits:
 
 
 
+def generic_get_request(url, headers):
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return(response.json())
+    else:
+        print(f"There was an error with the API GET request. Status code: {response.status_code}.\n Error message: {response.reason}")
+        sys.exit(1)
+
+
+def search_people_api(search_term, mode):
+    if mode not in {'name', 'id'}:
+        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
+    url = ''
+    if mode == 'name':
+        url = people_api_url + 'Search/ByName/' + search_term
+    elif mode == 'id':
+        url = people_api_url + 'Person/GetById/' + search_term
+    headers = { 'APIKey': f'{api_key}', 'Content-Type': 'application/json' }
+    response = generic_get_request(url, headers)
+    if not response:
+        #print(f"Searching the HHMI People API for {search_term} yielded no results.")
+        #sys.exit(1)
+        return(MissingPerson())
+    else:
+        return(response)
+
+
 def search_orcid_collection(orcid):
-    DL.single_orcid_lookup(orcid, collection, 'orcid')
+    return(DL.single_orcid_lookup(orcid, collection, 'orcid'))
 
 
-
+#TODO: function to search the DOI collection?
 
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     initialize_program()
     collection = DB['dis'].orcid
+    my_orcid_record = search_orcid_collection('0000-0002-4156-2849')
