@@ -79,9 +79,20 @@ class Guess(Employee):
         super().__init__(id, job_title, email, first_names, middle_names, last_names)
         self.name = name
         self.score = score
-    @classmethod
-    def from_employee(cls, employee, name=None, score=None):
-        return cls(employee.id, employee.job_title, employee.email, employee.first_names, employee.middle_names, employee.last_names, name, score)
+
+
+def instantiate_guess(employee, name=None, score=None):
+    return(Guess(
+        employee.id, 
+        employee.job_title, 
+        employee.email, 
+        employee.first_names, 
+        employee.middle_names, 
+        employee.last_names, 
+        name, 
+        score
+        )
+    )
 
 
 class MissingPerson:
@@ -231,7 +242,7 @@ def guess_employee(author):
         for employee in candidate_employees:
             employee_permuted_names = employee.generate_name_permutations()
             for name in employee_permuted_names:
-                guesses.append(Guess.from_employee(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
+                guesses.append(instantiate_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
         for guess in guesses:
             guess.score = fuzz.token_sort_ratio(author.name.lower(), guess.name.lower())
         high_score = max( [g.score for g in guesses] )
