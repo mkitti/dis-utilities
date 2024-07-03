@@ -10,7 +10,6 @@ The script recommends employee ids for authors where an 85% match or higher was 
 
 """
 
-#TODO: Troubleshoot Nirmala Iyer
 #TODO: Use https://dis.int.janelia.org/doi/janelians/10.7554/eLife.80660 to identify alumni
 
 
@@ -270,7 +269,7 @@ if __name__ == '__main__':
                 else:
                     print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
         else:
-            print(f'{author.name} does not have an ORCID.')
+            print(f'Author {author.name} does not have an ORCID on this paper.')
             best_guess = guess_employee(author)
             if isinstance(best_guess, MissingPerson):
                 print(f"{author.name} could not be found in the HHMI People API.")
