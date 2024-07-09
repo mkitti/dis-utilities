@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 
 import argparse
 import collections
@@ -76,7 +76,7 @@ def get_dois():
         return [ARG.DOI]
     if ARG.FILE:
         COUNT['specified'] = 1
-        return [ARG.FILE.read().splitlines()]
+        return ARG.FILE.read().splitlines()
     LOGGER.info(f"Finding DOIs from the last {ARG.DAYS} day{'' if ARG.DAYS == 1 else 's'}")
     week_ago = (datetime.today() - timedelta(days=ARG.DAYS))
     try:
@@ -146,7 +146,7 @@ def update_single_doi(rec):
     tagd = {}
     for tag in tags:
         newtag = f"{tag} ({', '.join(tagauth[tag])})"
-        if tag in rec['jrc_tag']:
+        if 'jrc_tag' in rec and tag in rec['jrc_tag']:
             current.append(newtag)
         tagd[newtag] = tag
     print(f"DOI: {rec['doi']}")
