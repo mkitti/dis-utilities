@@ -1,4 +1,3 @@
-bson
 inquirer
 requests
 tqdm
