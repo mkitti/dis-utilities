@@ -13,7 +13,7 @@ import re
 import itertools
 from termcolor import colored
 import jrc_common.jrc_common as JRC
-import doi_common.doi_common as DL
+import doi_common.doi_common as doi_common
 from operator import attrgetter
 import sys
 #TODO: Add some of these to requirements.txt?
@@ -174,15 +174,22 @@ def search_people_api(search_term, mode):
         return(response)
 
 
-def search_orcid_collection(orcid):
-    return(DL.single_orcid_lookup(orcid, collection, 'orcid'))
+def search_orcid_collection(orcid, collection):
+    return(
+        doi_common.single_orcid_lookup(orcid, collection, 'orcid')
+        )
 
+def add_employee_id_to_orcid_record(orcid, employee_id, collection):
+    return(
+        doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
+        )
 
-#TODO: function to search the DOI collection?
 
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     initialize_program()
     collection = DB['dis'].orcid
-    my_orcid_record = search_orcid_collection('0000-0002-4156-2849')
+    add_employee_id_to_orcid_record('0000-0002-4156-2849', '65362', collection)
+    my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
+    print(my_orcid_record)
