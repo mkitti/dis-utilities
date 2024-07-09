@@ -179,7 +179,7 @@ def search_orcid_collection(orcid, collection):
         doi_common.single_orcid_lookup(orcid, collection, 'orcid')
         )
 
-def add_employee_id_to_orcid_record(orcid, employee_id, collection):
+def add_employeeId_to_orcid_record(orcid, employee_id, collection):
     return(
         doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
         )
@@ -190,6 +190,6 @@ def add_employee_id_to_orcid_record(orcid, employee_id, collection):
 if __name__ == '__main__':
     initialize_program()
     collection = DB['dis'].orcid
-    add_employee_id_to_orcid_record('0000-0002-4156-2849', '65362', collection)
+    add_employeeId_to_orcid_record('0000-0002-4156-2849', '65362', collection)
     my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
     print(my_orcid_record)
