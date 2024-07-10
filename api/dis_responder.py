@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.9.0"
+__version__ = "4.10.0"
 # Database
 DB = {}
 # Navigation
@@ -32,7 +32,8 @@ NAV = {"Home": "",
                 "DOIs by tag": "dois_tag"
             },
        "ORCID": {"Groups": "groups",
-                 "Affiliations": "orcid_tag"
+                 "Affiliations": "orcid_tag",
+                 "Entries": "orcid_entry"
                 },
        "Stats" : {"Database": "stats_database"
                  },
@@ -1858,7 +1859,46 @@ def orcid_tag():
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="ORCID affiliations", html=html,
-                                             navbar=generate_navbar('DOIs')))
+                                             navbar=generate_navbar('ORCID')))
+    return response
+
+
+@app.route('/orcid_entry')
+def orcid_entry():
+    ''' Show ORCID users with counts
+    '''
+    payload = {"$and": [{"orcid": {"$exists": True}}, {"employeeId": {"$exists": True}}]}
+    try:
+        cntb = DB['dis'].orcid.count_documents(payload)
+        payload = {"$and": [{"orcid": {"$exists": True}}, {"employeeId": {"$exists": False}}]}
+        cnto = DB['dis'].orcid.count_documents(payload)
+        payload = {"$and": [{"orcid": {"$exists": False}}, {"employeeId": {"$exists": True}}]}
+        cnte = DB['dis'].orcid.count_documents(payload)
+        cntj = DB['dis'].orcid.count_documents({"alumni": {"$exists": False}})
+        cnta = DB['dis'].orcid.count_documents({"alumni": {"$exists": True}})
+        cntf = DB['dis'].orcid.count_documents({"affiliations": {"$exists": False}})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get affiliations " \
+                                                    + "from orcid collection"),
+                               message=error_message(err))
+    total = cntj + cnta
+    html = '<table id="types" class="tablesorter standard"><tbody>'
+    html += f"<tr><td>Entries in collection</td><td>{total:,}</td></tr>"
+    html += f"<tr><td>Entries in collection with ORCID and employee ID</td><td>{cntb:,}" \
+            + f" ({cntb/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>Entries in collection with ORCID only</td><td>{cnto:,}" \
+            + f" ({cnto/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>Entries in collection with employee ID only</td><td>{cnte:,}" \
+            + f" ({cnte/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>Entries in collection without affiliations</td><td>{cntf:,}" \
+            + f" ({cntf/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>Current Janelians</td><td>{cntj:,} ({cntj/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="ORCID entries", html=html,
+                                             navbar=generate_navbar('ORCID')))
     return response
 
 
@@ -1887,7 +1927,7 @@ def orcid_affiliation(aff):
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"{aff} affiliation",
                                              html=html,
-                                             navbar=generate_navbar('DOIs')))
+                                             navbar=generate_navbar('ORCID')))
     return response
 
 # ******************************************************************************
