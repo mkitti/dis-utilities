@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.8.0'
+__version__ = '2.0.0'
 
 import argparse
 import configparser
@@ -567,19 +567,22 @@ def get_tags(authors):
     return new_tags
 
 
-def add_group_tags(persist):
-    ''' Add tags to DOI records that will be persisted
+def add_tags(persist):
+    ''' Add tags to DOI records that will be persisted (jrc_author, jrc_tag)
         Keyword arguments:
           persist: dict keyed by DOI with value of the Crossref/DataCite record
         Returns:
           None
     '''
-    coll = coll = DB['dis'].orcid
-    for key, val in tqdm(persist.items(), desc='Add group tags'):
+    coll = DB['dis'].orcid
+    for key, val in tqdm(persist.items(), desc='Add jrc_author and jrc_tag'):
         try:
             authors = DL.get_author_details(val, coll)
         except Exception as err:
             terminate_program(err)
+        if not authors:
+            continue
+        # Update jrc_tag
         new_tags = get_tags(authors)
         tags = []
         if 'jrc_tag' in persist:
@@ -596,6 +599,14 @@ def add_group_tags(persist):
                 tags.append(tag)
         if tags:
             persist[key]['jrc_tag'] = tags
+        # Update jrc_author
+        jrc_author = []
+        for auth in authors:
+            if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
+                jrc_author.append(auth['employeeId'])
+        if jrc_author:
+            LOGGER.info(f"Added jrc_tag {jrc_author}")
+            persist[key]['jrc_author'] = jrc_author
 
 
 def update_mongodb(persist):
@@ -638,7 +649,7 @@ def update_dois(specified, persist):
             perform_backcheck(specified)
         update_config_database(persist)
     elif ARG.TARGET == 'dis':
-        add_group_tags(persist)
+        add_tags(persist)
         update_mongodb(persist)
 
 
@@ -736,6 +747,7 @@ def process_dois():
         if not msg:
             continue
         persist_if_updated(doi, msg, persist)
+        # Add preprints to record
         if doi in persist:
             preprint = check_for_preprint(doi, persist[doi])
             if preprint:
