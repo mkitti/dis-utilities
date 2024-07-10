@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.10.0"
+__version__ = "4.10.1"
 # Database
 DB = {}
 # Navigation
@@ -1673,7 +1673,7 @@ def dois_tag():
         html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI publishers", html=html,
+                                             title="DOI tags", html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
 
