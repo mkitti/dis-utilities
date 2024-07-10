@@ -2,9 +2,10 @@
     Edit a record in the orcid collection
 """
 
-__version__ = '0.0.1'
+__version__ = '1.0.0'
 
 import argparse
+import json
 from operator import attrgetter
 import sys
 from bson import json_util
@@ -67,6 +68,10 @@ def update_orcid():
             raise err
         if not row:
             terminate_program(f"Record not found for {lookup_by} {lookup}")
+        if 'employeeId' in row and 'orcid' in row and row['employeeId'] == ARG.EMPLOYEE \
+           and row['orcid'] == ARG.ORCID:
+            print(json_util.dumps(row, indent=2))
+            terminate_program("Record already has entered values")
         row[ARG.UPDATE] = ARG.EMPLOYEE if ARG.UPDATE == 'employeeId' else ARG.ORCID
         LOGGER.warning("Would have updated record")
         print(json_util.dumps(row, indent=2))
@@ -80,7 +85,7 @@ def update_orcid():
     except Exception as err:
         terminate_program(err)
     if resp:
-        print(json_util.dumps(resp, indent=2))
+        print(json.dumps(resp, indent=2))
     else:
         terminate_program("Did not update record")
 
@@ -88,7 +93,7 @@ def update_orcid():
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
-        description="Update tags")
+        description="Update orcid record")
     PARSER.add_argument('--orcid', dest='ORCID', action='store',
                         required=True, help='ORCID')
     PARSER.add_argument('--employee', dest='EMPLOYEE', action='store',
