@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.10.2"
+__version__ = "4.10.3"
 # Database
 DB = {}
 # Navigation
@@ -1867,12 +1867,14 @@ def orcid_tag():
 def orcid_entry():
     ''' Show ORCID users with counts
     '''
-    payload = {"$and": [{"orcid": {"$exists": True}}, {"employeeId": {"$exists": True}}]}
+    payload = {"$and": [{"orcid": {"$exists": True}}, {"employeeId": {"$exists": True}},
+                        {"alumni": {"$exists": False}}]}
     try:
         cntb = DB['dis'].orcid.count_documents(payload)
-        payload = {"$and": [{"orcid": {"$exists": True}}, {"employeeId": {"$exists": False}}]}
+        payload["$and"][1]["employeeId"]["$exists"] = False
         cnto = DB['dis'].orcid.count_documents(payload)
-        payload = {"$and": [{"orcid": {"$exists": False}}, {"employeeId": {"$exists": True}}]}
+        payload["$and"][0]["orcid"]["$exists"] = False
+        payload["$and"][1]["employeeId"]["$exists"] = True
         cnte = DB['dis'].orcid.count_documents(payload)
         cntj = DB['dis'].orcid.count_documents({"alumni": {"$exists": False}})
         cnta = DB['dis'].orcid.count_documents({"alumni": {"$exists": True}})
@@ -1887,15 +1889,15 @@ def orcid_entry():
     total = cntj + cnta
     html = '<table id="types" class="tablesorter standard"><tbody>'
     html += f"<tr><td>Entries in collection</td><td>{total:,}</td></tr>"
-    html += f"<tr><td>Entries in collection with ORCID and employee ID</td><td>{cntb:,}" \
-            + f" ({cntb/total*100:.2f}%)</td></tr>"
-    html += f"<tr><td>Entries in collection with ORCID only</td><td>{cnto:,}" \
-            + f" ({cnto/total*100:.2f}%)</td></tr>"
-    html += f"<tr><td>Entries in collection with employee ID only</td><td>{cnte:,}" \
-            + f" ({cnte/total*100:.2f}%)</td></tr>"
     html += f"<tr><td>Current Janelians</td><td>{cntj:,} ({cntj/total*100:.2f}%)</td></tr>"
-    html += f"<tr><td>Janelians without affiliations/groups</td><td>{cntf:,}" \
-            + f" ({cntf/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>&nbsp;&nbsp;Janelians with ORCID and employee ID</td><td>{cntb:,}" \
+            + f" ({cntb/cntj*100:.2f}%)</td></tr>"
+    html += f"<tr><td>&nbsp;&nbsp;Janelians with ORCID only</td><td>{cnto:,}" \
+            + f" ({cnto/cntj*100:.2f}%)</td></tr>"
+    html += f"<tr><td>&nbsp;&nbsp;Janelians with employee ID only</td><td>{cnte:,}" \
+            + f" ({cnte/cntj*100:.2f}%)</td></tr>"
+    html += f"<tr><td>&nbsp;&nbsp;Janelians without affiliations/groups</td><td>{cntf:,}" \
+            + f" ({cntf/cntj*100:.2f}%)</td></tr>"
     html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
