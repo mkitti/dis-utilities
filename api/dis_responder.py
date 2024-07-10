@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.8.0"
+__version__ = "4.9.0"
 # Database
 DB = {}
 # Navigation
@@ -121,7 +121,7 @@ def before_request():
         except Exception as err:
             return render_template('warning.html', urlroot=request.url_root,
                                    title=render_warning("Config error"), message=err)
-        dbo = attrgetter("dis.prod.read")(dbconfig)
+        dbo = attrgetter("dis.prod.write")(dbconfig)
         print(f"Connecting to {dbo.name} prod on {dbo.host} as {dbo.user}")
         try:
             DB['dis'] = JRC.connect_database(dbo)
@@ -937,7 +937,6 @@ def show_doi_migrations(idate):
         rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
-    print("BACK FROM MONGO")
     result['rest']['row_count'] = 0
     result['rest']['source'] = 'mongo'
     result['data'] = []
@@ -1343,6 +1342,59 @@ def show_types():
             result['data'][typ]['subtype'] = row['_id']['subtype'] if 'subtype' in row['_id'] \
                                              else None
     result['rest']['row_count'] = len(result['data'])
+    return generate_response(result)
+
+
+@app.route('/doi/jrc_author/<path:doi>', methods=['OPTIONS', 'POST'])
+def set_jrc_author(doi):
+    '''
+    Update Janelia authors for a given DOI
+    Update Janelia authors (as employee IDs) in "jrc_author" for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: Success
+      500:
+        description: MongoDB or formatting error
+    '''
+    doi = doi.lstrip('/').rstrip('/').lower()
+    result = initialize_result()
+    result['data'] = []
+    try:
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        raise InvalidUsage(f"Could not find DOI {doi}", 400)
+    result['rest']['row_count'] = 1
+    try:
+        authors = DL.get_author_details(row, DB['dis'].orcid)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    jrc_author = []
+    for auth in authors:
+        if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
+            jrc_author.append(auth['employeeId'])
+    if not jrc_author:
+        return generate_response(result)
+    payload = {"$set": {"jrc_author": jrc_author}}
+    try:
+        res = DB['dis'].dois.update_one({"doi": doi}, payload)
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if hasattr(res, 'matched_count') and res.matched_count:
+        if hasattr(res, 'modified_count') and res.modified_count:
+            result['rest']['rows_updated'] = res.modified_count
+        result['data'] = jrc_author
     return generate_response(result)
 
 # ******************************************************************************
