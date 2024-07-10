@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.10.1"
+__version__ = "4.10.2"
 # Database
 DB = {}
 # Navigation
@@ -1876,7 +1876,9 @@ def orcid_entry():
         cnte = DB['dis'].orcid.count_documents(payload)
         cntj = DB['dis'].orcid.count_documents({"alumni": {"$exists": False}})
         cnta = DB['dis'].orcid.count_documents({"alumni": {"$exists": True}})
-        cntf = DB['dis'].orcid.count_documents({"affiliations": {"$exists": False}})
+        payload = {"$and": [{"affiliations": {"$exists": False}}, {"group": {"$exists": False}},
+                            {"alumni": {"$exists": False}}]}
+        cntf = DB['dis'].orcid.count_documents(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get affiliations " \
@@ -1891,9 +1893,9 @@ def orcid_entry():
             + f" ({cnto/total*100:.2f}%)</td></tr>"
     html += f"<tr><td>Entries in collection with employee ID only</td><td>{cnte:,}" \
             + f" ({cnte/total*100:.2f}%)</td></tr>"
-    html += f"<tr><td>Entries in collection without affiliations</td><td>{cntf:,}" \
-            + f" ({cntf/total*100:.2f}%)</td></tr>"
     html += f"<tr><td>Current Janelians</td><td>{cntj:,} ({cntj/total*100:.2f}%)</td></tr>"
+    html += f"<tr><td>Janelians without affiliations/groups</td><td>{cntf:,}" \
+            + f" ({cntf/total*100:.2f}%)</td></tr>"
     html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
