@@ -189,12 +189,49 @@ def add_employeeId_to_orcid_record(orcid, employee_id, collection):
         doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
         )
 
+def get_doi_record(doi):
+    result = JRC.call_crossref(doi)
+    return( result['message'] )
+
+def strip_orcid_if_provided_as_url(orcid):
+    prefixes = ["http://orcid.org/", "https://orcid.org/"]
+    for prefix in prefixes:
+        if orcid.startswith(prefix):
+            return orcid[len(prefix):]
+    return(orcid)
+
+def create_author_objects(doi_record):
+    author_objects = []
+    for author_record in doi_record['author']:
+        if 'given' in author_record and 'family' in author_record:
+            full_name = ' '.join((author_record['given'], author_record['family']))
+            current_author = Author( full_name )
+            if 'affiliation' in author_record and author_record['affiliation']:
+                for affiliation in author_record['affiliation']:
+                    if 'name' in affiliation:
+                        current_author.affiliations.append(affiliation['name'])
+            if 'ORCID' in author_record:
+                current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
+            author_objects.append(current_author)
+    return(author_objects)
+
 
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     initialize_program()
     collection = DB['dis'].orcid
-    add_employeeId_to_orcid_record('0000-0002-4156-2849', '65362', collection)
-    my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
-    print(my_orcid_record)
+    doi_record = get_doi_record(doi)
+    all_authors = create_author_objects(doi_record)
+
+#For bug testing:
+# import NEW_name_match
+# NEW_name_match.initialize_program()
+# doi_record = NEW_name_match.get_doi_record('10.7554/eLife.80660')
+# all_authors = NEW_name_match.create_author_objects(doi_record)
+
+
+
+    #add_employeeId_to_orcid_record('0000-0002-4156-2849', '65362', collection)
+    #my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
+    #print(my_orcid_record)
