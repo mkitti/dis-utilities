@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.11.0"
+__version__ = "4.12.0"
 # Database
 DB = {}
 # Navigation
@@ -341,23 +341,46 @@ def get_work_doi(work):
     return ''
 
 
+def orcid_payload(oid, orc, use_eid):
+    ''' Generate a payload for searching the dois collection by ORCID or employeeId
+        Keyword arguments:
+          oid: ORCID or employeeId
+          orc: orcid record
+          use_eid: use emplooyeeId boolean
+        Returns:
+          Payload
+    '''
+    payload = {"$and": [{"$or": [{"author.given": {"$in": orc['given']}},
+                                 {"creators.givenName": {"$in": orc['given']}}]},
+                        {"$or": [{"author.family": {"$in": orc['family']}},
+                                 {"creators.familyName": {"$in": orc['family']}}]}]
+              }
+    if use_eid:
+        payload = {"jrc_author": oid}
+    return payload
+
+
 def get_orcid_from_db(oid, use_eid=False):
     ''' Generate HTML for an ORCID or employeeId that is in the orcid collection
         Keyword arguments:
           oid: ORCID or employeeId
+          use_eid: use emplooyeeId boolean
         Returns:
           HTML and a list of DOIs
     '''
-    print("Lookup ORCID")
     try:
         orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
     except Exception as err:
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
         return "", []
+    html = ""
     badges = add_orcid_badges(orc)
-    html = " ".join(badges)
+    html += " ".join(badges)
     html += "<br><table class='borderless'>"
+    if use_eid and 'orcid' in orc:
+        html += f"<tr><td>ORCID:</td><td><a href='https://orcid.org/{orc['orcid']}'>" \
+                + f"{orc['orcid']}</a></td></tr>"
     html += f"<tr><td>Given name:</td><td>{', '.join(sorted(orc['given']))}</td></tr>"
     html += f"<tr><td>Family name:</td><td>{', '.join(sorted(orc['family']))}</td></tr>"
     if 'employeeId' in orc:
@@ -367,15 +390,8 @@ def get_orcid_from_db(oid, use_eid=False):
     if 'affiliations' in orc:
         html += f"<tr><td>Affiliations:</td><td>{', '.join(orc['affiliations'])}</td></tr>"
     html += "</table><br>"
-    payload = {"$and": [{"$or": [{"author.given": {"$in": orc['given']}},
-                                 {"creators.givenName": {"$in": orc['given']}}]},
-                        {"$or": [{"author.family": {"$in": orc['family']}},
-                                 {"creators.familyName": {"$in": orc['family']}}]}]
-              }
-    if use_eid:
-        payload = {"jrc_author": oid}
     try:
-        rows = DB['dis'].dois.find(payload)
+        rows = DB['dis'].dois.find(orcid_payload(oid, orc, use_eid))
     except Exception as err:
         raise CustomException(err, "Could not find in dois collection by name.") from err
     works = []
@@ -503,7 +519,20 @@ def add_jrc_fields(row):
         return ""
     html = '<table class="standard">'
     for key in sorted(jrc):
-        html += f"<tr><td>{key}</td><td>{jrc[key]}</td></tr>"
+        val = jrc[key]
+        if key == 'jrc_author':
+            link = []
+            for auth in val.split(", "):
+                link.append(f"<a href='/userui/{auth}'>{auth}</a>")
+            val = ", ".join(link)
+        elif key == 'jrc_preprint':
+            val = f"<a href='/doiui/{val}'>{val}</a>"
+        elif key == 'jrc_tag':
+            link = []
+            for aff in val.split(", "):
+                link.append(f"<a href='/affiliation/{aff}'>{aff}</a>")
+            val = ", ".join(link)
+        html += f"<tr><td>{key}</td><td>{val}</td></tr>"
     html += "</table><br>"
     return html
 
