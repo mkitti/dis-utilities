@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '0.0.3'
+__version__ = '1.0.0'
 
 import argparse
 import collections
@@ -173,6 +173,8 @@ def update_single_doi(rec):
         result = coll.update_one({"doi": rec['doi']}, {"$set": payload})
         if hasattr(result, 'matched_count') and result.matched_count:
             COUNT['updated'] += 1
+        if not tags:
+            result = coll.update_one({"doi": rec['doi']}, {"$unset": {"jrc_tag":1}})
     else:
         print(f"{rec['doi']} {payload}")
         COUNT['updated'] += 1
