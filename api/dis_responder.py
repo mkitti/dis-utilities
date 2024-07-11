@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.10.3"
+__version__ = "4.11.0"
 # Database
 DB = {}
 # Navigation
@@ -372,6 +372,8 @@ def get_orcid_from_db(oid, use_eid=False):
                         {"$or": [{"author.family": {"$in": orc['family']}},
                                  {"creators.familyName": {"$in": orc['family']}}]}]
               }
+    if use_eid:
+        payload = {"jrc_author": oid}
     try:
         rows = DB['dis'].dois.find(payload)
     except Exception as err:
