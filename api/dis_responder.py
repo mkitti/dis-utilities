@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.12.0"
+__version__ = "4.12.1"
 # Database
 DB = {}
 # Navigation
@@ -1983,7 +1983,7 @@ def stats_database():
             free = stat['freeStorageSize'] / stat['storageSize'] * 100
             collection[cname] = {"docs": f"{stat['count']:,}",
                                  "size": humansize(stat['size']),
-                                 "free": f"{free:.2f}",
+                                 "free": f"{free:.2f}%",
                                  "idx": ", ".join(indices)
                                 }
     except Exception as err:
