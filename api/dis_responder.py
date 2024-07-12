@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.12.1"
+__version__ = "4.13.0"
 # Database
 DB = {}
 # Navigation
@@ -558,41 +558,37 @@ def add_relations(row):
     return html
 
 
-def get_migration_data(doi):
+def get_migration_data(row, orgs):
     ''' Create a migration record for a single DOI
         Keyword arguments:
-          doi: DOI
+          doi: doi record
+          orgs: dictionary of organizations/codes
         Returns:
           migration dictionary
     '''
-    project = {'_id': 0}
     rec = {}
-    try:
-        row = DB['dis'].dois.find_one({"doi": doi}, project)
-    except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
-    if not row:
-        return rec
     # Author
-    try:
-        authors = DL.get_author_details(row, DB['dis'].orcid)
-    except Exception as err:
-        raise InvalidUsage("COuld not get author details: " + str(err), 500) from err
-    tagname = []
     tags = []
-    try:
-        orgs = DL.get_supervisory_orgs()
-    except Exception as err:
-        raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+    #tagname = []
+    #try:
+    #    authors = DL.get_author_details(row, DB['dis'].orcid)
+    #except Exception as err:
+    #    raise InvalidUsage("Could not get author details: " + str(err), 500) from err
+    #if 'jrc_tag' in row:
+    #    for atag in row['jrc_tag']:
+    #        if atag not in tagname:
+    #            code = orgs[atag] if atag in orgs else None
+    #            tagname.append(atag)
+    #            tags.append({"name": atag, "code": code})
+    #rec['authors'] = authors
     if 'jrc_tag' in row:
         for atag in row['jrc_tag']:
-            if atag not in tagname:
-                code = orgs[atag] if atag in orgs else None
-                tagname.append(atag)
-                tags.append({"name": atag, "code": code})
-        if tags:
-            rec['tags'] = tags
-    rec['authors'] = authors
+            code = orgs[atag] if atag in orgs else None
+            tags.append({"name": atag, "code": code})
+    if 'jrc_author' in row:
+        rec['jrc_author'] = row['jrc_author']
+    if tags:
+        rec['tags'] = tags
     # Additional data
     if row['jrc_obtained_from'] == 'Crossref' and 'abstract' in row:
         rec['abstract'] = row['abstract']
@@ -929,10 +925,21 @@ def show_doi_migration(doi):
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     try:
-        rec = get_migration_data(doi)
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
-    rec['doi'] = doi
+    if not row:
+        rec = []
+    else:
+        try:
+            orgs = DL.get_supervisory_orgs()
+        except Exception as err:
+            raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+        try:
+            rec = get_migration_data(row, orgs)
+        except Exception as err:
+            raise InvalidUsage(str(err), 500) from err
+        rec['doi'] = doi
     result['data'] = rec
     result['rest']['source'] = 'mongo'
     result['rest']['row_count'] = len(result['data'])
@@ -966,16 +973,21 @@ def show_doi_migrations(idate):
     except Exception as err:
         raise InvalidUsage(str(err), 400) from err
     try:
-        rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
+        rows = DB['dis'].dois.find({"jrc_author": {"$exists": True},
+                                    "jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['row_count'] = 0
     result['rest']['source'] = 'mongo'
     result['data'] = []
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
     for row in rows:
         try:
             doi = row['doi']
-            rec = get_migration_data(doi)
+            rec = get_migration_data(row, orgs)
             rec['doi'] = doi
             result['data'].append(rec)
         except Exception as err:
