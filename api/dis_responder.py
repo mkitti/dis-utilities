@@ -22,14 +22,15 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.13.0"
+__version__ = "4.14.0"
 # Database
 DB = {}
 # Navigation
 NAV = {"Home": "",
-       "DOIs": {"DOIs by type": "dois_type",
-                "DOIs by publisher": "dois_publisher",
-                "DOIs by tag": "dois_tag"
+       "DOIs": {"DOIs by publisher": "dois_publisher",
+                "DOIs by tag": "dois_tag",
+                "DOIs by type": "dois_type",
+                "DOIs by year": "dois_year"
             },
        "ORCID": {"Groups": "groups",
                  "Affiliations": "orcid_tag",
@@ -1646,7 +1647,7 @@ def dois_type():
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get types from dois collection"),
                                message=error_message(err))
-    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+    html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
@@ -1677,7 +1678,7 @@ def dois_publisher():
                                title=render_warning("Could not get publishers " \
                                                     + "from dois collection"),
                                message=error_message(err))
-    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+    html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
            + '<th>Publisher</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
@@ -1707,7 +1708,7 @@ def dois_tag():
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get tags from dois collection"),
                                message=error_message(err))
-    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+    html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
            + '<th>Tag</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
@@ -1717,6 +1718,33 @@ def dois_tag():
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="DOI tags", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_year')
+def dois_year():
+    ''' Show publishing years with counts
+    '''
+    payload = [{"$group": {"_id": {"pdate": { "$substrBytes": [ "$jrc_publishing_date", 0, 4 ] }},
+                           "count": {"$sum": 1}}},
+               {"$sort": {"_id.pdate": -1}}
+              ]
+    try:
+        coll = DB['dis'].dois
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get tags from dois collection"),
+                               message=error_message(err))
+    html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Year</th><th>Count</th>' \
+           + '</tr></thead><tbody>'
+    for row in rows:
+        html += f"<tr><td>{row['_id']['pdate']}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table>'
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="DOIs published by year", html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1893,7 +1921,7 @@ def orcid_tag():
                                title=render_warning("Could not get affiliations " \
                                                     + "from orcid collection"),
                                message=error_message(err))
-    html = '<table id="types" class="tablesorter standard"><thead><tr>' \
+    html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Affiliation</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
@@ -2002,7 +2030,7 @@ def stats_database():
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get collection stats"),
                                message=error_message(err))
-    html = '<table id="collections" class="tablesorter standard"><thead><tr>' \
+    html = '<table id="collections" class="tablesorter numbercenter"><thead><tr>' \
            + '<th>Collection</th><th>Documents</th><th>Size</th><th>Free space</th>' \
            + '<th>Indices</th></tr></thead><tbody>'
     for coll, val in sorted(collection.items()):
