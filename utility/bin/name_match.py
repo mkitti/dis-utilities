@@ -1,19 +1,7 @@
 """
-
-Goal: identify which article authors correspond to which employee IDs.
-First, try to find an employee id in our ORCID collection. 
-If the author does not have an employee id in our ORCID collection, then we 
-must use fuzzy string matching to make a 'best guess' at the closest employee name. 
-We do this by creating all reasonable permutations of all employee names, 
-and matching the author name against all possible employee names.
-The script recommends employee ids for authors where an 85% match or higher was found.
-
+New version of name_match.py that will connect to the DIS database directly instead of making REST requests.
 """
 
-#TODO: Use https://dis.int.janelia.org/doi/janelians/10.7554/eLife.80660 to identify alumni
-
-
-import requests
 import os
 import sys
 from rapidfuzz import fuzz
@@ -22,16 +10,73 @@ from unidecode import unidecode
 import re
 import itertools
 from termcolor import colored
+import jrc_common.jrc_common as JRC
+import doi_common.doi_common as doi_common
+from operator import attrgetter
+import sys
+import inquirer
+from inquirer.themes import BlueComposure
 
 #TODO: Add some of these to requirements.txt?
 
-################## STUFF YOU SHOULD EDIT ##################
-doi = '10.7554/eLife.80660'
-##########################################################
 
+#sys.path.append('~/dis-utilities/sync/bin')
+api_key = os.environ.get('PEOPLE_API_KEY')
+if not api_key:
+    print("Error: Please set the environment variable PEOPLE_API_KEY.")
+    sys.exit(1)
 
+DB = {}
+PROJECT = {}
+
+def initialize_program():
+    ''' Intialize the program
+        Keyword arguments:
+          None
+        Returns:
+          None
+    '''
+    # Database
+    try:
+        dbconfig = JRC.get_config("databases")
+    except Exception as err:
+        terminate_program(err)
+    dbs = ['dis']
+    for source in dbs:
+        manifold = 'prod'
+        dbo = attrgetter(f"{source}.{manifold}.write")(dbconfig)
+        try:
+            DB[source] = JRC.connect_database(dbo)
+        except Exception as err:
+            terminate_program(err)
+    try:
+        rows = DB['dis'].project_map.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        PROJECT[row['name']] = row['project']
+
+def terminate_program(msg=None):
+    ''' Terminate the program gracefully
+        Keyword arguments:
+          msg: error message
+        Returns:
+          None
+    '''
+    if msg:
+        print(msg)
+        sys.exit(-1)
+    else:
+        sys.exit(0)
+#TODO: 
+# if msg:
+#         if not isinstance(msg, str):
+#             msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
+#         LOGGER.critical(msg)
+#     sys.exit(-1 if msg else 0)
 
 class Author:
+    """ Author objects are constructed solely from the CrossRef-provided author information. """
     def __init__(self, raw_name, orcid=None, affiliations=None, employee_id=None):
         self.raw_name = raw_name
         self.name = self.remove_punctuation(unidecode(raw_name))
@@ -99,20 +144,36 @@ class MissingPerson:
     """ This class indicates that searching the HHMI People API yielded no results. """
     pass
 
+
 class MultipleHits:
     """ This class indicates that an author name matched multiple HHMI employees with equally high scores. """
     def __init__(self, winners=None):
         self.winners = winners if winners is not None else []
 
 
-people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
-orcid_api_url = 'https://dis.int.janelia.org/orcid/'
-dois_api_url = 'https://dis.int.janelia.org/doi/'
-api_key = os.environ.get('PEOPLE_API_KEY')
-if not api_key:
-    print("Error: Please set the environment variable PEOPLE_API_KEY.")
-    sys.exit(1)
 
+def search_people_api(search_term, mode):
+    response = None
+    if mode not in {'name', 'id'}:
+        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
+    if mode == 'name':
+        response = JRC.call_people_by_name(search_term)
+    elif mode == 'id':
+        response = JRC.call_people_by_id(search_term)
+    if not response:
+        return(MissingPerson())
+    else:
+        return(response)
+
+
+def search_orcid_collection(orcid, collection):
+    return(
+        doi_common.single_orcid_lookup(orcid, collection, 'orcid')
+        )
+
+def get_doi_record(doi):
+    result = JRC.call_crossref(doi)
+    return( result['message'] )
 
 def strip_orcid_if_provided_as_url(orcid):
     prefixes = ["http://orcid.org/", "https://orcid.org/"]
@@ -121,64 +182,9 @@ def strip_orcid_if_provided_as_url(orcid):
             return orcid[len(prefix):]
     return(orcid)
 
-def strip_doi_if_provided_as_url(doi=doi, substring=".org/10.", doi_index_in_substring = 5):
-    # Find all occurrences of the substring
-    occurrences = [i for i in range(len(doi)) if doi.startswith(substring, i)]
-    if len(occurrences) > 1:
-        print("Warning: Please check that your DOI is formatted correctly.")
-        exit(1)  # Exit with a warning code
-    elif len(occurrences) == 1:
-        doi_index_in_string = occurrences[0]
-        stripped_doi = doi[doi_index_in_string + doi_index_in_substring:]
-        return(stripped_doi)
-    else:
-        return(doi)
-
-def replace_slashes_in_doi(doi=doi):
-    """ This is needed for GET requests to the DIS dois collection. """
-    return( doi.replace("/", "%2F") ) # e.g. 10.1186/s12859-024-05732-7 becomes 10.1186%2Fs12859-024-05732-7
-
-
-def get_request(url, headers):
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
-        return(response.json())
-    else:
-        print(f"There was an error with the API GET request. Status code: {response.status_code}.\n Error message: {response.reason}")
-        sys.exit(1)
-
-def get_doi_record(doi=doi):
-    url = dois_api_url + replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))
-    headers = { 'Content-Type': 'application/json' }
-    return(get_request(url, headers))
-
-def search_orcid_collection(orcid):
-    url = orcid_api_url + orcid
-    headers = { 'Content-Type': 'application/json' }
-    return(get_request(url, headers))
-
-def search_people_api(search_term, mode):
-    if mode not in {'name', 'id'}:
-        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
-    url = ''
-    if mode == 'name':
-        url = people_api_url + 'Search/ByName/' + search_term
-    elif mode == 'id':
-        url = people_api_url + 'Person/GetById/' + search_term
-    headers = { 'APIKey': f'{api_key}', 'Content-Type': 'application/json' }
-    response = get_request(url, headers)
-    if not response:
-        #print(f"Searching the HHMI People API for {search_term} yielded no results.")
-        #sys.exit(1)
-        return(MissingPerson())
-    else:
-        return(response)
-
-
-# A function to unpack the gnarly data structure we get from Crossref
 def create_author_objects(doi_record):
     author_objects = []
-    for author_record in doi_record['data']['author']:
+    for author_record in doi_record['author']:
         if 'given' in author_record and 'family' in author_record:
             full_name = ' '.join((author_record['given'], author_record['family']))
             current_author = Author( full_name )
@@ -191,6 +197,7 @@ def create_author_objects(doi_record):
             author_objects.append(current_author)
     return(author_objects)
 
+
 def is_janelian(author):
     result = False
     if author.orcid:
@@ -202,7 +209,6 @@ def is_janelian(author):
     if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
         result = True
     return(result)
-
 
 def create_employee(id):
     idsearch_results = search_people_api(id, 'id')
@@ -223,7 +229,6 @@ def create_employee(id):
         )
     else:
         return(MissingPerson())
-
 
 def guess_employee(author):
     candidate_employees = [] # Includes false positives. For example, if I search 'Virginia',
@@ -254,48 +259,139 @@ def guess_employee(author):
     else:
         return(MissingPerson())
 
+def evaluate_guess(author, best_guess, success_message, collection=None):
+    if isinstance(best_guess, MissingPerson):
+        print(f"{author.name} could not be found in the HHMI People API.")
+        return(False)
+    if isinstance(best_guess, MultipleHits):
+        print("Multiple high scoring matches found:")
+        for guess in best_guess.winners:
+            print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
+        quest = [inquirer.Checkbox('decision', carousel=True, message="Choose an option", choices=[guess.name for guess in best_guess.winners] + ['None of the above'], default=['None of the above'])]
+        ans = inquirer.prompt(quest, theme=BlueComposure())
+        if ans['decision'] != ['None of the above']:
+            quest = [inquirer.List('action',message = success_message.substitute(name=best_guess.name),choices = ['Yes', 'No'])]
+            ans = inquirer.prompt(quest, theme=BlueComposure())
+            if ans['action'] == 'Yes':
+                return(True)
+            else:
+                return(False)
+        else:
+            return(False)
+    else:
+        if float(best_guess.score) < 85.0:
+            print(
+                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}"
+                )
+        else:
+            print(colored(
+                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
+                "blue"
+                ))
+            quest = [inquirer.List('decision', message=f"Select {best_guess.name}?", choices=['Yes', 'No'])]
+            ans = inquirer.prompt(quest, theme=BlueComposure())
+            if ans['decision'] == 'Yes':
+                try:
+                    doi_common.single_orcid_lookup(best_guess.id, collection, lookup_by='employeeId')
+                except:
+                    print( f"{best_guess.name} is already in the ORCID collection, with employeeId only." )
+                    return(False)
+                quest = [ inquirer.List('action', message = success_message.substitute(name=best_guess.name), choices = ['Yes', 'No']) ]
+                ans = inquirer.prompt(quest, theme=BlueComposure())
+                if ans['action'] == 'Yes':
+                    return(True)
+                else:
+                    return(False)
+            else:
+                return(False)
 
 
+def add_employeeId_to_orcid_record(orcid, employee_id, collection):
+    return(
+        doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
+        )
 
+def generate_family_names_for_orcid_collection(guess):
+    all_first_names = guess.first_names
+    for first_name, middle_name in itertools.product(guess.first_names, guess.middle_names):
+        all_first_names.append(f"{first_name} {middle_name}")
+        middle_initial = middle_name[0]
+        all_first_names.append( f"{first_name} {middle_initial}" )
+    return(all_first_names)
 
-# ------------------------------------------------------------------------
-
+# -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
-    doi_record = get_doi_record()
+    initialize_program()
+    orcid_collection = DB['dis'].orcid
+    doi='10.1083/jcb.202311126'
+    doi_record = get_doi_record(doi)
     all_authors = create_author_objects(doi_record)
     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
     for author in janelian_authors:
+        print() # whitespace
         if author.orcid:
-            orcid_record = search_orcid_collection(author.orcid) # I am searching the ORCID collection twice:
-            # once to check whether they are Janelian, and later to get their employee ID. This could be 
-            # optimized for efficiency.
-            if 'employeeId' in orcid_record['data'][0]:
-                print(f"{author.name} is in our ORCID collection, and has an employee ID: ORCID:{author.orcid}, employee ID: {orcid_record['data'][0]['employeeId']}") 
-            else:
-                print(f'{author.name} is in our ORCID collection, but does not have an employee ID.')
+            mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
+            if mongo_orcid_record:
+                if 'employeeId' in mongo_orcid_record:
+                    print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID." )
+                    # Do nothing
+                elif 'employeeId' not in mongo_orcid_record:
+                    print( f"{author.name} is in our ORCID collection, but without an employee ID." )
+                    best_guess = guess_employee(author)
+                    proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use best_guess.name bc guess may be None (MissingPerson)
+                    if proceed:
+                        add_employeeId_to_orcid_record(author.orcid, best_guess.id, orcid_collection)
+            elif not mongo_orcid_record:
+                print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
                 best_guess = guess_employee(author)
-                if type(best_guess) is MissingPerson:
-                    print(f"{author.name} could not be found in the HHMI People API.")
-                else:
-                    print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
-        else:
-            print(f'Author {author.name} does not have an ORCID on this paper.')
+                proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"), collection=orcid_collection)
+                if proceed:
+                    doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
+        elif not author.orcid:
+            print( f"{author.name} does not have an ORCID on this paper." )
             best_guess = guess_employee(author)
-            if isinstance(best_guess, MissingPerson):
-                print(f"{author.name} could not be found in the HHMI People API.")
-            elif isinstance(best_guess, MultipleHits):            
-                print("Multiple high scoring matches found:")
-                for guess in best_guess.winners:
-                    print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
-                print(colored(f"Recommended action: browse above list for matches to {author.name}.", 'red', 'on_yellow'))
-            else:
-                print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
-                if float(best_guess.score) > 85.0:
-                    print(colored(f"Recommended action: add employee ID {best_guess.id} to {author.name} for this doi.", 'red', 'on_yellow'))
-        print('\n')
+            proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only"))
+            if proceed:
+                doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
+
+#TODO: Add functionality to manually input janelia authors for cases where there are no affiliations in crossref!
 
 
 
 
 
+
+#For bug testing, do not run!!!
+# import NEW_name_match as nm
+# nm.initialize_program()
+# orcid_collection = nm.DB['dis'].orcid
+# doi_record = nm.get_doi_record('10.7554/eLife.80660')
+# all_authors = nm.create_author_objects(doi_record)
+# janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
+# for author in janelian_authors:
+#     print() # whitespace
+#     if author.orcid:
+#         mongo_orcid_record = nm.search_orcid_collection(author.orcid, orcid_collection)
+#         if mongo_orcid_record:
+#             if 'employeeId' in mongo_orcid_record:
+#                 print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID." )
+#                 # Do nothing
+#             elif 'employeeId' not in mongo_orcid_record:
+#                 print( f"{author.name} is in our ORCID collection, but without an employee ID." )
+#                 best_guess = nm.guess_employee(author)
+#                 proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use best_guess.name bc guess may be None (MissingPerson)
+#                 if proceed:
+#                     nm.add_employeeId_to_orcid_record(author.orcid, best_guess.id, orcid_collection)
+#         elif not mongo_orcid_record:
+#             print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
+#             best_guess = nm.guess_employee(author)
+#             proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"))
+#             if proceed:
+#                 doi_common.add_orcid(best_guess.id, orcid_collection, given=nm.generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
+#     elif not author.orcid:
+#         print( f"{author.name} does not have an ORCID on this paper." )
+#         best_guess = nm.guess_employee(author)
+#         proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only"))
+#         if proceed:
+#             doi_common.add_orcid(best_guess.id, orcid_collection, given=nm.generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
