@@ -22,9 +22,14 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.14.0"
+__version__ = "4.15.0"
 # Database
 DB = {}
+# Custom queries
+CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
+                                    "value": "^!REPLACE!"}
+               }
+
 # Navigation
 NAV = {"Home": "",
        "DOIs": {"DOIs by publisher": "dois_publisher",
@@ -1741,7 +1746,9 @@ def dois_year():
            + '<th>Year</th><th>Count</th>' \
            + '</tr></thead><tbody>'
     for row in rows:
-        html += f"<tr><td>{row['_id']['pdate']}</td><td>{row['count']:,}</td></tr>"
+        onclick = "onclick='nav_post(\"publishing_year\",\"" + row['_id']['pdate'] + "\")'"
+        link = f"<a href='#' {onclick}>{row['_id']['pdate']}</a>"
+        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="DOIs published by year", html=html,
@@ -1782,6 +1789,11 @@ def show_doiui_custom():
             return render_template('error.html', urlroot=request.url_root,
                                    title=render_warning(f"Missing {key}"),
                                    message=f"You must specify a {key}")
+    display_value = ipd['value']
+    if ipd['field'] in CUSTOM_REGEX:
+        rex = CUSTOM_REGEX[ipd['field']]['value']
+        ipd['value'] = {"$regex": rex.replace("!REPLACE!", ipd['value'])}
+        ipd['field'] = CUSTOM_REGEX[ipd['field']]['field']
     try:
         rows = DB['dis'].dois.find({ipd['field']: ipd['value']})
     except Exception as err:
@@ -1809,7 +1821,7 @@ def show_doiui_custom():
     html += '</tbody></table>'
     html = create_downloadable(ipd['field'], header, fileoutput) + html
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"DOIs for {ipd['field']} {ipd['value']}",
+                                             title=f"DOIs for {ipd['field']} {display_value}",
                                              html=html, navbar=generate_navbar('DOIs')))
     return response
 
