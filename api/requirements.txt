@@ -5,3 +5,4 @@ pyOpenSSL
 gunicorn==22.0.0
 git+https://github.com/JaneliaSciComp/jrc_common.git
 git+https://github.com/JaneliaSciComp/doi_common.git
+bson==0.3.5

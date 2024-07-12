@@ -16,6 +16,76 @@ table.standard {
   border: 1px solid #058d95;
 }
 
+table.numbers {
+  border-collapse: collapse;
+  font-size: 12pt;
+  line-height: 14px;
+}
+
+.numbers th {
+  background: #058d95;
+  border: 1px solid #058d95;
+}
+
+.numbers td:first-child {
+    text-align: left;
+}
+
+.numbers td {
+  text-align: center;
+  background: #334 !important;
+  color: #bbc !important;
+  border: 1px solid #058d95;
+}
+
+table.numberlast {
+  border-collapse: collapse;
+  font-size: 12pt;
+  line-height: 14px;
+}
+
+.numberlast th {
+  background: #058d95;
+  border: 1px solid #058d95;
+}
+
+.numberlast td:last-child {
+    text-align: center;
+}
+
+.numberlast td {
+  text-align: left;
+  background: #334 !important;
+  color: #bbc !important;
+  border: 1px solid #058d95;
+}
+
+table.numbercenter {
+  border-collapse: collapse;
+  font-size: 12pt;
+  line-height: 14px;
+}
+
+.numbercenter th {
+  background: #058d95;
+  border: 1px solid #058d95;
+}
+
+.numbercenter td:first-child {
+    text-align: left;
+}
+
+.numbercenter td:last-child {
+    text-align: left;
+}
+
+.numbercenter td {
+  text-align: center;
+  background: #334 !important;
+  color: #bbc !important;
+  border: 1px solid #058d95;
+}
+
 table.borderless {
   font-size: 12pt;
   line-height: 16px;
@@ -104,6 +174,11 @@ div.codescroll {height: 180px;
     padding: 2px 2px;
     font-size: 11px;
     border-radius: 5px;
+}
+
+.badge-urgent {
+   color: #000;
+   background-color: #ff8c00;
 }
 
 /* General */

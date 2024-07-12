@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '1.1.0'
+__version__ = '2.0.0'
 
 import argparse
 import configparser
@@ -37,8 +37,7 @@ WRITE = {'doi': "INSERT INTO doi_data (doi,title,first_author,"
          'delete_doi': "DELETE FROM doi_data WHERE doi=%s",
         }
 # Configuration
-CKEY = {"flyboy": "dois",
-        "dis": "testdois"}
+CKEY = {"flyboy": "dois"}
 CROSSREF = {}
 DATACITE = {}
 CROSSREF_CALL = {}
@@ -51,6 +50,8 @@ MAX_CROSSREF_TRIES = 3
 SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
+PROJECT = {}
+DEFAULT_TAGS = ['Janelia Experimental Technology (jET)', 'Scientific Computing Software']
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
          'notfound': 0, 'noupdate': 0, 'noauthor': 0,
          'insert': 0, 'update': 0, 'delete': 0, 'foundfb': 0, 'flyboy': 0}
@@ -109,6 +110,14 @@ def initialize_program():
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
+    if ARG.TARGET == 'flyboy':
+        return
+    try:
+        rows = DB['dis'].project_map.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        PROJECT[row['name']] = row['project']
 
 
 def get_dis_dois_from_mongo():
@@ -388,7 +397,7 @@ def crossref_needs_update(doi, msg):
     """
     if 'deposited' not in msg or 'date-time' not in msg['deposited']:
         return True
-    if not doi in EXISTING:
+    if doi not in EXISTING:
         return True
     rec = EXISTING[doi]
     if 'deposited' not in rec or 'date-time' not in rec['deposited']:
@@ -416,7 +425,7 @@ def datacite_needs_update(doi, msg):
     """
     if 'attributes' not in msg or 'updated' not in msg['attributes']:
         return True
-    if not doi in EXISTING:
+    if doi not in EXISTING:
         return True
     rec = EXISTING[doi]
     stored = convert_timestamp(rec['updated'])
@@ -535,23 +544,46 @@ def update_config_database(persist):
                 COUNT['update'] += rest['rest']['updated']
 
 
-def add_group_tags(persist):
-    ''' Add tags to DOI records that will be persisted
+def get_tags(authors):
+    ''' Find tags for a DOI using the authors
+        Keyword arguments:
+          authors: list of detailed authors
+        Returns:
+          List of tags
+    '''
+    new_tags = []
+    for auth in authors:
+        if 'group' in auth and auth['group'] not in new_tags:
+            new_tags.append(auth['group'])
+        if 'tags' in auth:
+            for dtag in DEFAULT_TAGS:
+                if dtag in auth['tags'] and dtag not in new_tags:
+                    new_tags.append(dtag)
+        if 'name' in auth:
+            if auth['name'] not in PROJECT:
+                LOGGER.warning(f"Project {auth['name']} is not defined")
+            elif PROJECT[auth['name']] and auth['name'] not in new_tags:
+                new_tags.append(PROJECT[auth['name']])
+    return new_tags
+
+
+def add_tags(persist):
+    ''' Add tags to DOI records that will be persisted (jrc_author, jrc_tag)
         Keyword arguments:
           persist: dict keyed by DOI with value of the Crossref/DataCite record
         Returns:
           None
     '''
-    coll = coll = DB['dis'].orcid
-    for key, val in tqdm(persist.items(), desc='Add group tags'):
+    coll = DB['dis'].orcid
+    for key, val in tqdm(persist.items(), desc='Add jrc_author and jrc_tag'):
         try:
             authors = DL.get_author_details(val, coll)
         except Exception as err:
             terminate_program(err)
-        new_tags = []
-        for auth in authors:
-            if 'group' in auth and auth['group'] not in new_tags:
-                new_tags.append(auth['group'])
+        if not authors:
+            continue
+        # Update jrc_tag
+        new_tags = get_tags(authors)
         tags = []
         if 'jrc_tag' in persist:
             tags.extend(persist['jrc_tag'])
@@ -567,6 +599,14 @@ def add_group_tags(persist):
                 tags.append(tag)
         if tags:
             persist[key]['jrc_tag'] = tags
+        # Update jrc_author
+        jrc_author = []
+        for auth in authors:
+            if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
+                jrc_author.append(auth['employeeId'])
+        if jrc_author:
+            LOGGER.info(f"Added jrc_tag {jrc_author}")
+            persist[key]['jrc_author'] = jrc_author
 
 
 def update_mongodb(persist):
@@ -609,7 +649,7 @@ def update_dois(specified, persist):
             perform_backcheck(specified)
         update_config_database(persist)
     elif ARG.TARGET == 'dis':
-        add_group_tags(persist)
+        add_tags(persist)
         update_mongodb(persist)
 
 
@@ -630,19 +670,42 @@ def check_for_preprint(doi, rec):
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
                     LOGGER.info(f"Added relation |{rel['id']}|")
-                    subject.append(rel['id'])
+                    subject.append(rel['id'].lower())
     elif rec['type'] == 'journal-article' and 'has-preprint' in rec['relation']:
         for rel in rec['relation']['has-preprint']:
             if rel['id-type'] == 'doi':
                 if rel['id'] not in subject:
                     LOGGER.info(f"Added relation |{rel['id']}|")
-                    subject.append(rel['id'])
+                    subject.append(rel['id'].lower())
     if not subject:
         return None
     if len(subject) == 1:
         return subject[0]
     LOGGER.warning(f"Multiple relations for {doi}: {', '.join(subject)}")
     return None
+
+
+def persist_if_updated(doi, msg, persist):
+    """ Decide if we need to persist a DOI
+        Keyword arguments:
+          doi: DOI
+          msg: message from DOI record
+          persist: dict of DOIs to persist
+        Returns:
+          None
+    """
+    if DL.is_datacite(doi):
+        # DataCite
+        if datacite_needs_update(doi, msg['data']):
+            persist[doi] = msg['data']['attributes']
+            persist[doi]['jrc_obtained_from'] = 'DataCite'
+        COUNT['foundd'] += 1
+    else:
+        # Crossref
+        if crossref_needs_update(doi, msg['message']):
+            persist[doi] = msg['message']
+            persist[doi]['jrc_obtained_from'] = 'Crossref'
+        COUNT['foundc'] += 1
 
 
 def process_dois():
@@ -658,7 +721,8 @@ def process_dois():
         terminate_program("No DOIs were found")
     specified = {} # Dict of distinct DOIs received as input (value is True)
     persist = {} # DOIs that will be persisted in a database (value is record)
-    for doi in tqdm(rows['dois'], desc='DOIs'):
+    for odoi in tqdm(rows['dois'], desc='DOIs'):
+        doi = odoi if ARG.TARGET == 'flyboy' else odoi.lower()
         COUNT['found'] += 1
         if doi in specified:
             COUNT['duplicate'] += 1
@@ -682,18 +746,8 @@ def process_dois():
         msg = get_doi_record(doi)
         if not msg:
             continue
-        if DL.is_datacite(doi):
-            # DataCite
-            if datacite_needs_update(doi, msg['data']):
-                persist[doi] = msg['data']['attributes']
-                persist[doi]['jrc_obtained_from'] = 'DataCite'
-            COUNT['foundd'] += 1
-        else:
-            # Crossref
-            if crossref_needs_update(doi, msg['message']):
-                persist[doi] = msg['message']
-                persist[doi]['jrc_obtained_from'] = 'Crossref'
-            COUNT['foundc'] += 1
+        persist_if_updated(doi, msg, persist)
+        # Add preprints to record
         if doi in persist:
             preprint = check_for_preprint(doi, persist[doi])
             if preprint:

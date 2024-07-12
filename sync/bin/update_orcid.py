@@ -2,18 +2,22 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '1.2.0'
+__version__ = '2.1.0'
 
 import argparse
+import collections
 from datetime import datetime
 import getpass
+import json
 from operator import attrgetter
 import os
 import re
 import sys
+import inquirer
 import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
+import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,logging-fstring-interpolation
 
@@ -23,7 +27,7 @@ DB = {}
 SENDER = 'svirskasr@hhmi.org'
 RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # Counters
-COUNT = {'records': 0, 'orcid': 0, 'insert': 0, 'update': 0}
+COUNT = collections.defaultdict(lambda: 0, {})
 # General
 PRESENT = {}
 NEW_ORCID = {}
@@ -63,8 +67,9 @@ def initialize_program():
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
+    # Initialize the PRESENT dict with rows that have ORCIDs
     try:
-        rows = DB['dis'].orcid.find({})
+        rows = DB['dis'].orcid.find({"orcid": {"$exists": True}})
     except Exception as err:
         terminate_program(err)
     for row in rows:
@@ -164,7 +169,7 @@ def add_from_orcid(oids):
 
 
 def people_by_name(first, surname):
-    ''' Search for a name in the people system
+    ''' Search for a surname in the people system
         Keyword arguments:
           first: first name
           surname: last name
@@ -178,12 +183,95 @@ def people_by_name(first, surname):
     filtered = []
     for person in people:
         if person['locationName'] != 'Janelia Research Campus':
-        # or person['photoURL'].endswith('PlaceHolder.png'):
             continue
         if person['nameLastPreferred'].lower() == surname.lower() \
            and person['nameFirstPreferred'].lower() == first.lower():
             filtered.append(person)
     return filtered
+
+
+def update_group_status(rec, idresp):
+    ''' Add group tags to the record
+        Keyword arguments:
+          rec: orcid record
+          idresp: People service response
+        Returns:
+          None
+    '''
+    if 'managedTeams' not in idresp:
+        return
+    lab = ''
+    for team in idresp['managedTeams']:
+        if team['supOrgSubType'] == 'Lab' and team['supOrgName'].endswith(' Lab'):
+            if team['supOrgCode'] in DISCONFIG['sup_ignore']:
+                continue
+            if lab:
+                terminate_program(f"Multiple labs found for {idresp['nameFirstPreferred']} " \
+                                  + idresp['nameLastPreferred'])
+            lab = team['supOrgName']
+            rec['group'] = lab
+            rec['group_code'] = team['supOrgCode']
+
+
+def get_person(people):
+    ''' Get a person record
+        Keyword arguments:
+          people: list of people
+        Returns:
+          Person record and person ID record
+    '''
+    if len(people) == 1:
+        idresp = JRC.call_people_by_id(people[0]['employeeId'])
+        return people[0], idresp
+    latest = ''
+    saved = {"person": None, "idresp": None}
+    idresp = None
+    for person in people:
+        first = person['nameFirstPreferred']
+        last = person['nameLastPreferred']
+        idresp = JRC.call_people_by_id(person['employeeId'])
+        if 'terminationDate' in idresp and idresp['terminationDate']:
+            LOGGER.warning(f"{first} {last} was terminated {idresp['terminationDate']}")
+            continue
+        if 'hireDate' in idresp and idresp['hireDate']:
+            if not latest or idresp['hireDate'] > latest:
+                latest = idresp['hireDate']
+                saved['person'] = person
+                saved['idresp'] = idresp
+    if saved['person']:
+        LOGGER.warning(f"Selected {first} {last} {latest}")
+    return saved['person'], saved['idresp']
+
+
+def add_people_information(first, surname, oids, oid):
+    ''' Correlate a name from ORCID with HHMI's People service
+        Keyword arguments:
+          first: given name
+          surname: family name
+          oid: ORCID ID
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    found = False
+    people = people_by_name(first, surname)
+    if people:
+        person, idresp = get_person(people)
+        if person:
+            found = True
+            oids[oid]['employeeId'] = people[0]['employeeId']
+            oids[oid]['userIdO365'] = people[0]['userIdO365']
+            if 'group leader' in people[0]['businessTitle'].lower():
+                oids[oid]['group'] = f"{first} {surname} Lab"
+            if people[0]['businessTitle'] == 'JRC Alumni':
+                oids[oid]['alumni'] = True
+            if idresp:
+                update_group_status(oids[oid], idresp)
+                DL.get_name_combinations(idresp, oids[oid])
+                DL.get_affiliations(idresp, oids[oid])
+        else:
+            LOGGER.error(f"No usable record in People for {first} {surname}")
+    return found
 
 
 def correlate_person(oid, oids):
@@ -195,32 +283,11 @@ def correlate_person(oid, oids):
           None
     '''
     val = oids[oid]
-    found = False
     for surname in val['family']:
         for first in val['given']:
-            people = people_by_name(first, surname)
-            if people:
-                if len(people) == 1:
-                    found = True
-                    oids[oid]['employeeId'] = people[0]['employeeId']
-                    oids[oid]['userIdO365'] = people[0]['userIdO365']
-                    if 'group leader' in people[0]['businessTitle'].lower():
-                        oids[oid]['group'] = f"{first} {surname} Lab"
-                    elif people[0]['businessTitle'] == 'JRC Alumni':
-                        oids[oid]['alumni'] = True
-                    idresp = JRC.call_people_by_id(oids[oid]['employeeId'])
-                    if idresp and 'affiliations' in idresp and idresp['affiliations']:
-                        oids[oid]['affiliations'] = []
-                        for aff in idresp['affiliations']:
-                            if aff['supOrgName'] not in oids[oid]['affiliations']:
-                                oids[oid]['affiliations'].append(aff['supOrgName'])
-                    if 'affiliations' in oids[oid]:
-                        LOGGER.info(f"Added {first} {surname} from People " \
-                                    + f"({', '.join(oids[oid]['affiliations'])})")
-                    else:
-                        LOGGER.info(f"Added {first} {surname} from People")
-                    break
-                LOGGER.error(f"Found more than one record in People for {first} {surname}")
+            found = add_people_information(first, surname, oids, oid)
+            if found:
+                break
         if found:
             break
     #if not found:
@@ -248,10 +315,10 @@ def add_janelia_info(oids):
         Returns:
           None
     '''
-    for oid in tqdm(oids, desc='Janalians from orcid collection'):
+    for oid in tqdm(oids, desc='Janelians from orcid collection'):
         if oid in PRESENT:
             preserve_mongo_names(PRESENT[oid], oids)
-        if oid in PRESENT and 'employeeId' in PRESENT[oid]:
+        if oid in PRESENT and 'employeeId' in PRESENT[oid] and not ARG.FORCE:
             continue
         correlate_person(oid, oids)
 
@@ -265,7 +332,11 @@ def write_records(oids):
     '''
     coll = DB['dis'].orcid
     for oid, val in tqdm(oids.items(), desc='Updating orcid collection'):
-        result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
+        if oid:
+            result = coll.update_one({"orcid": oid}, {"$set": val}, upsert=True)
+        else:
+            print(f"INSERT {val}")
+            result = coll.insert_one(val)
         if hasattr(result, 'matched_count') and result.matched_count:
             COUNT['update'] += 1
         else:
@@ -295,13 +366,53 @@ def generate_email():
             msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
     msg += f"The following ORCID IDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for oid, val in NEW_ORCID.items():
-        msg += f"\n{oid}: {val}\n"
+        if not oid:
+            oid = '(no ORCID)'
+        msg += f"\n{oid}: {val}"
     try:
         LOGGER.info(f"Sending email to {RECEIVERS}")
         JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
-                       "New DOIs")
+                       "New ORCID IDs")
     except Exception as err:
         LOGGER.error(err)
+
+
+def handle_name(oids):
+    ''' Handle a name from the command line
+        Keyword arguments:
+          oids: ORCID ID dict
+        Returns:
+          None
+    '''
+    add_name('', oids, ARG.FAMILY.capitalize(), ARG.GIVEN.capitalize())
+    COUNT['orcid'] += 1
+    correlate_person('', oids)
+    if 'employeeId' not in oids['']:
+        terminate_program("Could not find a record in People")
+    try:
+        row = DB['dis'].orcid.find_one({"employeeId": oids['']['employeeId']})
+    except Exception as err:
+        terminate_program(err)
+    if row:
+        terminate_program("Record already exists")
+    if not should_continue(oids['']):
+        LOGGER.warning("Record was not inserted")
+        terminate_program()
+
+
+def should_continue(rec):
+    ''' Ask user if we should continue
+        Keyword arguments:
+          rec: orcid collection record
+        Returns:
+          True or False
+    '''
+    print(json.dumps(rec, indent=2))
+    quest = [inquirer.Confirm("continue", message="Insert this record?", default=True)]
+    ans = inquirer.prompt(quest)
+    if not ans or not ans['continue']:
+        return False
+    return True
 
 
 def update_orcid():
@@ -313,11 +424,21 @@ def update_orcid():
     '''
     LOGGER.info(f"Started run (version {__version__})")
     oids = {}
-    if ARG.ORCID:
+    if ARG.GIVEN and ARG.FAMILY:
+        handle_name(oids)
+    elif ARG.ORCID:
+        ARG.FORCE = True
         family, given = get_name(ARG.ORCID)
         if family and given:
             add_name(ARG.ORCID, oids, family, given)
+            oids[ARG.ORCID]['orcid'] = ARG.ORCID
             COUNT['orcid'] += 1
+            add_janelia_info(oids)
+            if 'employeeId' not in oids[ARG.ORCID]:
+                oids[ARG.ORCID]['alumni'] = True
+            if not should_continue(oids[ARG.ORCID]):
+                LOGGER.warning("Record was not inserted")
+                terminate_program()
     else:
         # Get ORCID IDs from the doi collection
         dcoll = DB['dis'].dois
@@ -351,9 +472,15 @@ if __name__ == '__main__':
         description="Add ORCID information to MongoDB:orcid")
     PARSER.add_argument('--orcid', dest='ORCID', action='store',
                         help='ORCID ID')
+    PARSER.add_argument('--given', dest='GIVEN', action='store',
+                        help='Given name')
+    PARSER.add_argument('--family', dest='FAMILY', action='store',
+                        help='Family name')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
+    PARSER.add_argument('--force', dest='FORCE', action='store_true',
+                        default=False, help='Update ORCID ID whether correlated or not')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
                         default=False, help='Write to database/config system')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',
@@ -363,6 +490,6 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
-    REST = JRC.get_config("rest_services")
+    DISCONFIG = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     update_orcid()
     terminate_program()

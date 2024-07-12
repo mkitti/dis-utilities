@@ -1,5 +1,5 @@
 ''' add_reviewed.py
-    Update the jrc_reviewed date for one or more DOIs
+    Update the jrc_newsletter date for one or more DOIs
 '''
 
 import argparse
@@ -56,6 +56,7 @@ def update_single_doi(doi):
         Returns:
           None
     """
+    doi = doi.lower()
     LOGGER.info(doi)
     COUNT["dois"] += 1
     coll = DB['dis'].dois
@@ -64,11 +65,11 @@ def update_single_doi(doi):
         LOGGER.warning(f"{doi} was not found")
         COUNT["notfound"] += 1
         return
-    payload = {"jrc_reviewed": ARG.DATE}
+    payload = {"jrc_newsletter": ARG.DATE}
     if ARG.WRITE:
         try:
             if ARG.REMOVE:
-                coll.update_one({"doi": doi}, {"$unset": {"jrc_reviewed": 1}})
+                coll.update_one({"doi": doi}, {"$unset": {"jrc_newsletter": 1}})
             else:
                 coll.update_one({"doi": doi}, {"$set": payload})
         except Exception as err:
@@ -116,9 +117,9 @@ if __name__ == '__main__':
     GROUP_A.add_argument('--file', dest='FILE', action='store',
                          help='File of DOIs to process')
     PARSER.add_argument('--date', dest='DATE', action='store',
-                        help='Newsletter date (defaults to today)')
+                        help='Newsletter date (defaults to today). Format: YYYY-MM-DD')
     PARSER.add_argument('--remove', dest='REMOVE', action='store_true',
-                        default=False, help='Remove jrc_reviewed from DOI(s)')
+                        default=False, help='Remove jrc_newsletter from DOI(s)')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
@@ -130,8 +131,13 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
-    if ARG.DATE and ARG.REMOVE:
-        terminate_program("Specifying --date and --remove isn't permitted")
+    if ARG.DATE:
+        if ARG.REMOVE:
+            terminate_program("Specifying --date and --remove isn't permitted")
+        try:
+            datetime.strptime(ARG.DATE, '%Y-%m-%d')
+        except ValueError:
+            terminate_program(f"{ARG.DATE} is an invalid date")
     initialize_program()
     process_dois()
     terminate_program()
