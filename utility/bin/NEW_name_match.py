@@ -2,8 +2,6 @@
 New version of name_match.py that will connect to the DIS database directly instead of making REST requests.
 """
 
-
-import requests
 import os
 import sys
 from rapidfuzz import fuzz
@@ -286,8 +284,8 @@ def evaluate_guess(author, best_guess, success_message):
         if ans['decision'] != ['None of the above']:
             quest = [inquirer.List(
             'action',
-            message=success_message,
-            choices=['Yes', 'No'])
+            message = success_message.substitute(name=best_guess.name),
+            choices = ['Yes', 'No'])
             ]
             ans = inquirer.prompt(quest, theme=BlueComposure())
             if ans['action'] == 'Yes':
@@ -297,8 +295,15 @@ def evaluate_guess(author, best_guess, success_message):
         else:
             return(False)
     else:
-        print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
-        if float(best_guess.score) > 85.0:
+        if float(best_guess.score) < 85.0:
+            print(
+                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}"
+                )
+        else:
+            print(colored(
+                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
+                "blue"
+                ))
             quest = [inquirer.List(
             'decision',
             message=f"Select {best_guess.name}?",
@@ -308,8 +313,8 @@ def evaluate_guess(author, best_guess, success_message):
             if ans['decision'] == 'Yes':
                 quest = [ inquirer.List(
                 'action',
-                message=success_message,
-                choices=['Yes', 'No']) ]
+                message = success_message.substitute(name=best_guess.name),
+                choices = ['Yes', 'No']) ]
                 ans = inquirer.prompt(quest, theme=BlueComposure())
                 if ans['action'] == 'Yes':
                     return(True)
@@ -330,6 +335,7 @@ if __name__ == '__main__':
     all_authors = create_author_objects(doi_record)
     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
     for author in janelian_authors:
+        print() # whitespace
         if author.orcid:
             mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
             if mongo_orcid_record:
@@ -339,15 +345,15 @@ if __name__ == '__main__':
                 elif 'employeeId' not in mongo_orcid_record:
                     print( f"{author.name} is in our ORCID collection, but without an employee ID." )
                     best_guess = guess_employee(author)
-                    evaluate_guess(author, best_guess, f"Confirm you wish to add this person's employee ID to existing ORCID record")
+                    evaluate_guess(author, best_guess, string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use regular string formatting bc guess may be None (MissingPerson)
             elif not mongo_orcid_record:
                 print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
                 best_guess = guess_employee(author)
-                evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person, with both their employee ID and their ORCID")
+                evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"))
         elif not author.orcid:
             print( f"{author.name} does not have an ORCID on this paper." )
             best_guess = guess_employee(author)
-            evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person with an employee ID only")
+            evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only"))
 
 
 
@@ -356,7 +362,9 @@ if __name__ == '__main__':
 
 
 
-
+    #add_employeeId_to_orcid_record('0000-0002-4156-2849', '65362', collection)
+    #my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
+    #print(my_orcid_record)
 
 #For bug testing, do not run!!!
 # import NEW_name_match as nm
@@ -366,6 +374,7 @@ if __name__ == '__main__':
 # all_authors = nm.create_author_objects(doi_record)
 # janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
 # for author in janelian_authors:
+#     print() # whitespace
 #     if author.orcid:
 #         mongo_orcid_record = nm.search_orcid_collection(author.orcid, orcid_collection)
 #         if mongo_orcid_record:
@@ -375,18 +384,12 @@ if __name__ == '__main__':
 #             elif 'employeeId' not in mongo_orcid_record:
 #                 print( f"{author.name} is in our ORCID collection, but without an employee ID." )
 #                 best_guess = nm.guess_employee(author)
-#                 nm.evaluate_guess(author, best_guess, f"Confirm you wish to add this person's employee ID to existing ORCID record")
+#                 nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use regular string formatting bc guess may be None (MissingPerson)
 #         elif not mongo_orcid_record:
 #             print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
 #             best_guess = nm.guess_employee(author)
-#             nm.evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person, with both their employee ID and their ORCID")
+#             nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"))
 #     elif not author.orcid:
 #         print( f"{author.name} does not have an ORCID on this paper." )
 #         best_guess = nm.guess_employee(author)
-#         nm.evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person with an employee ID only")
-
-
-
-    #add_employeeId_to_orcid_record('0000-0002-4156-2849', '65362', collection)
-    #my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
-    #print(my_orcid_record)
+#         nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only"))
