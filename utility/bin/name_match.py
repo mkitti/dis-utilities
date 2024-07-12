@@ -1,5 +1,6 @@
 """
-New version of name_match.py that will connect to the DIS database directly instead of making REST requests.
+Given a DOI, try to identify Janelia authors who don't have ORCIDs and correlate them with employees.
+Update ORCID records as needed.
 """
 
 import os
@@ -18,9 +19,9 @@ import inquirer
 from inquirer.themes import BlueComposure
 
 #TODO: Add some of these to requirements.txt?
+#TODO: Add command line args
+#TODO: Handle names that CrossRef butchered, e.g. 'Miguel Angel NunezOchoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 
-
-#sys.path.append('~/dis-utilities/sync/bin')
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
     print("Error: Please set the environment variable PEOPLE_API_KEY.")
