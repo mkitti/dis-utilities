@@ -97,7 +97,6 @@ class Employee:
         self.middle_names = middle_names if middle_names is not None else []
         self.last_names = last_names if last_names is not None else []
     def generate_name_permutations(self):
-        #TODO: Check hyphenated lastnames, last names with spaces
         permutations = set()
         # All possible first names + all possible last names
         for first_name, last_name in itertools.product(self.first_names, self.last_names):
@@ -319,15 +318,34 @@ def generate_family_names_for_orcid_collection(guess):
         all_first_names.append( f"{first_name} {middle_initial}" )
     return(all_first_names)
 
+
+def choose_authors_manually(author_list):
+    print("Crossref has no author affiliations for this paper.")
+    quest = [inquirer.Checkbox('decision', carousel=True, message="Choose Janelia authors", choices=[a.name for a in author_list])]
+    ans1 = inquirer.prompt(quest, theme=BlueComposure())
+    quest = [ inquirer.List('confirm', message = f"Confirm Janelia authors:\n{ans1['decision']}", choices=['Yes', 'No']) ]
+    ans2 = inquirer.prompt(quest, theme=BlueComposure())
+    if ans2['confirm'] == 'Yes':
+        return(ans1['decision'])
+    else:
+        print('Exiting program.')
+        sys.exit(0)
+
+
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     initialize_program()
     orcid_collection = DB['dis'].orcid
-    doi='10.1083/jcb.202311126'
+    doi='10.1101/2021.08.18.456004'
     doi_record = get_doi_record(doi)
     all_authors = create_author_objects(doi_record)
-    janelian_authors = [ a for a in all_authors if is_janelian(a) ]
+    janelian_authors = []
+    if not any([a.affiliations for a in all_authors]):
+        names_picked = choose_authors_manually(all_authors)
+        janelian_authors = [ a for a in all_authors if a.name in names_picked ]
+    else:
+        janelian_authors = [ a for a in all_authors if is_janelian(a) ]
     for author in janelian_authors:
         print() # whitespace
         if author.orcid:
@@ -355,20 +373,25 @@ if __name__ == '__main__':
             if proceed:
                 doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
 
-#TODO: Add functionality to manually input janelia authors for cases where there are no affiliations in crossref!
 
 
-
+                                                                
 
 
 
 #For bug testing, do not run!!!
-# import NEW_name_match as nm
+# import name_match as nm
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
-# doi_record = nm.get_doi_record('10.7554/eLife.80660')
+# doi='10.1101/2024.05.09.593460'
+# doi_record = nm.get_doi_record(doi)
 # all_authors = nm.create_author_objects(doi_record)
-# janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
+# janelian_authors = []
+# if not any([a.affiliations for a in all_authors]):
+#     names_picked = nm.choose_authors_manually(all_authors)
+#     janelian_authors = [ a for a in all_authors if a.name in names_picked ]
+# else:
+#     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
 # for author in janelian_authors:
 #     print() # whitespace
 #     if author.orcid:
@@ -386,7 +409,7 @@ if __name__ == '__main__':
 #         elif not mongo_orcid_record:
 #             print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
 #             best_guess = nm.guess_employee(author)
-#             proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"))
+#             proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"), collection=orcid_collection)
 #             if proceed:
 #                 doi_common.add_orcid(best_guess.id, orcid_collection, given=nm.generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
 #     elif not author.orcid:
