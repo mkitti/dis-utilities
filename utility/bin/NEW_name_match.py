@@ -23,6 +23,7 @@ from inquirer.themes import BlueComposure
 doi = '10.7554/eLife.80660'
 ##########################################################
 
+sys.path.append('~/dis-utilities/sync/bin')
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
     print("Error: Please set the environment variable PEOPLE_API_KEY.")
@@ -173,11 +174,6 @@ def search_orcid_collection(orcid, collection):
         doi_common.single_orcid_lookup(orcid, collection, 'orcid')
         )
 
-def add_employeeId_to_orcid_record(orcid, employee_id, collection):
-    return(
-        doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
-        )
-
 def get_doi_record(doi):
     result = JRC.call_crossref(doi)
     return( result['message'] )
@@ -274,19 +270,10 @@ def evaluate_guess(author, best_guess, success_message):
         print("Multiple high scoring matches found:")
         for guess in best_guess.winners:
             print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
-        quest = [inquirer.Checkbox(
-            'decision', 
-            carousel=True,
-            message="Choose an option",
-            choices=[guess.name for guess in best_guess.winners] + ['None of the above'], 
-            default=['None of the above'])]
+        quest = [inquirer.Checkbox('decision', carousel=True, message="Choose an option", choices=[guess.name for guess in best_guess.winners] + ['None of the above'], default=['None of the above'])]
         ans = inquirer.prompt(quest, theme=BlueComposure())
         if ans['decision'] != ['None of the above']:
-            quest = [inquirer.List(
-            'action',
-            message = success_message.substitute(name=best_guess.name),
-            choices = ['Yes', 'No'])
-            ]
+            quest = [inquirer.List('action',message = success_message.substitute(name=best_guess.name),choices = ['Yes', 'No'])]
             ans = inquirer.prompt(quest, theme=BlueComposure())
             if ans['action'] == 'Yes':
                 return(True)
@@ -304,17 +291,10 @@ def evaluate_guess(author, best_guess, success_message):
                 f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
                 "blue"
                 ))
-            quest = [inquirer.List(
-            'decision',
-            message=f"Select {best_guess.name}?",
-            choices=['Yes', 'No'])
-            ]
+            quest = [inquirer.List('decision', message=f"Select {best_guess.name}?", choices=['Yes', 'No'])]
             ans = inquirer.prompt(quest, theme=BlueComposure())
             if ans['decision'] == 'Yes':
-                quest = [ inquirer.List(
-                'action',
-                message = success_message.substitute(name=best_guess.name),
-                choices = ['Yes', 'No']) ]
+                quest = [ inquirer.List('action', message = success_message.substitute(name=best_guess.name), choices = ['Yes', 'No']) ]
                 ans = inquirer.prompt(quest, theme=BlueComposure())
                 if ans['action'] == 'Yes':
                     return(True)
@@ -324,6 +304,10 @@ def evaluate_guess(author, best_guess, success_message):
                 return(False)
 
 
+def add_employeeId_to_orcid_record(orcid, employee_id, collection):
+    return(
+        doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -340,16 +324,20 @@ if __name__ == '__main__':
             mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
             if mongo_orcid_record:
                 if 'employeeId' in mongo_orcid_record:
-                    print( f"{author.name} is in our ORCID collection, and the ORCID record has an employee ID." )
+                    print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID." )
                     # Do nothing
                 elif 'employeeId' not in mongo_orcid_record:
                     print( f"{author.name} is in our ORCID collection, but without an employee ID." )
                     best_guess = guess_employee(author)
-                    evaluate_guess(author, best_guess, string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use regular string formatting bc guess may be None (MissingPerson)
+                    proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use best_guess.name bc guess may be None (MissingPerson)
+                    if proceed:
+                        add_employeeId_to_orcid_record(author.orcid, best_guess.id, orcid_collection)
             elif not mongo_orcid_record:
                 print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
                 best_guess = guess_employee(author)
-                evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"))
+                proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"))
+                if proceed:
+
         elif not author.orcid:
             print( f"{author.name} does not have an ORCID on this paper." )
             best_guess = guess_employee(author)
@@ -360,11 +348,6 @@ if __name__ == '__main__':
 
 
 
-
-
-    #add_employeeId_to_orcid_record('0000-0002-4156-2849', '65362', collection)
-    #my_orcid_record = search_orcid_collection('0000-0002-4156-2849', collection)
-    #print(my_orcid_record)
 
 #For bug testing, do not run!!!
 # import NEW_name_match as nm
