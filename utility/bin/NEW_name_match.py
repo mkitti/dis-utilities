@@ -78,6 +78,7 @@ def terminate_program(msg=None):
 #     sys.exit(-1 if msg else 0)
 
 class Author:
+    """ Author objects are constructed solely from the CrossRef-provided author information. """
     def __init__(self, raw_name, orcid=None, affiliations=None, employee_id=None):
         self.raw_name = raw_name
         self.name = self.remove_punctuation(unidecode(raw_name))
@@ -144,6 +145,7 @@ def instantiate_guess(employee, name=None, score=None):
 class MissingPerson:
     """ This class indicates that searching the HHMI People API yielded no results. """
     pass
+
 
 class MultipleHits:
     """ This class indicates that an author name matched multiple HHMI employees with equally high scores. """
@@ -264,7 +266,18 @@ def guess_employee(author):
     else:
         return(MissingPerson())
 
-
+def process_guess(author, best_guess):
+    if isinstance(best_guess, MissingPerson):
+        print(f"{author.name} could not be found in the HHMI People API.")
+    elif isinstance(best_guess, MultipleHits):            
+        print("Multiple high scoring matches found:")
+        for guess in best_guess.winners:
+            print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
+            print(colored(f"Recommended action: browse above list for matches to {author.name}.", 'red', 'on_yellow'))
+    else:
+        print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
+        if float(best_guess.score) > 85.0:
+            print(colored(f"Recommended action: add employee ID {best_guess.id} to {author.name} for this doi.", 'red', 'on_yellow'))
 
 
 
@@ -272,28 +285,59 @@ def guess_employee(author):
 
 if __name__ == '__main__':
     initialize_program()
-    collection = DB['dis'].orcid
+    orcid_collection = DB['dis'].orcid
     doi_record = get_doi_record(doi)
     all_authors = create_author_objects(doi_record)
     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
     for author in janelian_authors:
         if author.orcid:
-            mongo_orcid_record = search_orcid_collection(author.orcid, collection)
+            mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
             if mongo_orcid_record:
                 if 'employeeId' in mongo_orcid_record:
-                    pass # They will automatically be added to jrc_authors in another script
+                    print( f"{author.name} is in our ORCID collection, and the ORCID record has an employee ID." )
                 elif 'employeeId' not in mongo_orcid_record:
-                    #TODO! FUZZY MATCH!
+                    print( f"{author.name} is in our ORCID collection, but without an employee ID." )
                     best_guess = guess_employee(author)
+                    process_guess(author, best_guess)
+            elif not mongo_orcid_record:
+                print( f"{author.name} has an ORCID, but this ORCID is not in our collection." )
+                best_guess = guess_employee(author)
+                process_guess(author, best_guess)
+        elif not author.orcid:
+            best_guess = guess_employee(author)
+            process_guess(author, best_guess)
 
-#For bug testing:
-# import NEW_name_match
-# NEW_name_match.initialize_program()
-# collection = NEW_name_match.DB['dis'].orcid
-# doi_record = NEW_name_match.get_doi_record('10.7554/eLife.80660')
-# all_authors = NEW_name_match.create_author_objects(doi_record)
-# janelian_authors = [ a for a in all_authors if NEW_name_match.is_janelian(a) ]
-# 
+
+
+
+
+
+
+#For bug testing, do not run!!!
+# import NEW_name_match as nm
+# nm.initialize_program()
+# orcid_collection = nm.DB['dis'].orcid
+# doi_record = nm.get_doi_record('10.7554/eLife.80660')
+# all_authors = nm.create_author_objects(doi_record)
+# janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
+# for author in janelian_authors:
+#     if author.orcid:
+#         mongo_orcid_record = nm.search_orcid_collection(author.orcid, orcid_collection)
+#         if mongo_orcid_record:
+#             if 'employeeId' in mongo_orcid_record:
+#                 print( f"{author.name} is in our ORCID collection, and has an employee ID. ORCID:{author.orcid}, employee ID: {mongo_orcid_record['employeeId']}" )
+#             elif 'employeeId' not in mongo_orcid_record:
+#                 print( f"{author.name} is in our ORCID collection, but without an employee ID." )
+#                 best_guess = nm.guess_employee(author)
+#                 nm.process_guess(author, best_guess)
+#         elif not mongo_orcid_record:
+#             print( f"{author.name} has an ORCID, but this ORCID is not in our collection." )
+#             best_guess = nm.guess_employee(author)
+#             nm.process_guess(author, best_guess)
+#     elif not author.orcid:
+#         print( f"{author.name} does not have an ORCID on this paper." )
+#         best_guess = nm.guess_employee(author)
+#         nm.process_guess(author, best_guess)
 
 
 
