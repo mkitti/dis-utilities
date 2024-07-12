@@ -16,13 +16,15 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 from operator import attrgetter
 import sys
+import inquirer
+from inquirer.themes import BlueComposure
+
 #TODO: Add some of these to requirements.txt?
 
 ################## STUFF YOU SHOULD EDIT ##################
 doi = '10.7554/eLife.80660'
 ##########################################################
 
-people_api_url = "https://hhmipeople-prod.azurewebsites.net/People/"
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
     print("Error: Please set the environment variable PEOPLE_API_KEY.")
@@ -266,18 +268,56 @@ def guess_employee(author):
     else:
         return(MissingPerson())
 
-def process_guess(author, best_guess):
+def evaluate_guess(author, best_guess, success_message):
     if isinstance(best_guess, MissingPerson):
         print(f"{author.name} could not be found in the HHMI People API.")
-    elif isinstance(best_guess, MultipleHits):            
+        return(False)
+    if isinstance(best_guess, MultipleHits):
         print("Multiple high scoring matches found:")
         for guess in best_guess.winners:
             print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
-            print(colored(f"Recommended action: browse above list for matches to {author.name}.", 'red', 'on_yellow'))
+        quest = [inquirer.Checkbox(
+            'decision', 
+            carousel=True,
+            message="Choose an option",
+            choices=[guess.name for guess in best_guess.winners] + ['None of the above'], 
+            default=['None of the above'])]
+        ans = inquirer.prompt(quest, theme=BlueComposure())
+        if ans['decision'] != ['None of the above']:
+            quest = [inquirer.List(
+            'action',
+            message=success_message,
+            choices=['Yes', 'No'])
+            ]
+            ans = inquirer.prompt(quest, theme=BlueComposure())
+            if ans['action'] == 'Yes':
+                return(True)
+            else:
+                return(False)
+        else:
+            return(False)
     else:
         print(f"{author.name}: Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}")
         if float(best_guess.score) > 85.0:
-            print(colored(f"Recommended action: add employee ID {best_guess.id} to {author.name} for this doi.", 'red', 'on_yellow'))
+            quest = [inquirer.List(
+            'decision',
+            message=f"Select {best_guess.name}?",
+            choices=['Yes', 'No'])
+            ]
+            ans = inquirer.prompt(quest, theme=BlueComposure())
+            if ans['decision'] == 'Yes':
+                quest = [ inquirer.List(
+                'action',
+                message=success_message,
+                choices=['Yes', 'No']) ]
+                ans = inquirer.prompt(quest, theme=BlueComposure())
+                if ans['action'] == 'Yes':
+                    return(True)
+                else:
+                    return(False)
+            else:
+                return(False)
+
 
 
 
@@ -295,17 +335,22 @@ if __name__ == '__main__':
             if mongo_orcid_record:
                 if 'employeeId' in mongo_orcid_record:
                     print( f"{author.name} is in our ORCID collection, and the ORCID record has an employee ID." )
+                    # Do nothing
                 elif 'employeeId' not in mongo_orcid_record:
                     print( f"{author.name} is in our ORCID collection, but without an employee ID." )
                     best_guess = guess_employee(author)
-                    process_guess(author, best_guess)
+                    evaluate_guess(author, best_guess, f"Confirm you wish to add this person's employee ID to existing ORCID record")
             elif not mongo_orcid_record:
-                print( f"{author.name} has an ORCID, but this ORCID is not in our collection." )
+                print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
                 best_guess = guess_employee(author)
-                process_guess(author, best_guess)
+                evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person, with both their employee ID and their ORCID")
         elif not author.orcid:
+            print( f"{author.name} does not have an ORCID on this paper." )
             best_guess = guess_employee(author)
-            process_guess(author, best_guess)
+            evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person with an employee ID only")
+
+
+
 
 
 
@@ -325,19 +370,20 @@ if __name__ == '__main__':
 #         mongo_orcid_record = nm.search_orcid_collection(author.orcid, orcid_collection)
 #         if mongo_orcid_record:
 #             if 'employeeId' in mongo_orcid_record:
-#                 print( f"{author.name} is in our ORCID collection, and has an employee ID. ORCID:{author.orcid}, employee ID: {mongo_orcid_record['employeeId']}" )
+#                 print( f"{author.name} is in our ORCID collection, and the ORCID record has an employee ID." )
+#                 # Do nothing
 #             elif 'employeeId' not in mongo_orcid_record:
 #                 print( f"{author.name} is in our ORCID collection, but without an employee ID." )
 #                 best_guess = nm.guess_employee(author)
-#                 nm.process_guess(author, best_guess)
+#                 nm.evaluate_guess(author, best_guess, f"Confirm you wish to add this person's employee ID to existing ORCID record")
 #         elif not mongo_orcid_record:
-#             print( f"{author.name} has an ORCID, but this ORCID is not in our collection." )
+#             print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
 #             best_guess = nm.guess_employee(author)
-#             nm.process_guess(author, best_guess)
+#             nm.evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person, with both their employee ID and their ORCID")
 #     elif not author.orcid:
 #         print( f"{author.name} does not have an ORCID on this paper." )
 #         best_guess = nm.guess_employee(author)
-#         nm.process_guess(author, best_guess)
+#         nm.evaluate_guess(author, best_guess, f"Confirm you wish to create an ORCID record for this person with an employee ID only")
 
 
 
