@@ -56,6 +56,7 @@ def update_single_doi(doi):
         Returns:
           None
     """
+    doi = doi.lower()
     LOGGER.info(doi)
     COUNT["dois"] += 1
     coll = DB['dis'].dois
