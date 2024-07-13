@@ -66,10 +66,11 @@ def terminate_program(msg=None):
           None
     '''
     if msg:
-        print(msg)
-        sys.exit(-1)
-    else:
-        sys.exit(0)
+        if not isinstance(msg, str):
+            msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
+            LOGGER.critical(msg)
+            sys.exit(-1 if msg else 0)
+
 #TODO: 
 # if msg:
 #         if not isinstance(msg, str):
@@ -260,11 +261,13 @@ def guess_employee(author):
     else:
         return(MissingPerson())
 
-def evaluate_guess(author, best_guess, success_message, collection=None):
+def evaluate_guess(author, best_guess, inform_message, success_message, collection=None, verbose=False):
     if isinstance(best_guess, MissingPerson):
-        print(f"{author.name} could not be found in the HHMI People API.")
+        if verbose:
+            print(f"{author.name} could not be found in the HHMI People API.\n")
         return(False)
     if isinstance(best_guess, MultipleHits):
+        print(inform_message)
         print("Multiple high scoring matches found:")
         for guess in best_guess.winners:
             print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
@@ -281,10 +284,13 @@ def evaluate_guess(author, best_guess, success_message, collection=None):
             return(False)
     else:
         if float(best_guess.score) < 85.0:
-            print(
-                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}"
-                )
+            if verbose:
+                print(inform_message)
+                print(
+                    f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
+                    )
         else:
+            print(inform_message)
             print(colored(
                 f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
                 "blue"
@@ -295,7 +301,7 @@ def evaluate_guess(author, best_guess, success_message, collection=None):
                 try:
                     doi_common.single_orcid_lookup(best_guess.id, collection, lookup_by='employeeId')
                 except:
-                    print( f"{best_guess.name} is already in the ORCID collection, with employeeId only." )
+                    print( f"{best_guess.name} is already in the ORCID collection, with employeeId only.\n" )
                     return(False)
                 quest = [ inquirer.List('action', message = success_message.substitute(name=best_guess.name), choices = ['Yes', 'No']) ]
                 ans = inquirer.prompt(quest, theme=BlueComposure())
@@ -341,15 +347,17 @@ if __name__ == '__main__':
     description = "Given a DOI, use fuzzy name matching to correlate Janelia authors who don't have ORCIDs to Janelia employees. Update ORCID records as needed.")
     parser.add_argument('--doi', dest='doi', action='store', required=True,
                          help='DOI whose authors will be processed.')
-    # parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
-    #                     default=False, help='Flag, Chatty')
-    # parser.add_argument('--debug', dest='DEBUG', action='store_true',
-    #                     default=False, help='Flag, Very chatty')
+    parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
+                        default=False, help='Flag, Chatty')
+    parser.add_argument('--debug', dest='DEBUG', action='store_true',
+                        default=False, help='Flag, Very chatty')
     arg = parser.parse_args()
-    #LOGGER = JRC.setup_logging(arg)
+    LOGGER = JRC.setup_logging(arg)
     initialize_program()
     orcid_collection = DB['dis'].orcid
     #doi='10.1101/2021.08.18.456004'
+    #doi='10.7554/eLife.80660'
+    #doi='10.1101/2024.05.09.593460' #THIS DOI CAUSES A BUG! TODO!
     doi_record = get_doi_record(arg.doi)
     all_authors = create_author_objects(doi_record)
     janelian_authors = []
@@ -359,29 +367,32 @@ if __name__ == '__main__':
     else:
         janelian_authors = [ a for a in all_authors if is_janelian(a) ]
     for author in janelian_authors:
-        print() # whitespace
         if author.orcid:
             mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
             if mongo_orcid_record:
                 if 'employeeId' in mongo_orcid_record:
-                    print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID." )
+                    if arg.VERBOSE:
+                        print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID.\n" )
                     # Do nothing
                 elif 'employeeId' not in mongo_orcid_record:
-                    print( f"{author.name} is in our ORCID collection, but without an employee ID." )
+                    inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
+                    success_message = string.Template("Confirm you wish to add $name's employee ID to existing ORCID record") #can't use best_guess.name bc guess may be None (MissingPerson)
                     best_guess = guess_employee(author)
-                    proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use best_guess.name bc guess may be None (MissingPerson)
+                    proceed = evaluate_guess(author, best_guess, inform_message, success_message, verbose=arg.VERBOSE) 
                     if proceed:
                         add_employeeId_to_orcid_record(author.orcid, best_guess.id, orcid_collection)
             elif not mongo_orcid_record:
-                print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
+                inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
+                success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
                 best_guess = guess_employee(author)
-                proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"), collection=orcid_collection)
+                proceed = evaluate_guess(author, best_guess, inform_message, success_message, collection=orcid_collection, verbose=arg.VERBOSE)
                 if proceed:
                     doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
         elif not author.orcid:
-            print( f"{author.name} does not have an ORCID on this paper." )
+            inform_message = f"{author.name} does not have an ORCID on this paper."
+            success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
             best_guess = guess_employee(author)
-            proceed = evaluate_guess(author, best_guess, string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only"))
+            proceed = evaluate_guess(author, best_guess, inform_message, success_message, verbose=arg.VERBOSE)
             if proceed:
                 doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
 
