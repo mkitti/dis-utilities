@@ -17,6 +17,7 @@ from operator import attrgetter
 import sys
 import inquirer
 from inquirer.themes import BlueComposure
+import argparse
 
 #TODO: Add some of these to requirements.txt?
 #TODO: Add command line args
@@ -336,10 +337,20 @@ def choose_authors_manually(author_list):
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser(
+    description = "Given a DOI, use fuzzy name matching to correlate Janelia authors who don't have ORCIDs to Janelia employees. Update ORCID records as needed.")
+    parser.add_argument('--doi', dest='doi', action='store', required=True,
+                         help='DOI whose authors will be processed.')
+    # parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
+    #                     default=False, help='Flag, Chatty')
+    # parser.add_argument('--debug', dest='DEBUG', action='store_true',
+    #                     default=False, help='Flag, Very chatty')
+    arg = parser.parse_args()
+    #LOGGER = JRC.setup_logging(arg)
     initialize_program()
     orcid_collection = DB['dis'].orcid
-    doi='10.1101/2021.08.18.456004'
-    doi_record = get_doi_record(doi)
+    #doi='10.1101/2021.08.18.456004'
+    doi_record = get_doi_record(arg.doi)
     all_authors = create_author_objects(doi_record)
     janelian_authors = []
     if not any([a.affiliations for a in all_authors]):
