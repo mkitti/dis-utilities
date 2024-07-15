@@ -88,6 +88,8 @@ def update_orcid():
         print(json.dumps(resp, indent=2))
     else:
         terminate_program("Did not update record")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 

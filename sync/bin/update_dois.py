@@ -831,6 +831,8 @@ def post_activities():
     # Email
     if INSERTED and ARG.WRITE:
         generate_email()
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 

@@ -80,6 +80,8 @@ def add_jrc_author():
         LOGGER.debug(f"{row['doi']} {auth}")
     print(f"DOIs read:    {COUNT['read']:,}")
     print(f"DOIs updated: {COUNT['updated']:,}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 

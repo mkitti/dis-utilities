@@ -202,6 +202,8 @@ def update_tags():
     print(f"DOIs specified:           {COUNT['specified']}")
     print(f"DOIs selected for update: {COUNT['selected']}")
     print(f"DOIs updated:             {COUNT['updated']}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 

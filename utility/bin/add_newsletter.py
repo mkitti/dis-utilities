@@ -105,6 +105,8 @@ def process_dois():
     if COUNT['notfound']:
         print(f"DOIs not found: {COUNT['notfound']}")
     print(f"DOIs updated:   {COUNT['updated']}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 
