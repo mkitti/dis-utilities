@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.15.0"
+__version__ = "4.16.0"
 # Database
 DB = {}
 # Custom queries
@@ -304,6 +304,27 @@ def generate_response(result):
     '''
     result["rest"]["elapsed_time"] = str(timedelta(seconds=time() - app.config["START_TIME"]))
     return jsonify(**result)
+
+
+def get_custom_payload(ipd, display_value):
+    ''' Get custom payload
+        Keyword arguments:
+          ipd: input payload dictionary
+          display_value: display value
+        Returns:
+          payload: payload for MongoDB find
+          ptitle: page titleq
+    '''
+    if ipd['field'] in CUSTOM_REGEX:
+        rex = CUSTOM_REGEX[ipd['field']]['value']
+        ipd['value'] = {"$regex": rex.replace("!REPLACE!", ipd['value'])}
+        ipd['field'] = CUSTOM_REGEX[ipd['field']]['field']
+    ptitle = f"DOIs for {ipd['field']} {display_value}"
+    payload = {ipd['field']: ipd['value']}
+    if 'jrc_obtained_from' in ipd and ipd['jrc_obtained_from']:
+        payload['jrc_obtained_from'] = ipd['jrc_obtained_from']
+        ptitle += f" from {ipd['jrc_obtained_from']}"
+    return payload, ptitle
 
 # ******************************************************************************
 # * ORCID utility functions                                                    *
@@ -1731,7 +1752,9 @@ def dois_tag():
 def dois_year():
     ''' Show publishing years with counts
     '''
-    payload = [{"$group": {"_id": {"pdate": { "$substrBytes": [ "$jrc_publishing_date", 0, 4 ] }},
+    payload = [{"$group": {"_id": {"year": {"$substrBytes": ["$jrc_publishing_date", 0, 4]},
+                                   "source": "$jrc_obtained_from"
+                                  },
                            "count": {"$sum": 1}}},
                {"$sort": {"_id.pdate": -1}}
               ]
@@ -1743,12 +1766,27 @@ def dois_year():
                                title=render_warning("Could not get tags from dois collection"),
                                message=error_message(err))
     html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Year</th><th>Count</th>' \
+           + '<th>Year</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    years = {}
     for row in rows:
-        onclick = "onclick='nav_post(\"publishing_year\",\"" + row['_id']['pdate'] + "\")'"
-        link = f"<a href='#' {onclick}>{row['_id']['pdate']}</a>"
-        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+        if row['_id']['year'] not in years:
+            years[row['_id']['year']] = {}
+        if row['_id']['source'] not in years[row['_id']['year']]:
+            years[row['_id']['year']][row['_id']['source']] = row['count']
+    for year in sorted(years, reverse=True):
+        onclick = "onclick='nav_post(\"publishing_year\",\"" + year + "\")'"
+        link = f"<a href='#' {onclick}>{year}</a>"
+        html += f"<tr><td>{link}</td>"
+        for source in ("Crossref", "DataCite"):
+            if source in years[year]:
+                onclick = "onclick='nav_post(\"publishing_year\",\"" + year \
+                          + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{years[year][source]:,}</a>"
+            else:
+                link = ""
+            html += f"<td>{link}</td>"
+        html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="DOIs published by year", html=html,
@@ -1790,12 +1828,10 @@ def show_doiui_custom():
                                    title=render_warning(f"Missing {key}"),
                                    message=f"You must specify a {key}")
     display_value = ipd['value']
-    if ipd['field'] in CUSTOM_REGEX:
-        rex = CUSTOM_REGEX[ipd['field']]['value']
-        ipd['value'] = {"$regex": rex.replace("!REPLACE!", ipd['value'])}
-        ipd['field'] = CUSTOM_REGEX[ipd['field']]['field']
+    payload, ptitle = get_custom_payload(ipd, display_value)
+    print(payload)
     try:
-        rows = DB['dis'].dois.find({ipd['field']: ipd['value']})
+        rows = DB['dis'].dois.find(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get DOIs"),
@@ -1803,7 +1839,7 @@ def show_doiui_custom():
     if not rows:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("DOIs not found"),
-                               message=f"No DOIs were found for {ipd['field']}={ipd['value']}")
+                               message=f"No DOIs were found for {ipd['field']}={display_value}")
     header = ['Published', 'DOI', 'Title']
     html = "<table id='dois' class='tablesorter standard'><thead><tr>" \
            + ''.join([f"<th>{itm}</th>" for itm in header]) + "</tr></thead><tbody>"
@@ -1811,6 +1847,8 @@ def show_doiui_custom():
     for row in rows:
         published = DL.get_publishing_date(row)
         title = DL.get_title(row)
+        if not title:
+            title = ""
         link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
         works.append({"published": published, "link": link, "title": title, "doi": row['doi']})
     fileoutput = ""
@@ -1821,8 +1859,8 @@ def show_doiui_custom():
     html += '</tbody></table>'
     html = create_downloadable(ipd['field'], header, fileoutput) + html
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"DOIs for {ipd['field']} {display_value}",
-                                             html=html, navbar=generate_navbar('DOIs')))
+                                             title=ptitle, html=html,
+                                             navbar=generate_navbar('DOIs')))
     return response
 
 

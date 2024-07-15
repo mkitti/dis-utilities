@@ -2,12 +2,16 @@
 {% block script %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
 <script>
-function nav_post(field, value) {
+function nav_post(field, value, source="") {
   url = "/doiui/custom";
+  payload = '<input type="text" name="field" value="' + field + '" />' +
+            '<input type="text" name="value" value="' + value + '" />'
+  if (source) {
+    payload = payload +
+              '<input type="text" name="jrc_obtained_from" value="' + source + '" />'
+  }
   var form = $('<form action="' + url + '" method="post">' +
-    '<input type="text" name="field" value="' + field + '" />' +
-    '<input type="text" name="value" value="' + value + '" />' +
-    '</form>');
+             payload + '</form>');
   $('body').append(form);
   form.submit();
 }
