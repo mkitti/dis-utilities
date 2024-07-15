@@ -128,6 +128,5 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
-    REST = JRC.get_config("rest_services")
     add_jrc_author()
     terminate_program()
