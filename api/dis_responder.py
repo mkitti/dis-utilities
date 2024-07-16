@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.16.0"
+__version__ = "4.17.0"
 # Database
 DB = {}
 # Custom queries
@@ -1693,24 +1693,39 @@ def dois_type():
 def dois_publisher():
     ''' Show publishers with counts
     '''
-    payload = [{"$group": {"_id": {"publisher": "$publisher"},
-                           "count": {"$sum": 1}}},
-               {"$sort" : {"count": -1}}]
+    payload = [{"$group": {"_id": {"publisher": "$publisher", "source": "$jrc_obtained_from"},
+                           "count":{"$sum": 1}}},
+               {"$sort": {"_id.publisher": 1}}
+              ]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get publishers " \
                                                     + "from dois collection"),
                                message=error_message(err))
     html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Publisher</th><th>Count</th>' \
+           + '<th>Publisher</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    pubs = {}
     for row in rows:
-        onclick = "onclick='nav_post(\"publisher\",\"" + row['_id']['publisher'] + "\")'"
-        link = f"<a href='#' {onclick}>{row['_id']['publisher']}</a>"
-        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+        if row['_id']['publisher'] not in pubs:
+            pubs[row['_id']['publisher']] = {}
+        if row['_id']['source'] not in pubs[row['_id']['publisher']]:
+            pubs[row['_id']['publisher']][row['_id']['source']] = row['count']
+    for pub, val in pubs.items():
+        onclick = "onclick='nav_post(\"publisher\",\"" + pub + "\")'"
+        link = f"<a href='#' {onclick}>{pub}</a>"
+        html += f"<tr><td>{link}</td>"
+        for source in ("Crossref", "DataCite"):
+            if source in val:
+                onclick = "onclick='nav_post(\"publisher\",\"" + pub \
+                          + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{val[source]:,}</a>"
+            else:
+                link = ""
+            html += f"<td>{link}</td>"
+        html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="DOI publishers", html=html,
@@ -1723,24 +1738,39 @@ def dois_tag():
     ''' Show tags with counts
     '''
     payload = [{"$unwind" : "$jrc_tag"},
-               {"$project": {"_id": 0, "jrc_tag": 1}},
-               {"$group": {"_id": {"tag": "$jrc_tag"}, "count":{"$sum": 1}}},
+               {"$project": {"_id": 0, "jrc_tag": 1, "jrc_obtained_from": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag", "source": "$jrc_obtained_from"},
+                           "count":{"$sum": 1}}},
                {"$sort": {"_id.tag": 1}}
               ]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get tags from dois collection"),
                                message=error_message(err))
     html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Tag</th><th>Count</th>' \
+           + '<th>Tag</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    tags = {}
     for row in rows:
-        onclick = "onclick='nav_post(\"jrc_tag\",\"" + row['_id']['tag'] + "\")'"
-        link = f"<a href='#' {onclick}>{row['_id']['tag']}</a>"
-        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+        if row['_id']['tag'] not in tags:
+            tags[row['_id']['tag']] = {}
+        if row['_id']['source'] not in tags[row['_id']['tag']]:
+            tags[row['_id']['tag']][row['_id']['source']] = row['count']
+    for tag, val in tags.items():
+        onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag + "\")'"
+        link = f"<a href='#' {onclick}>{tag}</a>"
+        html += f"<tr><td>{link}</td>"
+        for source in ("Crossref", "DataCite"):
+            if source in val:
+                onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag \
+                          + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{val[source]:,}</a>"
+            else:
+                link = ""
+            html += f"<td>{link}</td>"
+        html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title="DOI tags", html=html,
@@ -1822,11 +1852,11 @@ def show_doiui_custom():
         description: MongoDB or formatting error
     '''
     ipd = receive_payload()
-    for key in ('field', 'value'):
-        if key not in ipd or not ipd[key]:
+    for row in ('field', 'value'):
+        if row not in ipd or not ipd[row]:
             return render_template('error.html', urlroot=request.url_root,
-                                   title=render_warning(f"Missing {key}"),
-                                   message=f"You must specify a {key}")
+                                   title=render_warning(f"Missing {row}"),
+                                   message=f"You must specify a {row}")
     display_value = ipd['value']
     payload, ptitle = get_custom_payload(ipd, display_value)
     print(payload)
@@ -1886,6 +1916,9 @@ def show_oid_ui(oid):
     name = data['person']['name']
     if name['credit-name']:
         who = f"{name['credit-name']['value']}"
+    elif 'family-name' not in name or not name['family-name']:
+        who = f"{name['given-names']['value']} <span style='color: red'>" \
+              + "(Family name is missing in ORCID)</span>"
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
     try:
