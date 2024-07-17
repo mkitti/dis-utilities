@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.17.0"
+__version__ = "5.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -368,30 +368,59 @@ def get_work_doi(work):
     return ''
 
 
-def orcid_payload(oid, orc, use_eid):
+def orcid_payload(oid, orc, eid=None):
     ''' Generate a payload for searching the dois collection by ORCID or employeeId
         Keyword arguments:
           oid: ORCID or employeeId
           orc: orcid record
-          use_eid: use emplooyeeId boolean
+          eid: employeeId boolean
         Returns:
           Payload
     '''
+    # Name only search
     payload = {"$and": [{"$or": [{"author.given": {"$in": orc['given']}},
                                  {"creators.givenName": {"$in": orc['given']}}]},
                         {"$or": [{"author.family": {"$in": orc['family']}},
                                  {"creators.familyName": {"$in": orc['family']}}]}]
               }
-    if use_eid:
-        payload = {"jrc_author": oid}
+    if eid and not oid:
+        # Employee ID only search
+        payload = {"jrc_author": eid}
+    elif oid and eid:
+        # SEarch by either name or employee ID
+        payload = {"$or": [{"orcid": oid}, {"jrc_author": eid}, {"$and": payload["$and"]}]}
     return payload
 
 
-def get_orcid_from_db(oid, use_eid=False):
+def get_dois_for_orcid(oid, orc, use_eid, both):
+    ''' Generate DOIs for a single user
+        Keyword arguments:
+          oid: ORCID or employeeId
+          orc: orcid record
+          use_eid: use employeeId boolean
+          both: search by both ORCID and employeeId
+        Returns:
+          HTML and a list of DOIs
+    '''
+    try:
+        if both:
+            eid = orc['employeeId'] if 'employeeId' in orc else None
+            rows = DB['dis'].dois.find(orcid_payload(oid, orc, eid))
+        elif use_eid:
+            rows = DB['dis'].dois.find(orcid_payload(None, orc, oid))
+        else:
+            rows = DB['dis'].dois.find(orcid_payload(oid, orc))
+    except Exception as err:
+        raise CustomException(err, "Could not find in dois collection by name.") from err
+    return rows
+
+
+def get_orcid_from_db(oid, use_eid=False, both=False):
     ''' Generate HTML for an ORCID or employeeId that is in the orcid collection
         Keyword arguments:
           oid: ORCID or employeeId
-          use_eid: use emplooyeeId boolean
+          use_eid: use employeeId boolean
+          both: search by both ORCID and employeeId
         Returns:
           HTML and a list of DOIs
     '''
@@ -402,8 +431,7 @@ def get_orcid_from_db(oid, use_eid=False):
     if not orc:
         return "", []
     html = ""
-    badges = add_orcid_badges(orc)
-    html += " ".join(badges)
+    html += " ".join(add_orcid_badges(orc))
     html += "<br><table class='borderless'>"
     if use_eid and 'orcid' in orc:
         html += f"<tr><td>ORCID:</td><td><a href='https://orcid.org/{orc['orcid']}'>" \
@@ -418,9 +446,9 @@ def get_orcid_from_db(oid, use_eid=False):
         html += f"<tr><td>Affiliations:</td><td>{', '.join(orc['affiliations'])}</td></tr>"
     html += "</table><br>"
     try:
-        rows = DB['dis'].dois.find(orcid_payload(oid, orc, use_eid))
+        rows = get_dois_for_orcid(oid, orc, use_eid, both)
     except Exception as err:
-        raise CustomException(err, "Could not find in dois collection by name.") from err
+        raise err
     works = []
     dois = []
     for row in rows:
@@ -487,22 +515,30 @@ def add_orcid_works(data, dois):
 
 
 def generate_user_table(rows):
-    ''' Generate a user table
+    ''' Generate HTML for a list of users
+        Keyword arguments:
+          rows: rows from orcid collection
+        Returns:
+          HTML for a list of authors with a count
     '''
+    count = 0
     html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
            + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
-           + '</tr></thead><tbody>'
+           + '<th>Status</th></tr></thead><tbody>'
     for row in rows:
+        count += 1
         if 'orcid' in row:
             link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
         elif 'employeeId' in row:
             link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
         else:
             link = 'No ORCID found'
+        auth = DL.get_single_author_details(row, DB['dis'].orcid)
+        badges = get_badges(auth)
         html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
-                + f"<td>{', '.join(row['family'])}</td></tr>"
+                + f"<td>{', '.join(row['family'])}</td><td>{' '.join(badges)}</td></tr>"
     html += '</tbody></table>'
-    return html
+    return html, count
 
 # ******************************************************************************
 # * DOI utility functions                                                      *
@@ -656,7 +692,7 @@ def get_badges(auth):
           List of HTML badges
     '''
     badges = []
-    if auth['in_database']:
+    if 'in_database' in auth and auth['in_database']:
         badges.append(f"{tiny_badge('success', 'In database')}")
         if auth['alumni']:
             badges.append(f"{tiny_badge('danger', 'Alumni')}")
@@ -668,7 +704,7 @@ def get_badges(auth):
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
     else:
         badges.append(f"{tiny_badge('danger', 'Not in database')}")
-        if auth['asserted']:
+        if 'asserted' in auth and auth['asserted']:
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
     return badges
 
@@ -681,9 +717,12 @@ def show_tagged_authors(authors):
           List of HTML authors
     '''
     alist = []
+    count = 0
     for auth in authors:
         if (not auth['janelian']) and (not auth['asserted']):
             continue
+        if auth['janelian'] or auth['asserted']:
+            count += 1
         who = f"{auth['given']} {auth['family']}"
         if 'orcid' in auth and auth['orcid']:
             who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
@@ -700,7 +739,7 @@ def show_tagged_authors(authors):
         tags.sort()
         row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
         alist.append(row)
-    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>"
+    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>", count
 
 
 def add_orcid_badges(orc):
@@ -860,8 +899,7 @@ def show_doi_authors(doi):
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     try:
-        coll = DB['dis'].dois
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1047,9 +1085,8 @@ def show_doi(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if row:
@@ -1131,9 +1168,8 @@ def show_citation(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1180,10 +1216,9 @@ def show_multiple_citations(ctype='dis'):
         raise InvalidUsage("You must specify a list of DOIs")
     result['rest']['source'] = 'mongo'
     result['data'] = {}
-    coll = DB['dis'].dois
     for doi in ipd['dois']:
         try:
-            row = coll.find_one({"doi": doi.tolower()}, {'_id': 0})
+            row = DB['dis'].dois.find_one({"doi": doi.tolower()}, {'_id': 0})
         except Exception as err:
             raise InvalidUsage(str(err), 500) from err
         if not row:
@@ -1225,9 +1260,8 @@ def show_flylight_citation(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1266,9 +1300,8 @@ def show_components(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1313,9 +1346,8 @@ def show_dois_custom():
     result['rest']['source'] = 'mongo'
     result['rest']['query'] = ipd['query']
     result['data'] = []
-    coll = DB['dis'].dois
     try:
-        rows = coll.find(ipd['query'], {'_id': 0})
+        rows = DB['dis'].dois.find(ipd['query'], {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not rows:
@@ -1360,9 +1392,8 @@ def show_multiple_components(ctype='dis'):
         raise InvalidUsage("You must specify a tag")
     result['rest']['source'] = 'mongo'
     result['data'] = []
-    coll = DB['dis'].dois
     try:
-        rows = coll.find({"jrc_tag": ipd['tag']}, {'_id': 0})
+        rows = DB['dis'].dois.find({"jrc_tag": ipd['tag']}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not rows:
@@ -1396,10 +1427,9 @@ def show_types():
         description: MongoDB error
     '''
     result = initialize_result()
-    coll = DB['dis'].dois
     payload = [{"$group": {"_id": {"type": "$type", "subtype": "$subtype"},"count": {"$sum": 1}}}]
     try:
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -1488,8 +1518,7 @@ def show_oids():
     '''
     result = initialize_result()
     try:
-        coll = DB['dis'].orcid
-        rows = coll.find({}, {'_id': 0}).collation({"locale": "en"}).sort("family", 1)
+        rows = DB['dis'].orcid.find({}, {'_id': 0}).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -1529,8 +1558,7 @@ def show_oid(oid):
                            {"given": {"$regex": oid, "$options" : "i"}}]
                   }
     try:
-        coll = DB['dis'].orcid
-        rows = coll.find(payload, {'_id': 0})
+        rows = DB['dis'].orcid.find(payload, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -1602,6 +1630,7 @@ def show_home():
 def show_doi_ui(doi):
     ''' Show DOI
     '''
+    # pylint: disable=too-many-return-statements
     doi = doi.lstrip('/').rstrip('/').lower()
     try:
         row = DB['dis'].dois.find_one({"doi": doi})
@@ -1649,9 +1678,10 @@ def show_doi_ui(doi):
             authors = DL.get_author_details(row, DB['dis'].orcid)
         except Exception as err:
             return inspect_error(err, 'Could not get author list details')
-        alist = show_tagged_authors(authors)
+        alist, count = show_tagged_authors(authors)
         if alist:
-            html += f"<br><h4>Janelia authors</h4><div class='scroll'>{''.join(alist)}</div>"
+            html += f"<br><h4>Janelia authors ({count})</h4>" \
+                    + f"<div class='scroll'>{''.join(alist)}</div>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
@@ -1667,8 +1697,7 @@ def dois_type():
                            "count": {"$sum": 1}}},
                {"$sort" : {"count": -1}}]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get types from dois collection"),
@@ -1728,7 +1757,7 @@ def dois_publisher():
         html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI publishers", html=html,
+                                             title=f"DOI publishers ({len(pubs):,})", html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1773,7 +1802,7 @@ def dois_tag():
         html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI tags", html=html,
+                                             title=f"DOI tags ({len(tags):,})", html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1789,8 +1818,7 @@ def dois_year():
                {"$sort": {"_id.pdate": -1}}
               ]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get tags from dois collection"),
@@ -1922,7 +1950,7 @@ def show_oid_ui(oid):
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
     try:
-        orciddata, dois = get_orcid_from_db(oid)
+        orciddata, dois = get_orcid_from_db(oid, both=True)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning(f"Could not find ORCID ID {oid}", 'error'),
@@ -1971,19 +1999,19 @@ def show_names_ui(name):
                        {"given": {"$regex": name, "$options" : "i"}},
                       ]}
     try:
-        coll = DB['dis'].orcid
-        if not coll.count_documents(payload):
+        if not DB['dis'].orcid.count_documents(payload):
             return render_template('warning.html', urlroot=request.url_root,
                                    title=render_warning("Could not find name", 'warning'),
                                     message=f"Could not find any name matching {name}")
-        rows = coll.find(payload).collation({"locale": "en"}).sort("family", 1)
+        rows = DB['dis'].orcid.find(payload).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not count names in dois collection"),
                                message=error_message(err))
-    html = generate_user_table(rows)
+    html, count = generate_user_table(rows)
+    html = f"Search term: {name}<br>" + html
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"Search term: {name}", html=html,
+                                             title=f"Users: {count:,}", html=html,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -2007,12 +2035,14 @@ def orcid_tag():
     html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Affiliation</th><th>Count</th>' \
            + '</tr></thead><tbody>'
+    count = 0
     for row in rows:
+        count += 1
         link = f"<a href='/affiliation/{row['_id']['affiliation']}'>{row['_id']['affiliation']}</a>"
         html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="ORCID affiliations", html=html,
+                                             title=f"ORCID affiliations ({count:,})", html=html,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -2081,10 +2111,10 @@ def orcid_affiliation(aff):
                                title=render_warning("Could not get affiliations from " \
                                                     + "orcid collection"),
                                message=error_message(err))
-    html += generate_user_table(rows)
+    additional, count = generate_user_table(rows)
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"{aff} affiliation",
-                                             html=html,
+                                             title=f"{aff} affiliation ({count:,})",
+                                             html=html + additional,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -2146,10 +2176,9 @@ def show_groups():
     result = initialize_result()
     expected = 'html' if 'Accept' in request.headers \
                          and 'html' in request.headers['Accept'] else 'json'
-    coll = DB['dis'].orcid
     payload = {"group": {"$exists": True}}
     try:
-        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
+        rows = DB['dis'].orcid.find(payload, {'_id': 0}).sort("group", 1)
     except Exception as err:
         if expected == 'html':
             return render_template('error.html', urlroot=request.url_root,
@@ -2165,8 +2194,9 @@ def show_groups():
         return generate_response(result)
     html = '<table class="standard"><thead><tr><th>Name</th><th>ORCID</th><th>Group</th>' \
            + '<th>Affiliations</th></tr></thead><tbody>'
+    count = 0
     for row in rows:
-        print(row)
+        count += 1
         if 'affiliations' not in row:
             row['affiliations'] = ''
         link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>" if 'orcid' in row else ''
@@ -2174,8 +2204,8 @@ def show_groups():
                 + f"<td style='width: 180px'>{link}</td><td>{row['group']}</td>" \
                 + f"<td>{', '.join(row['affiliations'])}</td></tr>"
     html += '</tbody></table>'
-    return render_template('general.html', urlroot=request.url_root, title='Groups', html=html,
-                           navbar=generate_navbar('ORCID'))
+    return render_template('general.html', urlroot=request.url_root, title=f"Groups ({count:,})",
+                           html=html, navbar=generate_navbar('ORCID'))
 
 # *****************************************************************************
 
