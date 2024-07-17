@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "5.0.0"
+__version__ = "6.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -385,10 +385,11 @@ def orcid_payload(oid, orc, eid=None):
               }
     if eid and not oid:
         # Employee ID only search
-        payload = {"jrc_author": eid}
+        payload = {"$or": [{"jrc_author": eid}, {"$and": payload["$and"]}]}
     elif oid and eid:
-        # SEarch by either name or employee ID
+        # Search by either name or employee ID
         payload = {"$or": [{"orcid": oid}, {"jrc_author": eid}, {"$and": payload["$and"]}]}
+    print(payload)
     return payload
 
 
@@ -413,6 +414,51 @@ def get_dois_for_orcid(oid, orc, use_eid, both):
     except Exception as err:
         raise CustomException(err, "Could not find in dois collection by name.") from err
     return rows
+
+
+def generate_works_table(rows, name=None):
+    ''' Generate table HTML for a person's works
+        Keyword arguments:
+          rows: rows from dois collection
+        Returns:
+          HTML and a list of DOIs
+    '''
+    works = []
+    dois = []
+    authors = {}
+    html = ""
+    for row in rows:
+        if row['doi']:
+            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
+        else:
+            doi = "&nbsp;"
+        title = DL.get_title(row)
+        dois.append(row['doi'])
+        payload = {"date":  DL.get_publishing_date(row),
+                   "doi": doi,
+                   "title": title
+                  }
+        works.append(payload)
+        if name:
+            alist = DL.get_author_details(row)
+            for auth in alist:
+                if "family" in auth and "given" in auth and auth["family"].lower() == name.lower():
+                    authors[f"{auth['given']} {auth['family']}"] = True
+    if not works:
+        return html, []
+    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
+            + '<th>Published</th><th>DOI</th><th>Title</th>' \
+            + '</tr></thead><tbody>'
+
+    for work in sorted(works, key=lambda row: row['date'], reverse=True):
+        html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
+                + f"<td>{work['title']}</td></tr>"
+    if dois:
+        html += "</tbody></table>"
+    if authors:
+        html = f"Authors found: {', '.join(sorted(authors.keys()))}<br>" \
+               + f"This may include non-Janelia authors{html}"
+    return html, dois
 
 
 def get_orcid_from_db(oid, use_eid=False, both=False):
@@ -449,31 +495,9 @@ def get_orcid_from_db(oid, use_eid=False, both=False):
         rows = get_dois_for_orcid(oid, orc, use_eid, both)
     except Exception as err:
         raise err
-    works = []
-    dois = []
-    for row in rows:
-        if row['doi']:
-            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
-        else:
-            doi = "&nbsp;"
-        title = DL.get_title(row)
-        dois.append(row['doi'])
-        payload = {"date":  DL.get_publishing_date(row),
-                   "doi": doi,
-                   "title": title
-                  }
-        works.append(payload)
-    if not works:
-        return html, []
-    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
-            + '<th>Published</th><th>DOI</th><th>Title</th>' \
-            + '</tr></thead><tbody>'
-
-    for work in sorted(works, key=lambda row: row['date'], reverse=True):
-        html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
-                + f"<td>{work['title']}</td></tr>"
-    if dois:
-        html += "</tbody></table>"
+    tablehtml, dois = generate_works_table(rows)
+    if tablehtml:
+        html += tablehtml
     return html, dois
 
 
@@ -1688,6 +1712,31 @@ def show_doi_ui(doi):
     return response
 
 
+@app.route('/doisui/<string:name>')
+def show_doi_by_name_ui(name):
+    ''' Show DOIs for a name
+    '''
+    payload = {'$or': [{"author.family": {"$regex": f"^{name}$", "$options" : "i"}},
+                       {"creators.familyName": {"$regex": f"^{name}$", "$options" : "i"}},
+                       {"creators.name": {"$regex": f"{name}$", "$options" : "i"}},
+                      ]}
+    try:
+        rows = DB['dis'].dois.find(payload).collation({"locale": "en"}).sort("doi", 1)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs from dois collection"),
+                               message=error_message(err))
+    html, dois = generate_works_table(rows, name)
+    if not html:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning("Could not find name", 'warning'),
+                               message=f"Could not find any names matching {name}")
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title=f"DOIs for {name} ({len(dois):,})", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
 @app.route('/dois_type')
 def dois_type():
     ''' Show data types
@@ -2002,7 +2051,7 @@ def show_names_ui(name):
         if not DB['dis'].orcid.count_documents(payload):
             return render_template('warning.html', urlroot=request.url_root,
                                    title=render_warning("Could not find name", 'warning'),
-                                    message=f"Could not find any name matching {name}")
+                                    message=f"Could not find any names matching {name}")
         rows = DB['dis'].orcid.find(payload).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
