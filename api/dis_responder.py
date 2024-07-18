@@ -12,6 +12,9 @@ import re
 import string
 import sys
 from time import time
+from bokeh.embed import components
+from bokeh.models import ColumnDataSource, HoverTool
+from bokeh.plotting import figure
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -22,7 +25,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "6.1.1"
+__version__ = "7.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -459,17 +462,21 @@ def generate_works_table(rows, name=None):
     return html, dois
 
 
-def get_orcid_from_db(oid, use_eid=False, both=False):
+def get_orcid_from_db(oid, use_eid=False, both=False, bare=False):
     ''' Generate HTML for an ORCID or employeeId that is in the orcid collection
         Keyword arguments:
           oid: ORCID or employeeId
           use_eid: use employeeId boolean
           both: search by both ORCID and employeeId
+          bare: entry has no ORCID or employeeId
         Returns:
           HTML and a list of DOIs
     '''
     try:
-        orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
+        if bare:
+            orc = DB['dis'].orcid.find_one({"_id": bson.ObjectId(oid)})
+        else:
+            orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
     except Exception as err:
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
@@ -558,7 +565,7 @@ def generate_user_table(rows):
         elif 'employeeId' in row:
             link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
         else:
-            link = 'No ORCID found'
+            link = f"<a href='/unvaluserui/{row['_id']}'>No ORCID found</a>"
         auth = DL.get_single_author_details(row, DB['dis'].orcid)
         badges = get_badges(auth)
         html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
@@ -1882,12 +1889,15 @@ def dois_year():
             years[row['_id']['year']] = {}
         if row['_id']['source'] not in years[row['_id']['year']]:
             years[row['_id']['year']][row['_id']['source']] = row['count']
+    data = {}
     for year in sorted(years, reverse=True):
+        data[year] = 0
         onclick = "onclick='nav_post(\"publishing_year\",\"" + year + "\")'"
         link = f"<a href='#' {onclick}>{year}</a>"
         html += f"<tr><td>{link}</td>"
         for source in ("Crossref", "DataCite"):
             if source in years[year]:
+                data[year] += years[year][source]
                 onclick = "onclick='nav_post(\"publishing_year\",\"" + year \
                           + "\",\"" + source + "\")'"
                 link = f"<a href='#' {onclick}>{years[year][source]:,}</a>"
@@ -1896,8 +1906,24 @@ def dois_year():
             html += f"<td>{link}</td>"
         html += "</tr>"
     html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
+    pyear = []
+    pcount = []
+    for year in sorted(data):
+        pyear.append(year)
+        pcount.append(data[year])
+    data = ColumnDataSource(data=dict(pyear=pyear, pcount=pcount))
+    plt = figure(x_range=pyear,
+                 height=500, width=800,
+                 title="Publications by year",
+                 toolbar_location=None)
+    plt.vbar(x='pyear', top='pcount', source=data, width=0.5)
+    plt.xgrid.grid_line_color = None
+    plt.y_range.start = 0
+    plt.add_tools(HoverTool(tooltips=[("Count", "@pcount")]))
+    chartscript, chartdiv = components(plt)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOIs published by year", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -2037,6 +2063,29 @@ def show_user_ui(eid):
                                message="Could not find any information for this employee ID")
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"Employee ID {eid}", html=orciddata,
+                                             navbar=generate_navbar('ORCID')))
+    return response
+
+
+@app.route('/unvaluserui/<string:iid>')
+def show_unvaluser_ui(iid):
+    ''' Show user record by orcid collection ID
+    '''
+    try:
+        orciddata, _ = get_orcid_from_db(iid, bare=True)
+    except CustomException as err:
+        return render_template('error.html', urlroot=request.url_root,
+                                title=render_warning(f"Could not find orcid collection ID {iid}",
+                                                     'warning'),
+                                message=error_message(err))
+    if not orciddata:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find ID {iid}", 'warning'),
+                               message="Could not find any information for this orcid " \
+                                       + "collection ID")
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="User has no ORCID or employee ID",
+                                             html=orciddata,
                                              navbar=generate_navbar('ORCID')))
     return response
 
