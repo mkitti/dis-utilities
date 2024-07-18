@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "6.1.0"
+__version__ = "6.1.1"
 # Database
 DB = {}
 # Custom queries
@@ -602,7 +602,7 @@ def add_jrc_fields(row):
         if not re.match(prog, key):
             continue
         if isinstance(val, list):
-            val = ", ".join(val)
+            val = ", ".join(sorted(val))
         jrc[key] = val
     if not jrc:
         return ""
@@ -1154,7 +1154,6 @@ def show_inserted(idate):
         isodate = datetime.strptime(idate,'%Y-%m-%d')
     except Exception as err:
         raise InvalidUsage(str(err), 400) from err
-    print(isodate)
     try:
         rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
     except Exception as err:
