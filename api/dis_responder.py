@@ -22,7 +22,7 @@ import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "6.0.0"
+__version__ = "6.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -389,7 +389,6 @@ def orcid_payload(oid, orc, eid=None):
     elif oid and eid:
         # Search by either name or employee ID
         payload = {"$or": [{"orcid": oid}, {"jrc_author": eid}, {"$and": payload["$and"]}]}
-    print(payload)
     return payload
 
 
@@ -446,9 +445,8 @@ def generate_works_table(rows, name=None):
                     authors[f"{auth['given']} {auth['family']}"] = True
     if not works:
         return html, []
-    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
-            + '<th>Published</th><th>DOI</th><th>Title</th>' \
-            + '</tr></thead><tbody>'
+    html += f"Publications: {len(works)}<br><table id='pubs' class='tablesorter standard'>" \
+            + '<thead><tr><th>Published</th><th>DOI</th><th>Title</th></tr></thead><tbody>'
 
     for work in sorted(works, key=lambda row: row['date'], reverse=True):
         html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
@@ -457,7 +455,7 @@ def generate_works_table(rows, name=None):
         html += "</tbody></table>"
     if authors:
         html = f"Authors found: {', '.join(sorted(authors.keys()))}<br>" \
-               + f"This may include non-Janelia authors{html}"
+               + f"This may include non-Janelia authors<br>{html}"
     return html, dois
 
 
@@ -476,9 +474,7 @@ def get_orcid_from_db(oid, use_eid=False, both=False):
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
         return "", []
-    html = ""
-    html += " ".join(add_orcid_badges(orc))
-    html += "<br><table class='borderless'>"
+    html = "<br><table class='borderless'>"
     if use_eid and 'orcid' in orc:
         html += f"<tr><td>ORCID:</td><td><a href='https://orcid.org/{orc['orcid']}'>" \
                 + f"{orc['orcid']}</a></td></tr>"
@@ -497,7 +493,9 @@ def get_orcid_from_db(oid, use_eid=False, both=False):
         raise err
     tablehtml, dois = generate_works_table(rows)
     if tablehtml:
-        html += tablehtml
+        html = f"{' '.join(add_orcid_badges(orc))}{html}{tablehtml}"
+    else:
+        html = f"{' '.join(add_orcid_badges(orc))}{html}<br>No works found in dois collection."
     return html, dois
 
 
@@ -510,12 +508,14 @@ def add_orcid_works(data, dois):
           HTML for a list of works from ORCID
     '''
     html = inner = ""
+    works = 0
     for work in data['activities-summary']['works']['group']:
         wsumm = work['work-summary'][0]
         date = get_work_publication_date(wsumm)
         doi = get_work_doi(work)
         if (not doi) or (doi in dois):
             continue
+        works += 1
         if not doi:
             inner += f"<tr><td>{date}</td><td>&nbsp;</td>" \
                      + f"<td>{wsumm['title']['title']['value']}</td></tr>"
@@ -530,8 +530,10 @@ def add_orcid_works(data, dois):
         inner += f"<tr><td>{date}</td><td>{link}</td>" \
                  + f"<td>{wsumm['title']['title']['value']}</td></tr>"
     if inner:
-        html += '<hr>The additional titles below are from ORCID. Note that titles below may ' \
-                + 'be self-reported, and may not have DOIs available</br>'
+        title = "title is" if works == 1 else f"{works} titles are"
+        html += f"<hr>The additional {title} from ORCID. Note that titles below may " \
+                + "be self-reported, may not have DOIs available, or may be from the author's " \
+                + "employment outside of Janelia.</br>"
         html += '<table id="works" class="tablesorter standard"><thead><tr>' \
                 + '<th>Published</th><th>DOI</th><th>Title</th>' \
                 + f"</tr></thead><tbody>{inner}</tbody></table>"
@@ -1729,8 +1731,8 @@ def show_doi_by_name_ui(name):
     html, dois = generate_works_table(rows, name)
     if not html:
         return render_template('warning.html', urlroot=request.url_root,
-                               title=render_warning("Could not find name", 'warning'),
-                               message=f"Could not find any names matching {name}")
+                               title=render_warning("Could not find DOIs", 'warning'),
+                               message=f"Could not find any DOIs with author name matching {name}")
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"DOIs for {name} ({len(dois):,})", html=html,
                                              navbar=generate_navbar('DOIs')))
