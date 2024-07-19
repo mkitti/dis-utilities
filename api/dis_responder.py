@@ -12,9 +12,6 @@ import re
 import string
 import sys
 from time import time
-from bokeh.embed import components
-from bokeh.models import ColumnDataSource, HoverTool
-from bokeh.plotting import figure
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -22,10 +19,11 @@ from flask_swagger import swagger
 import requests
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
+import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "7.0.0"
+__version__ = "8.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -37,8 +35,9 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 NAV = {"Home": "",
        "DOIs": {"DOIs by publisher": "dois_publisher",
                 "DOIs by tag": "dois_tag",
-                "DOIs by type": "dois_type",
-                "DOIs by year": "dois_year"
+                "DOIs by source": "dois_source",
+                "DOIs by year": "dois_year",
+                "Top tags by year": "dois_top"
             },
        "ORCID": {"Groups": "groups",
                  "Affiliations": "orcid_tag",
@@ -801,8 +800,8 @@ def random_string(strlen=8):
         Keyword arguments:
           strlen: length of generated string
     '''
-    components = string.ascii_letters + string.digits
-    return ''.join(random.choice(components) for i in range(strlen))
+    cmps = string.ascii_letters + string.digits
+    return ''.join(random.choice(cmps) for i in range(strlen))
 
 
 def create_downloadable(name, header, content):
@@ -1745,9 +1744,9 @@ def show_doi_by_name_ui(name):
     return response
 
 
-@app.route('/dois_type')
-def dois_type():
-    ''' Show data types
+@app.route('/dois_source')
+def dois_source():
+    ''' Show data sources
     '''
     payload = [{"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
                                    "subtype": "$subtype"},
@@ -1762,15 +1761,22 @@ def dois_type():
     html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
            + '</tr></thead><tbody>'
+    data = {}
     for row in rows:
+        if row['_id']['source'] not in data:
+            data[row['_id']['source']] = 0
         for field in ('source', 'type', 'subtype'):
             if field not in row['_id']:
                 row['_id'][field] = ''
+        data[row['_id']['source']] += row['count']
         html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
                 + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI types", html=html,
+    chartscript, chartdiv = DP.pie_chart(data, "DOIs by source", "source",
+                                         colors=DP.SOURCE_PALETTE)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                             title="DOI sources", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1864,6 +1870,58 @@ def dois_tag():
     return response
 
 
+@app.route('/dois_top', defaults={'num': 10})
+@app.route('/dois_top/<int:num>')
+def dois_top(num):
+    ''' Show a chart of DOIs by top tags
+    '''
+    payload = [{"$unwind" : "$jrc_tag"},
+               {"$project": {"_id": 0, "jrc_tag": 1, "jrc_publishing_date": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag",
+                                   "year": {"$substrBytes": ["$jrc_publishing_date", 0, 4]}},
+                           "count": {"$sum": 1}},
+                },
+               {"$sort": {"_id.year": 1, "_id.tag": 1}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get tags from dois collection"),
+                               message=error_message(err))
+    html = ""
+    ytags = {}
+    tags = {}
+    data = {"years": []}
+    for row in rows:
+        if row['_id']['tag'] not in tags:
+            tags[row['_id']['tag']] = 0
+        tags[row['_id']['tag']] += row['count']
+        if row['_id']['year'] not in ytags:
+            ytags[row['_id']['year']] = {}
+            data['years'].append(row['_id']['year'])
+        if row['_id']['tag'] not in ytags[row['_id']['year']]:
+            ytags[row['_id']['year']][row['_id']['tag']] = row['count']
+    top = sorted(tags, key=tags.get, reverse=True)[:num]
+    for year in data['years']:
+        for tag in sorted(tags):
+            if tag not in top:
+                continue
+            if tag not in data:
+                data[tag] = []
+            if tag in ytags[year]:
+                data[tag].append(ytags[year][tag])
+            else:
+                data[tag].append(0)
+    chartscript, chartdiv = DP.stacked_bar_chart(data, f"DOIs published by year for top {num} tags",
+                                                 xaxis="years", yaxis=top)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                             title="DOI tags by year/tag", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
 @app.route('/dois_year')
 def dois_year():
     ''' Show publishing years with counts
@@ -1889,38 +1947,28 @@ def dois_year():
             years[row['_id']['year']] = {}
         if row['_id']['source'] not in years[row['_id']['year']]:
             years[row['_id']['year']][row['_id']['source']] = row['count']
-    data = {}
+    data = {"years": [], "Crossref": [], "DataCite": []}
+    sources = ["Crossref", "DataCite"]
     for year in sorted(years, reverse=True):
-        data[year] = 0
+        data['years'].insert(0, str(year))
         onclick = "onclick='nav_post(\"publishing_year\",\"" + year + "\")'"
         link = f"<a href='#' {onclick}>{year}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in ("Crossref", "DataCite"):
+        for source in sources:
             if source in years[year]:
-                data[year] += years[year][source]
+                data[source].insert(0, years[year][source])
                 onclick = "onclick='nav_post(\"publishing_year\",\"" + year \
                           + "\",\"" + source + "\")'"
                 link = f"<a href='#' {onclick}>{years[year][source]:,}</a>"
             else:
+                data[source].insert(0, 0)
                 link = ""
             html += f"<td>{link}</td>"
         html += "</tr>"
     html += '</tbody></table>'
-    pyear = []
-    pcount = []
-    for year in sorted(data):
-        pyear.append(year)
-        pcount.append(data[year])
-    data = ColumnDataSource(data=dict(pyear=pyear, pcount=pcount))
-    plt = figure(x_range=pyear,
-                 height=500, width=800,
-                 title="Publications by year",
-                 toolbar_location=None)
-    plt.vbar(x='pyear', top='pcount', source=data, width=0.5)
-    plt.xgrid.grid_line_color = None
-    plt.y_range.start = 0
-    plt.add_tools(HoverTool(tooltips=[("Count", "@pcount")]))
-    chartscript, chartdiv = components(plt)
+    chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/source",
+                                                 xaxis="years", yaxis=sources,
+                                                 colors=DP.SOURCE_PALETTE)
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOIs published by year", html=html,
                                              chartscript=chartscript, chartdiv=chartdiv,
