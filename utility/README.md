@@ -5,6 +5,7 @@
 | Name                   | Description                                                            |
 | ---------------------- | ---------------------------------------------------------------------- |
 | add_newsletter.py      | Add a newsletter date to a DOI                                         |
+| add_preprint.py        | Add a preprint relation between two existing DOIs                      |
 | edit_orcid.py          | Edit a record in the orcid collection                                  |
 | find_missing_orcids.py | Find entries in the People system with groups (lab heads) but no ORCID |
 | fix_jrc_author.py      | Add jrc_author field to DOIs that don't have it                        |

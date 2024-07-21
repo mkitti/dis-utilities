@@ -1,6 +1,6 @@
 #!/bin/bash
 REPO=dis-sync
-VERSION=0.0.9
+VERSION=2.11.0
 IMAGE=`echo $REPO:$VERSION`
 LATEST=`echo $REPO:latest`
 echo $IMAGE
