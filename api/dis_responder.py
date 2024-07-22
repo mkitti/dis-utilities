@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "9.0.0"
+__version__ = "9.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -2232,9 +2232,7 @@ def orcid_entry():
     html += f"<tr><td>&nbsp;&nbsp;Janelians with employee ID only</td><td>{cnte:,}" \
             + f" ({cnte/cntj*100:.2f}%)</td></tr>"
     data['Janelians with employee ID only'] = cnte
-    html += f"<tr><td>&nbsp;&nbsp;Janelians without affiliations/groups</td><td>{cntf:,}" \
-            + f" ({cntf/cntj*100:.2f}%)</td></tr>"
-    data['Janelians without affiliations/groups'] = cntf
+    html += f"<tr><td>&nbsp;&nbsp;Janelians without affiliations/groups</td><td>{cntf:,}</td></tr>"
     html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
     data['Alumni'] = cnta
     html += '</tbody></table>'
