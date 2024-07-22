@@ -5,11 +5,12 @@
 from math import pi
 import pandas as pd
 from bokeh.embed import components
-from bokeh.palettes import plasma
+from bokeh.palettes import plasma, Viridis
 from bokeh.plotting import figure
 from bokeh.transform import cumsum
 
 SOURCE_PALETTE = ["mediumblue", "darkorange"]
+TYPE_PALETTE = ["darkorange", "mediumblue", "limegreen", "wheat", "darkgray"]
 
 def pie_chart(data, title, legend, colors=None):
     ''' Create a pie chart
@@ -22,7 +23,7 @@ def pie_chart(data, title, legend, colors=None):
           Figure components
     '''
     if not colors:
-        colors = plasma(len(legend))
+        colors = Viridis[len(legend) + 1]
     pdata = pd.Series(data).reset_index(name='value').rename(columns={'index': legend})
     pdata['angle'] = pdata['value']/pdata['value'].sum() * 2*pi
     pdata['color'] = colors

@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "8.0.0"
+__version__ = "9.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -46,6 +46,8 @@ NAV = {"Home": "",
        "Stats" : {"Database": "stats_database"
                  },
       }
+# Sources
+SOURCES = ["Crossref", "DataCite"]
 
 # ******************************************************************************
 # * Classes                                                                    *
@@ -1809,7 +1811,7 @@ def dois_publisher():
         onclick = "onclick='nav_post(\"publisher\",\"" + pub + "\")'"
         link = f"<a href='#' {onclick}>{pub}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in ("Crossref", "DataCite"):
+        for source in SOURCES:
             if source in val:
                 onclick = "onclick='nav_post(\"publisher\",\"" + pub \
                           + "\",\"" + source + "\")'"
@@ -1854,7 +1856,7 @@ def dois_tag():
         onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag + "\")'"
         link = f"<a href='#' {onclick}>{tag}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in ("Crossref", "DataCite"):
+        for source in SOURCES:
             if source in val:
                 onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag \
                           + "\",\"" + source + "\")'"
@@ -1948,13 +1950,12 @@ def dois_year():
         if row['_id']['source'] not in years[row['_id']['year']]:
             years[row['_id']['year']][row['_id']['source']] = row['count']
     data = {"years": [], "Crossref": [], "DataCite": []}
-    sources = ["Crossref", "DataCite"]
     for year in sorted(years, reverse=True):
         data['years'].insert(0, str(year))
         onclick = "onclick='nav_post(\"publishing_year\",\"" + year + "\")'"
         link = f"<a href='#' {onclick}>{year}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in sources:
+        for source in SOURCES:
             if source in years[year]:
                 data[source].insert(0, years[year][source])
                 onclick = "onclick='nav_post(\"publishing_year\",\"" + year \
@@ -1967,7 +1968,7 @@ def dois_year():
         html += "</tr>"
     html += '</tbody></table>'
     chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/source",
-                                                 xaxis="years", yaxis=sources,
+                                                 xaxis="years", yaxis=SOURCES,
                                                  colors=DP.SOURCE_PALETTE)
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOIs published by year", html=html,
@@ -2169,8 +2170,8 @@ def orcid_tag():
     '''
     payload = [{"$unwind" : "$affiliations"},
                {"$project": {"_id": 0, "affiliations": 1}},
-               {"$group": {"_id": {"affiliation": "$affiliations"}, "count":{"$sum": 1}}},
-               {"$sort": {"_id.affiliation": 1}}
+               {"$group": {"_id": "$affiliations", "count":{"$sum": 1}}},
+               {"$sort": {"_id": 1}}
               ]
     try:
         rows = DB['dis'].orcid.aggregate(payload)
@@ -2185,7 +2186,7 @@ def orcid_tag():
     count = 0
     for row in rows:
         count += 1
-        link = f"<a href='/affiliation/{row['_id']['affiliation']}'>{row['_id']['affiliation']}</a>"
+        link = f"<a href='/affiliation/{row['_id']}'>{row['_id']}</a>"
         html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
@@ -2218,21 +2219,30 @@ def orcid_entry():
                                                     + "from orcid collection"),
                                message=error_message(err))
     total = cntj + cnta
+    data = {}
     html = '<table id="types" class="tablesorter standard"><tbody>'
     html += f"<tr><td>Entries in collection</td><td>{total:,}</td></tr>"
     html += f"<tr><td>Current Janelians</td><td>{cntj:,} ({cntj/total*100:.2f}%)</td></tr>"
     html += f"<tr><td>&nbsp;&nbsp;Janelians with ORCID and employee ID</td><td>{cntb:,}" \
             + f" ({cntb/cntj*100:.2f}%)</td></tr>"
+    data['Janelians with ORCID and employee ID'] = cntb
     html += f"<tr><td>&nbsp;&nbsp;Janelians with ORCID only</td><td>{cnto:,}" \
             + f" ({cnto/cntj*100:.2f}%)</td></tr>"
+    data['Janelians with ORCID only'] = cnto
     html += f"<tr><td>&nbsp;&nbsp;Janelians with employee ID only</td><td>{cnte:,}" \
             + f" ({cnte/cntj*100:.2f}%)</td></tr>"
+    data['Janelians with employee ID only'] = cnte
     html += f"<tr><td>&nbsp;&nbsp;Janelians without affiliations/groups</td><td>{cntf:,}" \
             + f" ({cntf/cntj*100:.2f}%)</td></tr>"
+    data['Janelians without affiliations/groups'] = cntf
     html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
+    data['Alumni'] = cnta
     html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
+    chartscript, chartdiv = DP.pie_chart(data, "ORCID entries", "type",
+                                         colors = DP.TYPE_PALETTE)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="ORCID entries", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('ORCID')))
     return response
 
