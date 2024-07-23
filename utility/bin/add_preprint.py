@@ -12,6 +12,7 @@ from datetime import datetime
 from operator import attrgetter
 import sys
 from tqdm import tqdm
+from pymongo.collation import Collation
 import jrc_common.jrc_common as JRC
 
 # pylint: disable=broad-exception-caught,logging-fstring-interpolation
@@ -23,6 +24,7 @@ COUNT = collections.defaultdict(lambda: 0, {})
 # General
 NAMES = {}
 TITLE = []
+FINAL = []
 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
@@ -102,8 +104,10 @@ def process_prelim_rows(prelim_rows):
             continue
         if row[0]['type'] == 'journal-article':
             final_rows.append([row[0]['doi'], row[1]['doi']])
+            FINAL.append(f"{row[0]['doi']}\t{row[0]['title']}\n{row[1]['doi']}\t{row[1]['title']}")
         else:
             final_rows.append([row[1]['doi'], row[0]['doi']])
+            FINAL.append(f"{row[1]['doi']}\t{row[1]['title']}\n{row[0]['doi']}\t{row[0]['title']}")
         COUNT['pairs'] += 1
     return final_rows
 
@@ -116,16 +120,18 @@ def get_rows_by_title(title):
           List of rows
     '''
     try:
-        payload = {"title": title,
+        payload = {"title": title, "jrc_preprint": {"$exists": False},
                    "type": {"$in": ["journal-article", "posted-content"]}}
-        cnt = DB['dis'].dois.count_documents(payload)
-        if cnt != 2:
-            if cnt > 2:
-                TITLE.append(f"{title} has {cnt} entries")
-            return None
-        rows = DB['dis'].dois.find(payload)
+        prows = DB['dis'].dois.find(payload).collation({"locale": "en", "strength": 1, "caseLevel": True,
+                                                        "alternate": "shifted"})
     except Exception as err:
         terminate_program(err)
+    rows = []
+    for row in prows:
+        rows.append(row)
+    if len(rows) != 2: # Number of rows for title
+        return None
+    LOGGER.debug(f"{len(rows)} {title}")
     return rows
 
 
@@ -207,8 +213,9 @@ def get_doi_pairs():
                {"$sort": {"count": -1}},
                {"$project": {"title": "$_id", "_id": 0, "count": 1}}
               ]
+    collation = Collation(locale='en', strength=1, caseLevel=True, alternate='shifted')
     try:
-        prelim_rows = DB['dis'].dois.aggregate(payload)
+        prelim_rows = DB['dis'].dois.aggregate(payload, collation=collation)
     except Exception as err:
         terminate_program(err)
     rows = []
@@ -245,6 +252,7 @@ def get_doi_pairs():
             prelim_rows[row['title'][0]].append(row)
         if not prelim_rows:
             continue
+    LOGGER.info(f"Titles with >= 2 entries: {len(prelim_rows)}")
     final_rows = process_prelim_rows(prelim_rows)
     return final_rows
 
@@ -259,6 +267,7 @@ def process_pair(primary, preprint):
     '''
     dois = {}
     for doi in (primary, preprint):
+        print(primary, preprint)
         doi_type = 'primary' if doi == primary else 'preprint'
         try:
             row = DB['dis'].dois.find_one({"doi": doi.lower()})
@@ -310,6 +319,12 @@ def add_jrc_preprint():
             for line in TITLE:
                 ostream.write(f"{line}\n")
         LOGGER.warning(f"Titles with more than two entries written to {file_name}")
+    if FINAL:
+        file_name = 'final_' + datetime.now().strftime('%Y-%m-%dT%H-%M-%S.txt')
+        with open(file_name, 'w', encoding='utf-8') as ostream:
+            for line in FINAL:
+                ostream.write(f"{line}\n")
+        LOGGER.warning(f"Final titles written to {file_name}")
     print(f"DOI pairs found: {COUNT['pairs']:,}")
     print(f"DOIs updated: {COUNT['updated']:,}")
     if not ARG.WRITE:
