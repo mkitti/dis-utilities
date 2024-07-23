@@ -20,8 +20,9 @@ from inquirer.themes import BlueComposure
 import argparse
 
 #TODO: Add some of these to requirements.txt?
-#TODO: Add command line args
 #TODO: Handle names that CrossRef butchered, e.g. 'Miguel Angel NunezOchoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
+#TODO: after running this script, run update_dois.py to add someone to jrc_authors
+#TODO: use doi_common to grab jrc_authors, so those will default to yes in cases where crossref affiliations are not available.
 
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
@@ -301,6 +302,8 @@ def evaluate_guess(author, best_guess, inform_message, success_message, collecti
                 try:
                     doi_common.single_orcid_lookup(best_guess.id, collection, lookup_by='employeeId')
                 except:
+                    #BUG! check both employeeId and ORCID. Nirmala Iyer is an example on 10.7554/eLife.80660.
+                    #Just because she doesn't have an ORCID on the paper doesn't mean she doesn't have an ORCID in our collection.
                     print( f"{best_guess.name} is already in the ORCID collection, with employeeId only.\n" )
                     return(False)
                 quest = [ inquirer.List('action', message = success_message.substitute(name=best_guess.name), choices = ['Yes', 'No']) ]
