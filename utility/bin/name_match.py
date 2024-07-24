@@ -23,6 +23,8 @@ import argparse
 #TODO: Handle names that CrossRef butchered, e.g. 'Miguel Angel NunezOchoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 #TODO: after running this script, run update_dois.py to add someone to jrc_authors
 #TODO: use doi_common to grab jrc_authors, so those will default to yes in cases where crossref affiliations are not available.
+#TODO: BUG! The ORCID records I create don't contain family or given names. Example: Briana Yarbrough, employeeId 54017
+#TODO: Check whether the person in our collection has family and given names. If not, add some names to the record. Example: Yisheng He, employeeId 51467
 
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
@@ -97,9 +99,9 @@ class Employee:
         self.id = id
         self.job_title = job_title
         self.email = email
-        self.first_names = first_names if first_names is not None else [] # Need to avoid the python mutable arguments trap
-        self.middle_names = middle_names if middle_names is not None else []
-        self.last_names = last_names if last_names is not None else []
+        self.first_names = list(set(first_names)) if first_names is not None else [] # Need to avoid the python mutable arguments trap
+        self.middle_names = list(set(middle_names)) if middle_names is not None else []
+        self.last_names = list(set(last_names)) if last_names is not None else []
     def generate_name_permutations(self):
         permutations = set()
         # All possible first names + all possible last names
@@ -120,7 +122,18 @@ class Employee:
                     permutations.add(
                         f"{first_name} {middle_initial} {last_name}"
                     )
-        return sorted(permutations)
+        return list(sorted(permutations))
+    def generate_family_name_permutations(self): #for adding records to the ORCID collection
+        permutations = set()
+        all_middle_names = [n for n in self.middle_names if n not in (None, '')]
+        if all_middle_names:
+            for first in self.first_names:
+                for middle in all_middle_names:
+                    permutations.add(f"{first} {middle}")
+                    permutations.add(f"{first} {middle[0]}.")
+            return list(sorted(permutations))
+        else:
+            return list(set(self.first_names))
 
 class Guess(Employee):
     def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
@@ -325,14 +338,6 @@ def confirm_action(success_message):
         print(f"No change will be made for {author.name}.\n")
         return False
 
-def generate_family_names_for_orcid_collection(guess):
-    all_first_names = guess.first_names
-    for first_name, middle_name in itertools.product(guess.first_names, guess.middle_names):
-        all_first_names.append(f"{first_name} {middle_name}")
-        middle_initial = middle_name[0]
-        all_first_names.append( f"{first_name} {middle_initial}" )
-    return all_first_names
-
 
 def choose_authors_manually(author_list):
     print("Crossref has no author affiliations for this paper.")
@@ -420,7 +425,7 @@ if __name__ == '__main__':
                         success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=author.orcid)
         
         elif not author.orcid:
             inform_message = f"{author.name} does not have an ORCID on this paper."
@@ -442,7 +447,7 @@ if __name__ == '__main__':
                     success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
                     confirm_proceed = confirm_action(success_message)
                     if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
                                                                 
 
 
@@ -459,30 +464,6 @@ if __name__ == '__main__':
 #     names_picked = nm.choose_authors_manually(all_authors)
 #     janelian_authors = [ a for a in all_authors if a.name in names_picked ]
 # else:
-#     janelian_authors = [ a for a in all_authors if is_janelian(a) ]
-# for author in janelian_authors:
-#     print() # whitespace
-#     if author.orcid:
-#         mongo_orcid_record = nm.search_orcid_collection(author.orcid, orcid_collection)
-#         if mongo_orcid_record:
-#             if 'employeeId' in mongo_orcid_record:
-#                 print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID." )
-#                 # Do nothing
-#             elif 'employeeId' not in mongo_orcid_record:
-#                 print( f"{author.name} is in our ORCID collection, but without an employee ID." )
-#                 best_guess = nm.guess_employee(author)
-#                 proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to add $name's employee ID to existing ORCID record")) #can't use best_guess.name bc guess may be None (MissingPerson)
-#                 if proceed:
-#                     nm.add_employeeId_to_orcid_record(author.orcid, best_guess.id, orcid_collection)
-#         elif not mongo_orcid_record:
-#             print( f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection." )
-#             best_guess = nm.guess_employee(author)
-#             proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID"), collection=orcid_collection)
-#             if proceed:
-#                 doi_common.add_orcid(best_guess.id, orcid_collection, given=nm.generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
-#     elif not author.orcid:
-#         print( f"{author.name} does not have an ORCID on this paper." )
-#         best_guess = nm.guess_employee(author)
-#         proceed = nm.evaluate_guess(author, best_guess, nm.string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only"))
-#         if proceed:
-#             doi_common.add_orcid(best_guess.id, orcid_collection, given=nm.generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
+#     janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
+
+# janelian_authors[7]
