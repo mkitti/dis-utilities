@@ -202,6 +202,7 @@ def create_author_objects(doi_record):
 
 
 def is_janelian(author):
+    #TODO: Will I actually get an error if they're not in the collection? Or just a None object?
     result = False
     if author.orcid:
         try:
@@ -262,27 +263,32 @@ def guess_employee(author):
     else:
         return(MissingPerson())
 
-def evaluate_guess(author, best_guess, inform_message, success_message, collection=None, verbose=False):
+def evaluate_guess(author, best_guess, inform_message, verbose=False):
+    """ 
+    A function that lets the user manually evaluate the best-guess employee for a given author. 
+    If running in verbose mode, OR some action is needed, an informational message will be printed to the terminal.
+    Function returns a best guess if the/a guess was approved, otherwise it returns False.
+    """
     if isinstance(best_guess, MissingPerson):
         if verbose:
             print(f"{author.name} could not be found in the HHMI People API.\n")
-        return(False)
+        return False
+    
     if isinstance(best_guess, MultipleHits):
         print(inform_message)
         print("Multiple high scoring matches found:")
         for guess in best_guess.winners:
             print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
-        quest = [inquirer.Checkbox('decision', carousel=True, message="Choose an option", choices=[guess.name for guess in best_guess.winners] + ['None of the above'], default=['None of the above'])]
+        quest = [inquirer.Checkbox('decision', 
+                                   carousel=True, 
+                                   message="Choose a person from the list", 
+                                   choices=[guess.name for guess in best_guess.winners] + ['None of the above'], 
+                                   default=['None of the above'])]
         ans = inquirer.prompt(quest, theme=BlueComposure())
         if ans['decision'] != ['None of the above']:
-            quest = [inquirer.List('action',message = success_message.substitute(name=best_guess.name),choices = ['Yes', 'No'])]
-            ans = inquirer.prompt(quest, theme=BlueComposure())
-            if ans['action'] == 'Yes':
-                return(True)
-            else:
-                return(False)
-        else:
-            return(False)
+            return next(g for g in best_guess.winners if g.name == ans['decision'][0])
+        elif ans['decision'] == ['None of the above']:
+            return False
     else:
         if float(best_guess.score) < 85.0:
             if verbose:
@@ -290,36 +296,31 @@ def evaluate_guess(author, best_guess, inform_message, success_message, collecti
                 print(
                     f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
                     )
+            # Do nothing
         else:
             print(inform_message)
             print(colored(
                 f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
                 "blue"
                 ))
-            quest = [inquirer.List('decision', message=f"Select {best_guess.name}?", choices=['Yes', 'No'])]
+            quest = [inquirer.List('decision', 
+                                   message=f"Select {best_guess.name}?", 
+                                   choices=['Yes', 'No'])]
             ans = inquirer.prompt(quest, theme=BlueComposure())
             if ans['decision'] == 'Yes':
-                try:
-                    doi_common.single_orcid_lookup(best_guess.id, collection, lookup_by='employeeId')
-                except:
-                    #BUG! check both employeeId and ORCID. Nirmala Iyer is an example on 10.7554/eLife.80660.
-                    #Just because she doesn't have an ORCID on the paper doesn't mean she doesn't have an ORCID in our collection.
-                    print( f"{best_guess.name} is already in the ORCID collection, with employeeId only.\n" )
-                    return(False)
-                quest = [ inquirer.List('action', message = success_message.substitute(name=best_guess.name), choices = ['Yes', 'No']) ]
-                ans = inquirer.prompt(quest, theme=BlueComposure())
-                if ans['action'] == 'Yes':
-                    return(True)
-                else:
-                    return(False)
+                return(best_guess)
             else:
                 return(False)
 
-
-def add_employeeId_to_orcid_record(orcid, employee_id, collection):
-    return(
-        doi_common.update_existing_orcid(lookup=orcid, add=employee_id, coll=collection, lookup_by='orcid')
-        )
+def confirm_action(success_message):
+    quest = [inquirer.List('confirm',
+                message = success_message.substitute(name=best_guess.name),
+                choices = ['Yes', 'No'])]
+    ans = inquirer.prompt(quest, theme=BlueComposure())
+    if ans['confirm'] == 'Yes':
+        return True
+    else:
+        return False
 
 def generate_family_names_for_orcid_collection(guess):
     all_first_names = guess.first_names
@@ -327,7 +328,7 @@ def generate_family_names_for_orcid_collection(guess):
         all_first_names.append(f"{first_name} {middle_name}")
         middle_initial = middle_name[0]
         all_first_names.append( f"{first_name} {middle_initial}" )
-    return(all_first_names)
+    return all_first_names
 
 
 def choose_authors_manually(author_list):
@@ -337,7 +338,7 @@ def choose_authors_manually(author_list):
     quest = [ inquirer.List('confirm', message = f"Confirm Janelia authors:\n{ans1['decision']}", choices=['Yes', 'No']) ]
     ans2 = inquirer.prompt(quest, theme=BlueComposure())
     if ans2['confirm'] == 'Yes':
-        return(ans1['decision'])
+        return ans1['decision']
     else:
         print('Exiting program.')
         sys.exit(0)
@@ -384,29 +385,60 @@ if __name__ == '__main__':
                     # Do nothing
                 elif 'employeeId' not in mongo_orcid_record:
                     inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
-                    success_message = string.Template("Confirm you wish to add $name's employee ID to existing ORCID record") #can't use best_guess.name bc guess may be None (MissingPerson)
                     best_guess = guess_employee(author)
-                    proceed = evaluate_guess(author, best_guess, inform_message, success_message, verbose=arg.VERBOSE) 
+                    proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE) 
                     if proceed:
-                        add_employeeId_to_orcid_record(author.orcid, best_guess.id, orcid_collection)
+                        best_guess = proceed # if there were multiple best guesses, assign the user-selected one
+                        success_message = string.Template("Confirm you wish to add $name's employee ID to their existing ORCID record") #can't use best_guess.name bc guess may be None (MissingPerson)
+                        confirm_proceed = confirm_action(success_message)
+                        if confirm_proceed:
+                            doi_common.update_existing_orcid(lookup=author.orcid, add=best_guess.id, coll=orcid_collection, lookup_by='orcid')
             elif not mongo_orcid_record:
                 inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
-                success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
                 best_guess = guess_employee(author)
-                proceed = evaluate_guess(author, best_guess, inform_message, success_message, collection=orcid_collection, verbose=arg.VERBOSE)
+                proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
                 if proceed:
-                    doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
+                    best_guess = proceed # if there were multiple best guesses, assign the user-selected one
+                    employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                    success_message = ''
+                    if employeeId_result:
+                        if 'orcid' not in employeeId_result:
+                            print(f"{author.name} is in our collection, with an employee ID only.")
+                            success_message = string.Template("Confirm you wish to add an ORCID id to the existing record for $name")
+                            confirm_proceed = confirm_action(success_message)
+                            if confirm_proceed:
+                                doi_common.update_existing_orcid(lookup=best_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
+                        if 'orcid' in employeeId_result: # Hopefully this will never get triggered
+                            print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {employeeId_result['orcid']} in our collection. Aborting program.")
+                            sys.exit(1)
+                    else:
+                        print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
+                        success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
+                        confirm_proceed = confirm_action(success_message)
+                        if confirm_proceed:
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
         
         elif not author.orcid:
             inform_message = f"{author.name} does not have an ORCID on this paper."
-            success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+            success_message = ''
             best_guess = guess_employee(author)
             proceed = evaluate_guess(author, best_guess, inform_message, success_message, verbose=arg.VERBOSE)
             if proceed:
-                doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
-
-
-
+                best_guess = proceed # if there were multiple best guesses, assign the user-selected one
+                employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                if employeeId_result:
+                    if 'orcid' in employeeId_result:
+                        print(f"{author.name} is in our collection with both an ORCID and an employee ID.")
+                        # Do nothing
+                    else:
+                        print(f"{author.name} is in our collection with an employee ID only.")
+                        # Do nothing
+                else:
+                    print(f"There is no record in our collection for {author.name}.")
+                    success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+                    confirm_proceed = confirm_action(success_message)
+                    if confirm_proceed:
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=None)
                                                                 
 
 
