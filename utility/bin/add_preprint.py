@@ -1,7 +1,5 @@
 """ add_preprint.py
-    Add jrc_preprint field to a DOIs. If the user doesn't specify a primary DOI and a preprint
-    DOI, then the program will search for DOIs with the same title and two entries. It will then
-    check if the two DOIs are a journal article and a preprint.
+    Update the  jrc_preprint field in the dois collection for all locally-stored DOIs.
 """
 
 __version__ = '1.0.0'
@@ -11,9 +9,11 @@ import collections
 from datetime import datetime
 from operator import attrgetter
 import sys
+import pandas as pd
+from rapidfuzz import fuzz
 from tqdm import tqdm
-from pymongo.collation import Collation
 import jrc_common.jrc_common as JRC
+import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,logging-fstring-interpolation
 
@@ -21,10 +21,16 @@ import jrc_common.jrc_common as JRC
 DB = {}
 # Counters
 COUNT = collections.defaultdict(lambda: 0, {})
-# General
-NAMES = {}
-TITLE = []
-FINAL = []
+# DOIs
+PRIMARY = {}
+PREPRINT = {}
+PRIMARYREL = {}
+PREPRINTREL = {}
+# Output data
+AUDIT = []
+MATCH = {"DOI": [], "Title": [], "Score": [], "First author": [], "Last author": [],
+         "Publishing date": [], "Decision": []}
+MISSING = {}
 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
@@ -55,291 +61,202 @@ def initialize_program():
     dbs = ['dis']
     for source in dbs:
         dbo = attrgetter(f"{source}.{ARG.MANIFOLD}.write")(dbconfig)
-        LOGGER.info("Connecting to %s %s on %s as %s", dbo.name, ARG.MANIFOLD, dbo.host, dbo.user)
+        LOGGER.info(f"Connecting to {dbo.name} {ARG.MANIFOLD} on {dbo.host} as {dbo.user}")
         try:
             DB[source] = JRC.connect_database(dbo)
         except Exception as err:
             terminate_program(err)
-
-
-def assign_names(row):
-    ''' Get a first and last author name
-        Keyword arguments:
-          row: database row
-        Returns:
-          first and last author names
-    '''
-    # First author
-    if 'given' in row['author'][0]:
-        first_author = " ".join([row['author'][0]['given'], row['author'][0]['family']])
-        NAMES[first_author] = {'given': row['author'][0]['given'],
-                               'family': row['author'][0]['family']}
-    else:
-        first_author = row['author'][0]['family']
-        NAMES[first_author] = {'family': row['author'][0]['family']}
-    # Last author
-    if 'given' in row['author'][-1]:
-        last_author = " ".join([row['author'][-1]['given'], row['author'][-1]['family']])
-        NAMES[last_author] = {'given': row['author'][-1]['given'],
-                              'family': row['author'][-1]['family']}
-    elif 'name' in row['author'][-1]:
-        last_author = row['author'][-1]['name']
-        NAMES[last_author] = {'family': row['author'][-1]['name']}
-    else:
-        last_author = row['author'][-1]['family']
-        NAMES[last_author] = {'family': row['author'][-1]['name']}
-    return first_author, last_author
-
-
-def process_prelim_rows(prelim_rows):
-    ''' Process preliminary rows to yield a final list of DOIs
-        Keyword arguments:
-          prelim_rows: preliminary rows dict
-        Returns:
-          List of final rows
-    '''
-    final_rows = []
-    for row in prelim_rows.values():
-        if len(row) != 2:
-            continue
-        if row[0]['type'] == 'journal-article':
-            final_rows.append([row[0]['doi'], row[1]['doi']])
-            FINAL.append(f"{row[0]['doi']}\t{row[0]['title']}\n{row[1]['doi']}\t{row[1]['title']}")
-        else:
-            final_rows.append([row[1]['doi'], row[0]['doi']])
-            FINAL.append(f"{row[1]['doi']}\t{row[1]['title']}\n{row[0]['doi']}\t{row[0]['title']}")
-        COUNT['pairs'] += 1
-    return final_rows
-
-
-def get_rows_by_title(title):
-    ''' Get rows by title
-        Keyword arguments:
-          title: title to search for
-        Returns:
-          List of rows
-    '''
+    LOGGER.info("Getting DOIs")
+    projection = {"_id": 0, "DOI": 1, "doi": 1, "title": 1, "titles": 1,
+                  "author": 1, "creators": 1, "relation": 1,
+                  "published": 1, "published-print": 1, "published-online": 1,
+                  "posted": 1, "created": 1, "registered": 1}
     try:
-        payload = {"title": title, "jrc_preprint": {"$exists": False},
-                   "type": {"$in": ["journal-article", "posted-content"]}}
-        prows = DB['dis'].dois.find(payload).collation({"locale": "en", "strength": 1, "caseLevel": True,
-                                                        "alternate": "shifted"})
+        # Primary DOIs will all be from Crossref
+        rows = DB['dis'].dois.find({"type": "journal-article"},
+                                   projection)
     except Exception as err:
         terminate_program(err)
-    rows = []
-    for row in prows:
-        rows.append(row)
-    if len(rows) != 2: # Number of rows for title
-        return None
-    LOGGER.debug(f"{len(rows)} {title}")
-    return rows
-
-
-def search_single_name(name):
-    ''' Search for a single name
-        Keyword arguments:
-          name: name to search for
-        Returns:
-          True if name found, False otherwise
-    '''
-    if name not in NAMES:
-        terminate_program(f"Name {name} not found in NAMES dictionary")
-    if 'given' in NAMES[name]:
-        payload = {"given": NAMES[name]['given'], "family": NAMES[name]['family']}
-    else:
-        payload = {"family": NAMES[name]['family']}
+    for row in rows:
+        PRIMARY[row['doi']] = row
+    LOGGER.info(f"Primary DOIs: {len(PRIMARY):,}")
     try:
-        orc = DB['dis'].orcid.find_one(payload)
+        # Preprints will be from Crossref or DataCite
+        rows = DB['dis'].dois.find({"$or": [{"type": "posted-content"},
+                                            {"jrc_obtained_from": "DataCite"}],
+                                    "doi": {"$not": {"$regex": "^10.25378/janelia."}}},
+                                   projection)
     except Exception as err:
         terminate_program(err)
-    if not orc:
-        return None
-    return orc['orcid']
+    for row in rows:
+        PREPRINT[row['doi']] = row
+    LOGGER.info(f"Preprint DOIs: {len(PREPRINT):,}")
 
 
-def compare_names(stored, author):
-    ''' Compare names
+def make_relationships(prerec, primrec):
+    ''' Make relationships based on DOI record "relation" field
         Keyword arguments:
-          stored: stored name
-          author: author name
-        Returns:
-          True if names match, False otherwise
-    '''
-    # A period after a middle initial is a pretty common difference...
-    if ". " in stored:
-        stored = stored.replace(". ", " ")
-    if ". " in author:
-        author = author.replace(". ", " ")
-    if stored == author:
-        return True
-    # See if ORCIDs match for both names
-    LOGGER.warning(f"Comparing names: {stored} {author}")
-    stored_orc = search_single_name(stored)
-    LOGGER.warning(f"  {stored} ORCID: {stored_orc}")
-    author_orc = search_single_name(author)
-    LOGGER.warning(f"  {author} ORCID: {author_orc}")
-    return bool(stored_orc == author_orc)
-
-
-def advanced_name_match(first_stored, last_stored, first_author, last_author):
-    ''' Advanced name matching
-        Keyword arguments:
-          first_stored: stored first author name
-          last_stored: stored last author name
-          first_author: author first name
-          last_author: author last name
-        Returns:
-          True if names match, False otherwise
-    '''
-    if not compare_names(first_stored, first_author):
-        return False
-    if not compare_names(last_stored, last_author):
-        return False
-    return True
-
-
-def get_doi_pairs():
-    ''' Get a list of DOI pairs
-        Keyword arguments:
-          None
-        Returns:
-          List of DOI pairs
-    '''
-    if ARG.DOI and ARG.PREPRINT:
-        COUNT['pairs'] = 1
-        return [(ARG.DOI, ARG.PREPRINT)]
-    payload = [{"$group" : {"_id": "$title", "count": {"$sum": 1}}},
-               {"$match": {"_id": {"$ne": None} , "count": {"$gt": 1}}},
-               {"$sort": {"count": -1}},
-               {"$project": {"title": "$_id", "_id": 0, "count": 1}}
-              ]
-    collation = Collation(locale='en', strength=1, caseLevel=True, alternate='shifted')
-    try:
-        prelim_rows = DB['dis'].dois.aggregate(payload, collation=collation)
-    except Exception as err:
-        terminate_program(err)
-    rows = []
-    for row in prelim_rows:
-        rows.append(row)
-    prelim_rows = {}
-    for title in tqdm(rows, desc="Processing duplicate titles"):
-        rows = get_rows_by_title(title['title'][0])
-        if not rows:
-            continue
-        have = first_stored = last_stored = first_doi = ""
-        for row in rows:
-            if 'jrc_preprint' in row or row['type'] not in ('journal-article', 'posted-content') \
-               or row['type'] == have:
-                break
-            have = row['type']
-            first_author, last_author = assign_names(row)
-            if not first_stored:
-                first_doi = row['doi']
-                first_stored = first_author
-                last_stored = last_author
-            else:
-                if first_stored != first_author or last_stored != last_author:
-                    LOGGER.warning(f"Author name mismatch for {first_doi} {row['doi']}: " \
-                                   + f"({first_stored} {last_stored}) " \
-                                   + f"({first_author} {last_author})")
-                    if not advanced_name_match(first_stored, last_stored, first_author,
-                                               last_author):
-                        break
-            LOGGER.debug(row['title'][0])
-            LOGGER.debug(f"  {row['doi']}  {have}  {first_author} {last_author}")
-            if row['title'][0] not in prelim_rows:
-                prelim_rows[row['title'][0]] = []
-            prelim_rows[row['title'][0]].append(row)
-        if not prelim_rows:
-            continue
-    LOGGER.info(f"Titles with >= 2 entries: {len(prelim_rows)}")
-    final_rows = process_prelim_rows(prelim_rows)
-    return final_rows
-
-
-def process_pair(primary, preprint):
-    ''' Process a pair of DOIs
-        Keyword arguments:
-          primary: primary DOI
-          preprint: preprint DOI
+          prerec: preprint record
+          primrec: primary record
         Returns:
           None
     '''
-    dois = {}
-    for doi in (primary, preprint):
-        print(primary, preprint)
-        doi_type = 'primary' if doi == primary else 'preprint'
+    if "relation" in primrec and "has-preprint" in primrec["relation"]:
+        for rec in primrec["relation"]["has-preprint"]:
+            if "id-type" in rec and rec["id-type"] == "doi":
+                make_doi_relationships(rec["id"], primrec["doi"])
+    if "relation" in prerec and "is-preprint-of" in prerec["relation"]:
+        for rec in prerec["relation"]["is-preprint-of"]:
+            if "id-type" in rec and rec["id-type"] == "doi":
+                make_doi_relationships(prerec["doi"], rec["id"])
+
+
+def make_doi_relationships(predoi, primdoi):
+    ''' Make relationships between two DOIs
+        Keyword arguments:
+          predoi: preprint DOI
+          primdoi: primary DOI
+        Returns:
+          None
+    '''
+    # Find DOIs mnissing from dois collection
+    predoi = predoi.lower()
+    if predoi not in PREPRINT:
+        MISSING[predoi] = True
+    primdoi = primdoi.lower()
+    if primdoi not in PRIMARY:
+        MISSING[primdoi] = True
+    # Preprint -> Primary
+    if predoi not in PREPRINTREL:
+        PREPRINTREL[predoi] = []
+    if primdoi not in PREPRINTREL[predoi]:
+        LOGGER.debug(f"Adding primary {primdoi} to {PREPRINTREL[predoi]}")
+        PREPRINTREL[predoi].append(primdoi)
+        COUNT['preprint_relations'] += 1
+    # Primary -> Preprint
+    if primdoi not in PRIMARYREL:
+        PRIMARYREL[primdoi] = []
+    if predoi not in PRIMARYREL[primdoi]:
+        LOGGER.debug(f"Adding preprint {predoi} to {PRIMARYREL[primdoi]}")
+        PRIMARYREL[primdoi].append(predoi)
+        COUNT['primary_relations'] += 1
+
+
+def process_pair(prerec, primrec):
+    predoi = prerec['doi']
+    primdoi = primrec['doi']
+    pretitle = DL.get_title(prerec)
+    primtitle = DL.get_title(primrec)
+    if "relation" in prerec or "relation" in primrec:
+        make_relationships(prerec, primrec)
+    COUNT['comparisons'] += 1
+    score = fuzz.token_sort_ratio(pretitle, primtitle)
+    if score < ARG.THRESHOLD:
+        return
+    authors = DL.get_author_list(prerec, returntype="list")
+    prefirst = authors[0]
+    prelast = authors[-1]
+    authors = DL.get_author_list(primrec, returntype="list")
+    primfirst = authors[0]
+    primlast = authors[-1]
+    MATCH['DOI'].extend([predoi, primdoi])
+    MATCH['Title'].extend([pretitle, primtitle])
+    MATCH['Score'].extend([score, score])
+    MATCH['First author'].extend([prefirst, primfirst])
+    MATCH['Last author'].extend([prelast, primlast])
+    MATCH['Publishing date'].extend([DL.get_publishing_date(prerec),
+                                     DL.get_publishing_date(primrec)])
+    COUNT['title_match'] += 1
+    if (prefirst == primfirst) and (prelast == primlast):
+        make_doi_relationships(predoi, primdoi)
+        MATCH['Decision'].extend(["Relate", "Relate"])
+        COUNT['title_author_match'] += 1
+    else:
+        MATCH['Decision'].extend(["", ""])
+
+
+def write_to_database():
+    ''' Write relationships to the database
+        Keyword arguments:
+          None
+        Returns:
+          None
+    '''
+    for predoi, primdois in tqdm(PREPRINTREL.items(), desc="Write preprints"):
+        AUDIT.append(f"{predoi} -> {primdois}")
+        if not ARG.WRITE:
+            continue
         try:
-            row = DB['dis'].dois.find_one({"doi": doi.lower()})
+            DB['dis'].dois.update_one({"doi": predoi},
+                                      {"$set": {"jrc_preprint": primdois}})
         except Exception as err:
             terminate_program(err)
-        if not row:
-            terminate_program(f"{doi_type.capitalize()} DOI {doi} not found")
-        if doi_type == 'primary':
-            if 'jrc_preprint' in row:
-                terminate_program(f"Primary DOI {doi} already has a preprint DOI " \
-                                  + f"{row['jrc_preprint']}")
-            if row['type'] != 'journal-article':
-                terminate_program(f"Primary DOI {doi} type is {row['type']}, not a journal article")
-        else:
-            if 'jrc_preprint' in row:
-                terminate_program(f"Preprint DOI {doi} already has a primary DOI " \
-                                  + f"{row['jrc_preprint']}")
-            if row['type'] != 'posted-content' or row['subtype'] != 'preprint':
-                terminate_program(f"Preprint DOI {doi} type is {row['type']}, not a preprint")
-        dois[doi_type] = row
-    for doi_type in ('primary', 'preprint'):
-        other = 'preprint' if doi_type == 'primary' else 'primary'
-        if ARG.WRITE:
-            try:
-                DB['dis'].dois.update_one(
-                    {"doi": dois[doi_type]['doi']},
-                    {"$set": {"jrc_preprint": dois[other]['doi']}},
-                    upsert=False)
-            except Exception as err:
-                terminate_program(err)
-        LOGGER.info(f"Added {other} DOI {dois[other]['doi']} to {doi_type} " \
-                    + f"DOI {dois[doi_type]['doi']}")
-        COUNT['updated'] += 1
+    for primdoi, predois in tqdm(PRIMARYREL.items(), desc="Write primaries"):
+        AUDIT.append(f"{primdoi} -> {predois}")
+        if not ARG.WRITE:
+            continue
+        try:
+            DB['dis'].dois.update_one({"doi": primdoi},
+                                      {"$set": {"jrc_preprint": predois}})
+        except Exception as err:
+            terminate_program(err)
 
 
 def add_jrc_preprint():
-    """ Update jrc_preprint for specified DOIs
+    ''' Update the jrc_preprint field in the dois collection
         Keyword arguments:
           None
         Returns:
           None
-    """
-    rows = get_doi_pairs()
-    for pair in tqdm(rows, desc="Assigning preprints"):
-        process_pair(pair[0], pair[1])
-    if TITLE:
-        file_name = 'titles_' + datetime.now().strftime('%Y-%m-%dT%H-%M-%S.txt')
+    '''
+    for prerec in tqdm(PREPRINT.values(), desc="Preprints"):
+        for primrec in PRIMARY.values():
+            process_pair(prerec, primrec)
+    # Write to dois collection
+    write_to_database()
+    # Output files
+    timestamp = datetime.now().strftime('%Y-%m-%dT%H:%M:%S')
+    if AUDIT:
+        file_name = f"audit_{timestamp}.txt"
         with open(file_name, 'w', encoding='utf-8') as ostream:
-            for line in TITLE:
+            for line in AUDIT:
                 ostream.write(f"{line}\n")
-        LOGGER.warning(f"Titles with more than two entries written to {file_name}")
-    if FINAL:
-        file_name = 'final_' + datetime.now().strftime('%Y-%m-%dT%H-%M-%S.txt')
+        LOGGER.warning(f"Audit written to {file_name}")
+    if MATCH['DOI']:
+        file_name = f"title_matches_{timestamp}.xlsx"
+        df = pd.DataFrame.from_dict(MATCH)
+        df.to_excel(file_name, index=False)
+        LOGGER.warning(f"Title matches written to {file_name}")
+    if MISSING:
+        file_name = f"missing_dois_{timestamp}.txt"
         with open(file_name, 'w', encoding='utf-8') as ostream:
-            for line in FINAL:
+            for line in MISSING:
                 ostream.write(f"{line}\n")
-        LOGGER.warning(f"Final titles written to {file_name}")
-    print(f"DOI pairs found: {COUNT['pairs']:,}")
-    print(f"DOIs updated: {COUNT['updated']:,}")
+        LOGGER.warning(f"Missing DOIs written to {file_name}")
+    # Summary
+    print(f"Primary DOIs:                 {len(PRIMARY):,}")
+    print(f"Preprint DOIs:                {len(PREPRINT):,}")
+    print(f"Comparisons:                  {COUNT['comparisons']:,}")
+    print(f"Title matches:                {COUNT['title_match']:,}")
+    print(f"Title/author matches:         {COUNT['title_author_match']:,}")
+    print(f"Preprint DOIs with relations: {len(PREPRINTREL):,}")
+    print(f"Primary DOIs with relations:  {len(PRIMARYREL):,}")
+    print(f"Preprint relations:           {COUNT['preprint_relations']:,}")
+    print(f"Primary relations:            {COUNT['primary_relations']:,}")
     if not ARG.WRITE:
         LOGGER.warning("Dry run successful, no updates were made")
-
 
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
-        description="Add jrc_preprint")
+        description="Update jrc_preprint in the dois collection")
     PARSER.add_argument('--doi', dest='DOI', action='store',
                         help='Primary (non-preprint) DOI')
     PARSER.add_argument('--preprint', dest='PREPRINT', action='store',
                         help='Preprint DOI')
+    PARSER.add_argument('--threshold', dest='THRESHOLD', action='store',
+                        default=90, type=int, help='Fuzzy matching threshold')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')

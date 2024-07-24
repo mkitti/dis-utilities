@@ -1,4 +1,6 @@
 inquirer
+openpyxl
+pandas
 requests
 tqdm
 git+https://github.com/JaneliaSciComp/jrc_common.git
