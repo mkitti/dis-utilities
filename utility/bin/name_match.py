@@ -271,7 +271,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
     """
     if isinstance(best_guess, MissingPerson):
         if verbose:
-            print(f"{author.name} could not be found in the HHMI People API.\n")
+            print(f"{author.name} could not be found in the HHMI People API. No action to take.\n")
         return False
     
     if isinstance(best_guess, MultipleHits):
@@ -288,6 +288,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
         if ans['decision'] != ['None of the above']:
             return next(g for g in best_guess.winners if g.name == ans['decision'][0])
         elif ans['decision'] == ['None of the above']:
+            print(f"No action will be taken for {author.name}.\n")
             return False
     else:
         if float(best_guess.score) < 85.0:
@@ -310,6 +311,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
             if ans['decision'] == 'Yes':
                 return(best_guess)
             else:
+                print(f"No action will be taken for {author.name}.\n")
                 return(False)
 
 def confirm_action(success_message):
@@ -320,6 +322,7 @@ def confirm_action(success_message):
     if ans['confirm'] == 'Yes':
         return True
     else:
+        print(f"No change will be made for {author.name}.\n")
         return False
 
 def generate_family_names_for_orcid_collection(guess):
@@ -381,7 +384,7 @@ if __name__ == '__main__':
             if mongo_orcid_record:
                 if 'employeeId' in mongo_orcid_record:
                     if arg.VERBOSE:
-                        print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID.\n" )
+                        print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
                     # Do nothing
                 elif 'employeeId' not in mongo_orcid_record:
                     inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
@@ -393,6 +396,7 @@ if __name__ == '__main__':
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
                             doi_common.update_existing_orcid(lookup=author.orcid, add=best_guess.id, coll=orcid_collection, lookup_by='orcid')
+                            
             elif not mongo_orcid_record:
                 inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
                 best_guess = guess_employee(author)
@@ -422,16 +426,16 @@ if __name__ == '__main__':
             inform_message = f"{author.name} does not have an ORCID on this paper."
             success_message = ''
             best_guess = guess_employee(author)
-            proceed = evaluate_guess(author, best_guess, inform_message, success_message, verbose=arg.VERBOSE)
+            proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
             if proceed:
                 best_guess = proceed # if there were multiple best guesses, assign the user-selected one
                 employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
                 if employeeId_result:
                     if 'orcid' in employeeId_result:
-                        print(f"{author.name} is in our collection with both an ORCID and an employee ID.")
+                        print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
                         # Do nothing
                     else:
-                        print(f"{author.name} is in our collection with an employee ID only.")
+                        print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
                         # Do nothing
                 else:
                     print(f"There is no record in our collection for {author.name}.")
