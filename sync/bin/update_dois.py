@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '2.0.0'
+__version__ = '3.0.0'
 
 import argparse
 import configparser
@@ -598,6 +598,7 @@ def add_tags(persist):
             if tag not in tags:
                 tags.append(tag)
         if tags:
+            LOGGER.info(f"Added jrc_tag {tags}")
             persist[key]['jrc_tag'] = tags
         # Update jrc_author
         jrc_author = []
@@ -605,7 +606,7 @@ def add_tags(persist):
             if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
                 jrc_author.append(auth['employeeId'])
         if jrc_author:
-            LOGGER.info(f"Added jrc_tag {jrc_author}")
+            LOGGER.info(f"Added jrc_author {jrc_author}")
             persist[key]['jrc_author'] = jrc_author
 
 
@@ -651,38 +652,6 @@ def update_dois(specified, persist):
     elif ARG.TARGET == 'dis':
         add_tags(persist)
         update_mongodb(persist)
-
-
-def check_for_preprint(doi, rec):
-    """ Check to see if a DOI is or has a preprint
-        Keyword arguments:
-          doi: DOI
-          rec: DOI record
-        Returns:
-          The related DOI if there is one and only one, otherwise None
-    """
-    if 'relation' not in rec or 'type' not in rec:
-        return None
-    subject = []
-    if rec['type'] == 'posted-content' and rec['subtype'] == 'preprint' \
-       and 'is-preprint-of' in rec['relation']:
-        for rel in rec['relation']['is-preprint-of']:
-            if rel['id-type'] == 'doi':
-                if rel['id'] not in subject:
-                    LOGGER.info(f"Added relation |{rel['id']}|")
-                    subject.append(rel['id'].lower())
-    elif rec['type'] == 'journal-article' and 'has-preprint' in rec['relation']:
-        for rel in rec['relation']['has-preprint']:
-            if rel['id-type'] == 'doi':
-                if rel['id'] not in subject:
-                    LOGGER.info(f"Added relation |{rel['id']}|")
-                    subject.append(rel['id'].lower())
-    if not subject:
-        return None
-    if len(subject) == 1:
-        return subject[0]
-    LOGGER.warning(f"Multiple relations for {doi}: {', '.join(subject)}")
-    return None
 
 
 def persist_if_updated(doi, msg, persist):
@@ -747,12 +716,6 @@ def process_dois():
         if not msg:
             continue
         persist_if_updated(doi, msg, persist)
-        # Add preprints to record
-        if doi in persist:
-            preprint = check_for_preprint(doi, persist[doi])
-            if preprint:
-                persist[doi]['jrc_preprint'] = preprint
-                LOGGER.debug(f"Added preprint {doi} {preprint}")
     update_dois(specified, persist)
 
 
