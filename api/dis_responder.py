@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "9.1.0"
+__version__ = "9.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -622,8 +622,11 @@ def add_jrc_fields(row):
             for auth in val.split(", "):
                 link.append(f"<a href='/userui/{auth}'>{auth}</a>")
             val = ", ".join(link)
-        elif key == 'jrc_preprint':
-            val = f"<a href='/doiui/{val}'>{val}</a>"
+        if key == 'jrc_preprint':
+            link = []
+            for auth in val.split(", "):
+                link.append(f"<a href='/doiui/{auth}'>{auth}</a>")
+            val = ", ".join(link)
         elif key == 'jrc_tag':
             link = []
             for aff in val.split(", "):
