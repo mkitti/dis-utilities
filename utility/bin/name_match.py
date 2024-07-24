@@ -5,7 +5,7 @@ Update ORCID records as needed.
 
 import os
 import sys
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, utils
 import string
 from unidecode import unidecode
 import re
@@ -252,7 +252,7 @@ def guess_employee(author):
             for name in employee_permuted_names:
                 guesses.append(instantiate_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
         for guess in guesses:
-            guess.score = fuzz.token_sort_ratio(author.name.lower(), guess.name.lower())
+            guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace 
         high_score = max( [g.score for g in guesses] )
         winner = [ g for g in guesses if g.score == high_score ]
         if len(winner) > 1:
@@ -356,20 +356,25 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     arg = parser.parse_args()
     LOGGER = JRC.setup_logging(arg)
+
     initialize_program()
+
     orcid_collection = DB['dis'].orcid
     #doi='10.1101/2021.08.18.456004'
     #doi='10.7554/eLife.80660'
     #doi='10.1101/2024.05.09.593460' #THIS DOI CAUSES A BUG! TODO!
     doi_record = get_doi_record(arg.doi)
     all_authors = create_author_objects(doi_record)
+
     janelian_authors = []
     if not any([a.affiliations for a in all_authors]):
         names_picked = choose_authors_manually(all_authors)
         janelian_authors = [ a for a in all_authors if a.name in names_picked ]
     else:
         janelian_authors = [ a for a in all_authors if is_janelian(a) ]
+    
     for author in janelian_authors:
+
         if author.orcid:
             mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
             if mongo_orcid_record:
@@ -391,6 +396,7 @@ if __name__ == '__main__':
                 proceed = evaluate_guess(author, best_guess, inform_message, success_message, collection=orcid_collection, verbose=arg.VERBOSE)
                 if proceed:
                     doi_common.add_orcid(best_guess.id, orcid_collection, given=generate_family_names_for_orcid_collection, family=best_guess.last_names, orcid=author.orcid)
+        
         elif not author.orcid:
             inform_message = f"{author.name} does not have an ORCID on this paper."
             success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
