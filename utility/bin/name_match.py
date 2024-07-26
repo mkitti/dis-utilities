@@ -105,19 +105,6 @@ class MultipleHits:
         self.winners = winners if winners is not None else []
 
 
-def is_janelian(author):
-    #TODO: Will I actually get an error if they're not in the collection? Or just a None object?
-    result = False
-    if author.orcid:
-        try:
-            result = search_orcid_collection(author.orcid)
-            result = True
-        except Exception as e:
-            pass
-    if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
-        result = True
-    return(result)
-
 
 ### Functions for instantiating objects of my custom classes
 
@@ -286,13 +273,28 @@ def confirm_action(success_message):
 
 
 
-### Miscellaneous low-level functions
+### Miscellaneous low-level functions and variables
 
-def choose_authors_manually(author_list):
+def is_janelian(author, orcid_collection):
+    result = False
+    if author.orcid:
+        if doi_common.single_orcid_lookup(author.orcid, orcid_collection, 'orcid'):
+            result = True
+    if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
+        result = True
+    return(result)
+
+def choose_authors_manually(author_list, pre_selected_authors=None):
+    if pre_selected_authors is None:
+        pre_selected_authors = []
+    else:
+        pre_selected_authors = [a.name for a in pre_selected_authors]
     print("Crossref has no author affiliations for this paper.")
-    quest = [inquirer.Checkbox('decision', carousel=True, message="Choose Janelia authors", choices=[a.name for a in author_list])]
+    author_names = [a.name for a in author_list]
+    default_selections = [n for n in author_names if n in pre_selected_authors]
+    quest = [inquirer.Checkbox('decision', carousel=True, message="Choose Janelia authors", choices=author_names, default=default_selections)]
     ans1 = inquirer.prompt(quest, theme=BlueComposure())
-    quest = [ inquirer.List('confirm', message = f"Confirm Janelia authors:\n{ans1['decision']}", choices=['Yes', 'No']) ]
+    quest = [inquirer.List('confirm', message = f"Confirm Janelia authors:\n{ans1['decision']}", choices=['Yes', 'No']) ]
     ans2 = inquirer.prompt(quest, theme=BlueComposure())
     if ans2['confirm'] == 'Yes':
         return ans1['decision']
@@ -312,12 +314,6 @@ def search_people_api(search_term, mode):
         return(MissingPerson())
     else:
         return(response)
-
-
-def search_orcid_collection(orcid, collection):
-    return(
-        doi_common.single_orcid_lookup(orcid, collection, 'orcid')
-        )
 
 def get_doi_record(doi):
     result = JRC.call_crossref(doi)
@@ -402,24 +398,23 @@ if __name__ == '__main__':
     initialize_program()
 
     orcid_collection = DB['dis'].orcid
+    doi_collection = DB['dis'].dois
     #doi='10.1101/2021.08.18.456004'
     #doi='10.7554/eLife.80660'
     #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
+    #doi='10.1101/2023.12.19.572369'
     doi_record = get_doi_record(arg.doi)
     all_authors = create_author_objects(doi_record)
-
-    janelian_authors = []
+    janelian_authors = [ a for a in all_authors if is_janelian(a, orcid_collection) ]
     if not any([a.affiliations for a in all_authors]):
-        names_picked = choose_authors_manually(all_authors)
+        names_picked = choose_authors_manually(all_authors, pre_selected_authors=janelian_authors)
         janelian_authors = [ a for a in all_authors if a.name in names_picked ]
-    else:
-        janelian_authors = [ a for a in all_authors if is_janelian(a) ]
     
     for author in janelian_authors:
 
         if author.orcid:
-            mongo_orcid_record = search_orcid_collection(author.orcid, orcid_collection)
+            mongo_orcid_record = doi_common.single_orcid_lookup(author.orcid, orcid_collection, 'orcid')
             if mongo_orcid_record:
                 if 'employeeId' in mongo_orcid_record:
                     if arg.VERBOSE:
@@ -490,14 +485,13 @@ if __name__ == '__main__':
 # import name_match as nm
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
-# doi='10.1021/jacs.4c03092'
+# doi_collection = nm.DB['dis'].dois
+# doi='10.1101/2023.12.19.572369'
 # doi_record = nm.get_doi_record(doi)
 # all_authors = nm.create_author_objects(doi_record)
-# janelian_authors = []
+# janelian_authors = [ a for a in all_authors if nm.is_janelian(a, orcid_collection) ]
 # if not any([a.affiliations for a in all_authors]):
-#     names_picked = nm.choose_authors_manually(all_authors)
+#     names_picked = nm.choose_authors_manually(all_authors, pre_selected_authors=janelian_authors)
 #     janelian_authors = [ a for a in all_authors if a.name in names_picked ]
-# else:
-#     janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
 
 # janelian_authors[14]
