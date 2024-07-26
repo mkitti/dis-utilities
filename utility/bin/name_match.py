@@ -23,8 +23,11 @@ import argparse
 #TODO: Handle names that CrossRef butchered, e.g. 'Miguel Angel NunezOchoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 #TODO: after running this script, run update_dois.py to add someone to jrc_authors
 #TODO: use doi_common to grab jrc_authors, so those will default to yes in cases where crossref affiliations are not available.
+#TODO: Filter out People search results where location != Janelia
+#TODO: Prompt the user to confirm best guess only if there is some action to take!
 #TODO: BUG! The ORCID records I create don't contain family or given names. Example: Briana Yarbrough, employeeId 54017
 #TODO: Check whether the person in our collection has family and given names. If not, add some names to the record. Example: Yisheng He, employeeId 51467
+#Authors I've created who need names: Briana Yarbrough, employeeId 54017; Yisheng He, employeeId 51467
 
 api_key = os.environ.get('PEOPLE_API_KEY')
 if not api_key:
@@ -371,7 +374,8 @@ if __name__ == '__main__':
     orcid_collection = DB['dis'].orcid
     #doi='10.1101/2021.08.18.456004'
     #doi='10.7554/eLife.80660'
-    #doi='10.1101/2024.05.09.593460' #THIS DOI CAUSES A BUG! TODO!
+    #doi='10.1101/2024.05.09.593460'
+    #doi='10.1021/jacs.4c03092'
     doi_record = get_doi_record(arg.doi)
     all_authors = create_author_objects(doi_record)
 
@@ -447,7 +451,7 @@ if __name__ == '__main__':
                     success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
                     confirm_proceed = confirm_action(success_message)
                     if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
+                        doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
                                                                 
 
 
@@ -456,7 +460,7 @@ if __name__ == '__main__':
 # import name_match as nm
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
-# doi='10.1101/2024.05.09.593460'
+# doi='10.1021/jacs.4c03092'
 # doi_record = nm.get_doi_record(doi)
 # all_authors = nm.create_author_objects(doi_record)
 # janelian_authors = []
@@ -466,4 +470,4 @@ if __name__ == '__main__':
 # else:
 #     janelian_authors = [ a for a in all_authors if nm.is_janelian(a) ]
 
-# janelian_authors[7]
+# janelian_authors[14]
