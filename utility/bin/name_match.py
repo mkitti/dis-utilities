@@ -19,12 +19,12 @@ import inquirer
 from inquirer.themes import BlueComposure
 import argparse
 
-#TODO: Add some of these to requirements.txt?
+#TODO: Add some of these imports to requirements.txt?
 #TODO: Handle names that CrossRef butchered, e.g. 'Miguel Angel NunezOchoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 #TODO: after running this script, run update_dois.py to add someone to jrc_authors
 #TODO: Filter out People search results where location != Janelia
-#TODO: Prompt the user to confirm best guess ONLY if there is some action to take! Otherwise it just wastes their time.
-#TODO: BUG! The ORCID records I create don't contain family or given names. Example: Briana Yarbrough, employeeId 54017
+#BUG! The menu to select authors manually doesn't show all authors for 10.1101/2024.05.09.593460
+#BUG! The ORCID records I create don't contain family or given names. Example: Briana Yarbrough, employeeId 54017
 
 
 class Author:
@@ -399,7 +399,7 @@ if __name__ == '__main__':
     doi_collection = DB['dis'].dois
     #doi='10.1101/2021.08.18.456004'
     #doi='10.7554/eLife.80660'
-    #doi='10.1101/2024.05.09.593460'
+    #doi='10.1101/2024.05.09.593460' #BUG! The menu to select authors manually doesn't show all authors
     #doi='10.1021/jacs.4c03092'
     #doi='10.1101/2023.12.19.572369'
     doi_record = get_doi_record(arg.doi)
@@ -458,24 +458,52 @@ if __name__ == '__main__':
             inform_message = f"{author.name} does not have an ORCID on this paper."
             success_message = ''
             best_guess = guess_employee(author)
-            proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
-            if proceed:
-                best_guess = proceed # if there were multiple best guesses, assign the user-selected one
+            if isinstance(best_guess, MissingPerson):
+                if arg.VERBOSE == True:
+                    print(f"{author.name} could not be found in the HHMI People API. No action to take.\n")
+            elif isinstance(best_guess, MultipleHits):
+                    proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
+                    best_guess = proceed # if there were multiple best guesses, assign the user-selected one
+                    if proceed:
+                        employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                        if employeeId_result:
+                            if 'orcid' in employeeId_result:
+                                print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
+                                # Do nothing
+                            else:
+                                print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
+                                # Do nothing
+                        else:
+                            print(f"There is no record in our collection for {author.name}.")
+                            success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+                            confirm_proceed = confirm_action(success_message)
+                            if confirm_proceed:
+                                doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
+            elif isinstance(best_guess, Employee):
                 employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
                 if employeeId_result:
                     if 'orcid' in employeeId_result:
-                        print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
-                        # Do nothing
+                        if arg.VERBOSE == True:
+                            print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
+                            # Do nothing
                     else:
-                        print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
-                        # Do nothing
+                        if arg.VERBOSE == True:
+                            print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
+                            # Do nothing
                 else:
-                    print(f"There is no record in our collection for {author.name}.")
-                    success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
-                    confirm_proceed = confirm_action(success_message)
-                    if confirm_proceed:
-                        doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
+                    proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
+                    if proceed:
+                        print(f"There is no record in our collection for {author.name}.")
+                        success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+                        confirm_proceed = confirm_action(success_message)
+                        if confirm_proceed:
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
                                                                 
+
+
+
+
+                              
 
 
 
