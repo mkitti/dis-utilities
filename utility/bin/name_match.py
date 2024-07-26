@@ -29,61 +29,6 @@ import argparse
 #TODO: Check whether the person in our collection has family and given names. If not, add some names to the record. Example: Yisheng He, employeeId 51467
 #Authors I've created who need names: Briana Yarbrough, employeeId 54017; Yisheng He, employeeId 51467
 
-api_key = os.environ.get('PEOPLE_API_KEY')
-if not api_key:
-    print("Error: Please set the environment variable PEOPLE_API_KEY.")
-    sys.exit(1)
-
-DB = {}
-PROJECT = {}
-
-def initialize_program():
-    ''' Intialize the program
-        Keyword arguments:
-          None
-        Returns:
-          None
-    '''
-    # Database
-    try:
-        dbconfig = JRC.get_config("databases")
-    except Exception as err:
-        terminate_program(err)
-    dbs = ['dis']
-    for source in dbs:
-        manifold = 'prod'
-        dbo = attrgetter(f"{source}.{manifold}.write")(dbconfig)
-        try:
-            DB[source] = JRC.connect_database(dbo)
-        except Exception as err:
-            terminate_program(err)
-    try:
-        rows = DB['dis'].project_map.find({})
-    except Exception as err:
-        terminate_program(err)
-    for row in rows:
-        PROJECT[row['name']] = row['project']
-
-def terminate_program(msg=None):
-    ''' Terminate the program gracefully
-        Keyword arguments:
-          msg: error message
-        Returns:
-          None
-    '''
-    if msg:
-        if not isinstance(msg, str):
-            msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
-            LOGGER.critical(msg)
-            sys.exit(-1 if msg else 0)
-
-#TODO: 
-# if msg:
-#         if not isinstance(msg, str):
-#             msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
-#         LOGGER.critical(msg)
-#     sys.exit(-1 if msg else 0)
-
 class Author:
     """ Author objects are constructed solely from the CrossRef-provided author information. """
     def __init__(self, raw_name, orcid=None, affiliations=None, employee_id=None):
@@ -98,6 +43,7 @@ class Author:
 
 
 class Employee:
+    """ Employees are constructed from information found in the HHMI People database. """
     def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None):
         self.id = id
         self.job_title = job_title
@@ -139,67 +85,41 @@ class Employee:
             return list(set(self.first_names))
 
 class Guess(Employee):
+    """ A Guess is a subtype of Employee that includes just one name permutation 
+    (e.g. Gerald W Rubin) and a fuzzy match score (calculated before instantiation). """
     def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
         super().__init__(id, job_title, email, first_names, middle_names, last_names)
         self.name = name
         self.score = score
 
-
-def instantiate_guess(employee, name=None, score=None):
-    return(Guess(
-        employee.id, 
-        employee.job_title, 
-        employee.email, 
-        employee.first_names, 
-        employee.middle_names, 
-        employee.last_names, 
-        name, 
-        score
-        )
-    )
-
-
 class MissingPerson:
     """ This class indicates that searching the HHMI People API yielded no results. """
     pass
 
-
 class MultipleHits:
-    """ This class indicates that an author name matched multiple HHMI employees with equally high scores. """
+    """ 
+    This class indicates that an author name matched multiple HHMI employees with equally high scores. 
+    This class's only attribute is a list of employee objects.
+    """
     def __init__(self, winners=None):
         self.winners = winners if winners is not None else []
 
 
+def is_janelian(author):
+    #TODO: Will I actually get an error if they're not in the collection? Or just a None object?
+    result = False
+    if author.orcid:
+        try:
+            result = search_orcid_collection(author.orcid)
+            result = True
+        except Exception as e:
+            pass
+    if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
+        result = True
+    return(result)
 
-def search_people_api(search_term, mode):
-    response = None
-    if mode not in {'name', 'id'}:
-        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
-    if mode == 'name':
-        response = JRC.call_people_by_name(search_term)
-    elif mode == 'id':
-        response = JRC.call_people_by_id(search_term)
-    if not response:
-        return(MissingPerson())
-    else:
-        return(response)
 
-
-def search_orcid_collection(orcid, collection):
-    return(
-        doi_common.single_orcid_lookup(orcid, collection, 'orcid')
-        )
-
-def get_doi_record(doi):
-    result = JRC.call_crossref(doi)
-    return( result['message'] )
-
-def strip_orcid_if_provided_as_url(orcid):
-    prefixes = ["http://orcid.org/", "https://orcid.org/"]
-    for prefix in prefixes:
-        if orcid.startswith(prefix):
-            return orcid[len(prefix):]
-    return(orcid)
+### Functions for instantiating objects of my custom classes
 
 def create_author_objects(doi_record):
     author_objects = []
@@ -215,20 +135,6 @@ def create_author_objects(doi_record):
                 current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
             author_objects.append(current_author)
     return(author_objects)
-
-
-def is_janelian(author):
-    #TODO: Will I actually get an error if they're not in the collection? Or just a None object?
-    result = False
-    if author.orcid:
-        try:
-            result = search_orcid_collection(author.orcid)
-            result = True
-        except Exception as e:
-            pass
-    if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
-        result = True
-    return(result)
 
 def create_employee(id):
     idsearch_results = search_people_api(id, 'id')
@@ -250,7 +156,31 @@ def create_employee(id):
     else:
         return(MissingPerson())
 
+def create_guess(employee, name=None, score=None):
+    return(Guess(
+        employee.id, 
+        employee.job_title, 
+        employee.email, 
+        employee.first_names, 
+        employee.middle_names, 
+        employee.last_names, 
+        name, 
+        score
+        )
+    )
+
+
+
+### Functions for matching authors to employees
+
 def guess_employee(author):
+    """ 
+    Given an author object, search the People API for one or more matches using the People Search. 
+    Arguments: 
+        author: an author object.
+    Returns:
+        A missing person object, a multiple hits object, OR an employee object.
+    """
     candidate_employees = [] # Includes false positives. For example, if I search 'Virginia',
     # both Virginia Scarlett and Virginia Ruetten will be in this list.
     search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
@@ -267,7 +197,7 @@ def guess_employee(author):
         for employee in candidate_employees:
             employee_permuted_names = employee.generate_name_permutations()
             for name in employee_permuted_names:
-                guesses.append(instantiate_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
+                guesses.append(create_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
         for guess in guesses:
             guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace 
         high_score = max( [g.score for g in guesses] )
@@ -282,8 +212,13 @@ def guess_employee(author):
 def evaluate_guess(author, best_guess, inform_message, verbose=False):
     """ 
     A function that lets the user manually evaluate the best-guess employee for a given author. 
-    If running in verbose mode, OR some action is needed, an informational message will be printed to the terminal.
-    Function returns a best guess if the/a guess was approved, otherwise it returns False.
+    Arguments:
+        author: an author object
+        best_guess: a guess object
+        inform_message: an informational message will be printed to the terminal if verbose==True OR if some action is needed.
+        verbose: boolean, passed from command line.
+    Returns:
+        A guess object if the/a guess was approved, otherwise returns False.
     """
     if isinstance(best_guess, MissingPerson):
         if verbose:
@@ -331,6 +266,13 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
                 return(False)
 
 def confirm_action(success_message):
+    """
+    Ask the user to confirm whether they wish to write to the database.
+    Arguments:
+        success_message: a string.Template object, a message describing the change to be made
+    Returns:
+        True if the user confirms the change, False otherwise
+    """
     quest = [inquirer.List('confirm',
                 message = success_message.substitute(name=best_guess.name),
                 choices = ['Yes', 'No'])]
@@ -341,6 +283,10 @@ def confirm_action(success_message):
         print(f"No change will be made for {author.name}.\n")
         return False
 
+
+
+
+### Miscellaneous low-level functions
 
 def choose_authors_manually(author_list):
     print("Crossref has no author affiliations for this paper.")
@@ -353,6 +299,90 @@ def choose_authors_manually(author_list):
     else:
         print('Exiting program.')
         sys.exit(0)
+
+def search_people_api(search_term, mode):
+    response = None
+    if mode not in {'name', 'id'}:
+        raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
+    if mode == 'name':
+        response = JRC.call_people_by_name(search_term)
+    elif mode == 'id':
+        response = JRC.call_people_by_id(search_term)
+    if not response:
+        return(MissingPerson())
+    else:
+        return(response)
+
+
+def search_orcid_collection(orcid, collection):
+    return(
+        doi_common.single_orcid_lookup(orcid, collection, 'orcid')
+        )
+
+def get_doi_record(doi):
+    result = JRC.call_crossref(doi)
+    return( result['message'] )
+
+def strip_orcid_if_provided_as_url(orcid):
+    prefixes = ["http://orcid.org/", "https://orcid.org/"]
+    for prefix in prefixes:
+        if orcid.startswith(prefix):
+            return orcid[len(prefix):]
+    return(orcid)
+
+
+
+DB = {}
+PROJECT = {}
+
+def initialize_program():
+    ''' Intialize the program
+        Keyword arguments:
+          None
+        Returns:
+          None
+    '''
+    # Database
+    try:
+        dbconfig = JRC.get_config("databases")
+    except Exception as err:
+        terminate_program(err)
+    dbs = ['dis']
+    for source in dbs:
+        manifold = 'prod'
+        dbo = attrgetter(f"{source}.{manifold}.write")(dbconfig)
+        try:
+            DB[source] = JRC.connect_database(dbo)
+        except Exception as err:
+            terminate_program(err)
+    try:
+        rows = DB['dis'].project_map.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        PROJECT[row['name']] = row['project']
+
+def terminate_program(msg=None):
+    ''' Terminate the program gracefully
+        Keyword arguments:
+          msg: error message
+        Returns:
+          None
+    '''
+    if msg:
+        if not isinstance(msg, str):
+            msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
+            LOGGER.critical(msg)
+            sys.exit(-1 if msg else 0)
+
+# Old code that should really be added to our documentation instead of lingering here
+# api_key = os.environ.get('PEOPLE_API_KEY')
+# if not api_key:
+#     print("Error: Please set the environment variable PEOPLE_API_KEY.")
+#     sys.exit(1)
+
+
+
 
 
 # -----------------------------------------------------------------------------
