@@ -22,12 +22,10 @@ import argparse
 #TODO: Add some of these to requirements.txt?
 #TODO: Handle names that CrossRef butchered, e.g. 'Miguel Angel NunezOchoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 #TODO: after running this script, run update_dois.py to add someone to jrc_authors
-#TODO: use doi_common to grab jrc_authors, so those will default to yes in cases where crossref affiliations are not available.
 #TODO: Filter out People search results where location != Janelia
-#TODO: Prompt the user to confirm best guess only if there is some action to take!
+#TODO: Prompt the user to confirm best guess ONLY if there is some action to take! Otherwise it just wastes their time.
 #TODO: BUG! The ORCID records I create don't contain family or given names. Example: Briana Yarbrough, employeeId 54017
-#TODO: Check whether the person in our collection has family and given names. If not, add some names to the record. Example: Yisheng He, employeeId 51467
-#Authors I've created who need names: Briana Yarbrough, employeeId 54017; Yisheng He, employeeId 51467
+
 
 class Author:
     """ Author objects are constructed solely from the CrossRef-provided author information. """
@@ -86,7 +84,7 @@ class Employee:
 
 class Guess(Employee):
     """ A Guess is a subtype of Employee that includes just one name permutation 
-    (e.g. Gerald W Rubin) and a fuzzy match score (calculated before instantiation). """
+    (e.g. Gerald W Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
     def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
         super().__init__(id, job_title, email, first_names, middle_names, last_names)
         self.name = name
