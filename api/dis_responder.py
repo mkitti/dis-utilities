@@ -19,18 +19,25 @@ from flask_swagger import swagger
 import requests
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
+import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "4.14.0"
+__version__ = "9.2.0"
 # Database
 DB = {}
+# Custom queries
+CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
+                                    "value": "^!REPLACE!"}
+               }
+
 # Navigation
 NAV = {"Home": "",
        "DOIs": {"DOIs by publisher": "dois_publisher",
                 "DOIs by tag": "dois_tag",
-                "DOIs by type": "dois_type",
-                "DOIs by year": "dois_year"
+                "DOIs by source": "dois_source",
+                "DOIs by year": "dois_year",
+                "Top tags by year": "dois_top"
             },
        "ORCID": {"Groups": "groups",
                  "Affiliations": "orcid_tag",
@@ -39,6 +46,8 @@ NAV = {"Home": "",
        "Stats" : {"Database": "stats_database"
                  },
       }
+# Sources
+SOURCES = ["Crossref", "DataCite"]
 
 # ******************************************************************************
 # * Classes                                                                    *
@@ -300,6 +309,27 @@ def generate_response(result):
     result["rest"]["elapsed_time"] = str(timedelta(seconds=time() - app.config["START_TIME"]))
     return jsonify(**result)
 
+
+def get_custom_payload(ipd, display_value):
+    ''' Get custom payload
+        Keyword arguments:
+          ipd: input payload dictionary
+          display_value: display value
+        Returns:
+          payload: payload for MongoDB find
+          ptitle: page titleq
+    '''
+    if ipd['field'] in CUSTOM_REGEX:
+        rex = CUSTOM_REGEX[ipd['field']]['value']
+        ipd['value'] = {"$regex": rex.replace("!REPLACE!", ipd['value'])}
+        ipd['field'] = CUSTOM_REGEX[ipd['field']]['field']
+    ptitle = f"DOIs for {ipd['field']} {display_value}"
+    payload = {ipd['field']: ipd['value']}
+    if 'jrc_obtained_from' in ipd and ipd['jrc_obtained_from']:
+        payload['jrc_obtained_from'] = ipd['jrc_obtained_from']
+        ptitle += f" from {ipd['jrc_obtained_from']}"
+    return payload, ptitle
+
 # ******************************************************************************
 # * ORCID utility functions                                                    *
 # ******************************************************************************
@@ -342,43 +372,117 @@ def get_work_doi(work):
     return ''
 
 
-def orcid_payload(oid, orc, use_eid):
+def orcid_payload(oid, orc, eid=None):
     ''' Generate a payload for searching the dois collection by ORCID or employeeId
         Keyword arguments:
           oid: ORCID or employeeId
           orc: orcid record
-          use_eid: use emplooyeeId boolean
+          eid: employeeId boolean
         Returns:
           Payload
     '''
+    # Name only search
     payload = {"$and": [{"$or": [{"author.given": {"$in": orc['given']}},
                                  {"creators.givenName": {"$in": orc['given']}}]},
                         {"$or": [{"author.family": {"$in": orc['family']}},
                                  {"creators.familyName": {"$in": orc['family']}}]}]
               }
-    if use_eid:
-        payload = {"jrc_author": oid}
+    if eid and not oid:
+        # Employee ID only search
+        payload = {"$or": [{"jrc_author": eid}, {"$and": payload["$and"]}]}
+    elif oid and eid:
+        # Search by either name or employee ID
+        payload = {"$or": [{"orcid": oid}, {"jrc_author": eid}, {"$and": payload["$and"]}]}
     return payload
 
 
-def get_orcid_from_db(oid, use_eid=False):
-    ''' Generate HTML for an ORCID or employeeId that is in the orcid collection
+def get_dois_for_orcid(oid, orc, use_eid, both):
+    ''' Generate DOIs for a single user
         Keyword arguments:
           oid: ORCID or employeeId
-          use_eid: use emplooyeeId boolean
+          orc: orcid record
+          use_eid: use employeeId boolean
+          both: search by both ORCID and employeeId
         Returns:
           HTML and a list of DOIs
     '''
     try:
-        orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
+        if both:
+            eid = orc['employeeId'] if 'employeeId' in orc else None
+            rows = DB['dis'].dois.find(orcid_payload(oid, orc, eid))
+        elif use_eid:
+            rows = DB['dis'].dois.find(orcid_payload(None, orc, oid))
+        else:
+            rows = DB['dis'].dois.find(orcid_payload(oid, orc))
+    except Exception as err:
+        raise CustomException(err, "Could not find in dois collection by name.") from err
+    return rows
+
+
+def generate_works_table(rows, name=None):
+    ''' Generate table HTML for a person's works
+        Keyword arguments:
+          rows: rows from dois collection
+        Returns:
+          HTML and a list of DOIs
+    '''
+    works = []
+    dois = []
+    authors = {}
+    html = ""
+    for row in rows:
+        if row['doi']:
+            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
+        else:
+            doi = "&nbsp;"
+        title = DL.get_title(row)
+        dois.append(row['doi'])
+        payload = {"date":  DL.get_publishing_date(row),
+                   "doi": doi,
+                   "title": title
+                  }
+        works.append(payload)
+        if name:
+            alist = DL.get_author_details(row)
+            for auth in alist:
+                if "family" in auth and "given" in auth and auth["family"].lower() == name.lower():
+                    authors[f"{auth['given']} {auth['family']}"] = True
+    if not works:
+        return html, []
+    html += f"Publications: {len(works)}<br><table id='pubs' class='tablesorter standard'>" \
+            + '<thead><tr><th>Published</th><th>DOI</th><th>Title</th></tr></thead><tbody>'
+
+    for work in sorted(works, key=lambda row: row['date'], reverse=True):
+        html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
+                + f"<td>{work['title']}</td></tr>"
+    if dois:
+        html += "</tbody></table>"
+    if authors:
+        html = f"Authors found: {', '.join(sorted(authors.keys()))}<br>" \
+               + f"This may include non-Janelia authors<br>{html}"
+    return html, dois
+
+
+def get_orcid_from_db(oid, use_eid=False, both=False, bare=False):
+    ''' Generate HTML for an ORCID or employeeId that is in the orcid collection
+        Keyword arguments:
+          oid: ORCID or employeeId
+          use_eid: use employeeId boolean
+          both: search by both ORCID and employeeId
+          bare: entry has no ORCID or employeeId
+        Returns:
+          HTML and a list of DOIs
+    '''
+    try:
+        if bare:
+            orc = DB['dis'].orcid.find_one({"_id": bson.ObjectId(oid)})
+        else:
+            orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
     except Exception as err:
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
         return "", []
-    html = ""
-    badges = add_orcid_badges(orc)
-    html += " ".join(badges)
-    html += "<br><table class='borderless'>"
+    html = "<br><table class='borderless'>"
     if use_eid and 'orcid' in orc:
         html += f"<tr><td>ORCID:</td><td><a href='https://orcid.org/{orc['orcid']}'>" \
                 + f"{orc['orcid']}</a></td></tr>"
@@ -392,34 +496,14 @@ def get_orcid_from_db(oid, use_eid=False):
         html += f"<tr><td>Affiliations:</td><td>{', '.join(orc['affiliations'])}</td></tr>"
     html += "</table><br>"
     try:
-        rows = DB['dis'].dois.find(orcid_payload(oid, orc, use_eid))
+        rows = get_dois_for_orcid(oid, orc, use_eid, both)
     except Exception as err:
-        raise CustomException(err, "Could not find in dois collection by name.") from err
-    works = []
-    dois = []
-    for row in rows:
-        if row['doi']:
-            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
-        else:
-            doi = "&nbsp;"
-        title = DL.get_title(row)
-        dois.append(row['doi'])
-        payload = {"date":  DL.get_publishing_date(row),
-                   "doi": doi,
-                   "title": title
-                  }
-        works.append(payload)
-    if not works:
-        return html, []
-    html += '<table id="papers" class="tablesorter standard"><thead><tr>' \
-            + '<th>Published</th><th>DOI</th><th>Title</th>' \
-            + '</tr></thead><tbody>'
-
-    for work in sorted(works, key=lambda row: row['date'], reverse=True):
-        html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
-                + f"<td>{work['title']}</td></tr>"
-    if dois:
-        html += "</tbody></table>"
+        raise err
+    tablehtml, dois = generate_works_table(rows)
+    if tablehtml:
+        html = f"{' '.join(add_orcid_badges(orc))}{html}{tablehtml}"
+    else:
+        html = f"{' '.join(add_orcid_badges(orc))}{html}<br>No works found in dois collection."
     return html, dois
 
 
@@ -432,12 +516,14 @@ def add_orcid_works(data, dois):
           HTML for a list of works from ORCID
     '''
     html = inner = ""
+    works = 0
     for work in data['activities-summary']['works']['group']:
         wsumm = work['work-summary'][0]
         date = get_work_publication_date(wsumm)
         doi = get_work_doi(work)
         if (not doi) or (doi in dois):
             continue
+        works += 1
         if not doi:
             inner += f"<tr><td>{date}</td><td>&nbsp;</td>" \
                      + f"<td>{wsumm['title']['title']['value']}</td></tr>"
@@ -452,8 +538,10 @@ def add_orcid_works(data, dois):
         inner += f"<tr><td>{date}</td><td>{link}</td>" \
                  + f"<td>{wsumm['title']['title']['value']}</td></tr>"
     if inner:
-        html += '<hr>The additional titles below are from ORCID. Note that titles below may ' \
-                + 'be self-reported, and may not have DOIs available</br>'
+        title = "title is" if works == 1 else f"{works} titles are"
+        html += f"<hr>The additional {title} from ORCID. Note that titles below may " \
+                + "be self-reported, may not have DOIs available, or may be from the author's " \
+                + "employment outside of Janelia.</br>"
         html += '<table id="works" class="tablesorter standard"><thead><tr>' \
                 + '<th>Published</th><th>DOI</th><th>Title</th>' \
                 + f"</tr></thead><tbody>{inner}</tbody></table>"
@@ -461,22 +549,30 @@ def add_orcid_works(data, dois):
 
 
 def generate_user_table(rows):
-    ''' Generate a user table
+    ''' Generate HTML for a list of users
+        Keyword arguments:
+          rows: rows from orcid collection
+        Returns:
+          HTML for a list of authors with a count
     '''
+    count = 0
     html = '<table id="ops" class="tablesorter standard"><thead><tr>' \
            + '<th>ORCID</th><th>Given name</th><th>Family name</th>' \
-           + '</tr></thead><tbody>'
+           + '<th>Status</th></tr></thead><tbody>'
     for row in rows:
+        count += 1
         if 'orcid' in row:
             link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
         elif 'employeeId' in row:
             link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
         else:
-            link = 'No ORCID found'
+            link = f"<a href='/unvaluserui/{row['_id']}'>No ORCID found</a>"
+        auth = DL.get_single_author_details(row, DB['dis'].orcid)
+        badges = get_badges(auth)
         html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
-                + f"<td>{', '.join(row['family'])}</td></tr>"
+                + f"<td>{', '.join(row['family'])}</td><td>{' '.join(badges)}</td></tr>"
     html += '</tbody></table>'
-    return html
+    return html, count
 
 # ******************************************************************************
 # * DOI utility functions                                                      *
@@ -514,7 +610,7 @@ def add_jrc_fields(row):
         if not re.match(prog, key):
             continue
         if isinstance(val, list):
-            val = ", ".join(val)
+            val = ", ".join(sorted(val))
         jrc[key] = val
     if not jrc:
         return ""
@@ -526,8 +622,11 @@ def add_jrc_fields(row):
             for auth in val.split(", "):
                 link.append(f"<a href='/userui/{auth}'>{auth}</a>")
             val = ", ".join(link)
-        elif key == 'jrc_preprint':
-            val = f"<a href='/doiui/{val}'>{val}</a>"
+        if key == 'jrc_preprint':
+            link = []
+            for auth in val.split(", "):
+                link.append(f"<a href='/doiui/{auth}'>{auth}</a>")
+            val = ", ".join(link)
         elif key == 'jrc_tag':
             link = []
             for aff in val.split(", "):
@@ -630,7 +729,7 @@ def get_badges(auth):
           List of HTML badges
     '''
     badges = []
-    if auth['in_database']:
+    if 'in_database' in auth and auth['in_database']:
         badges.append(f"{tiny_badge('success', 'In database')}")
         if auth['alumni']:
             badges.append(f"{tiny_badge('danger', 'Alumni')}")
@@ -642,7 +741,7 @@ def get_badges(auth):
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
     else:
         badges.append(f"{tiny_badge('danger', 'Not in database')}")
-        if auth['asserted']:
+        if 'asserted' in auth and auth['asserted']:
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
     return badges
 
@@ -655,9 +754,12 @@ def show_tagged_authors(authors):
           List of HTML authors
     '''
     alist = []
+    count = 0
     for auth in authors:
         if (not auth['janelian']) and (not auth['asserted']):
             continue
+        if auth['janelian'] or auth['asserted']:
+            count += 1
         who = f"{auth['given']} {auth['family']}"
         if 'orcid' in auth and auth['orcid']:
             who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
@@ -674,7 +776,7 @@ def show_tagged_authors(authors):
         tags.sort()
         row = f"<td>{who}</td><td>{' '.join(badges)}</td><td>{', '.join(tags)}</td>"
         alist.append(row)
-    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>"
+    return f"<table class='borderless'><tr>{'</tr><tr>'.join(alist)}</tr></table>", count
 
 
 def add_orcid_badges(orc):
@@ -703,8 +805,8 @@ def random_string(strlen=8):
         Keyword arguments:
           strlen: length of generated string
     '''
-    components = string.ascii_letters + string.digits
-    return ''.join(random.choice(components) for i in range(strlen))
+    cmps = string.ascii_letters + string.digits
+    return ''.join(random.choice(cmps) for i in range(strlen))
 
 
 def create_downloadable(name, header, content):
@@ -834,8 +936,7 @@ def show_doi_authors(doi):
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
     try:
-        coll = DB['dis'].dois
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1021,9 +1122,8 @@ def show_doi(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if row:
@@ -1065,7 +1165,6 @@ def show_inserted(idate):
         isodate = datetime.strptime(idate,'%Y-%m-%d')
     except Exception as err:
         raise InvalidUsage(str(err), 400) from err
-    print(isodate)
     try:
         rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}}, {'_id': 0})
     except Exception as err:
@@ -1105,9 +1204,8 @@ def show_citation(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1154,10 +1252,9 @@ def show_multiple_citations(ctype='dis'):
         raise InvalidUsage("You must specify a list of DOIs")
     result['rest']['source'] = 'mongo'
     result['data'] = {}
-    coll = DB['dis'].dois
     for doi in ipd['dois']:
         try:
-            row = coll.find_one({"doi": doi.tolower()}, {'_id': 0})
+            row = DB['dis'].dois.find_one({"doi": doi.tolower()}, {'_id': 0})
         except Exception as err:
             raise InvalidUsage(str(err), 500) from err
         if not row:
@@ -1199,9 +1296,8 @@ def show_flylight_citation(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1240,9 +1336,8 @@ def show_components(doi):
     '''
     doi = doi.lstrip('/').rstrip('/').lower()
     result = initialize_result()
-    coll = DB['dis'].dois
     try:
-        row = coll.find_one({"doi": doi}, {'_id': 0})
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not row:
@@ -1287,9 +1382,8 @@ def show_dois_custom():
     result['rest']['source'] = 'mongo'
     result['rest']['query'] = ipd['query']
     result['data'] = []
-    coll = DB['dis'].dois
     try:
-        rows = coll.find(ipd['query'], {'_id': 0})
+        rows = DB['dis'].dois.find(ipd['query'], {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not rows:
@@ -1334,9 +1428,8 @@ def show_multiple_components(ctype='dis'):
         raise InvalidUsage("You must specify a tag")
     result['rest']['source'] = 'mongo'
     result['data'] = []
-    coll = DB['dis'].dois
     try:
-        rows = coll.find({"jrc_tag": ipd['tag']}, {'_id': 0})
+        rows = DB['dis'].dois.find({"jrc_tag": ipd['tag']}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not rows:
@@ -1370,10 +1463,9 @@ def show_types():
         description: MongoDB error
     '''
     result = initialize_result()
-    coll = DB['dis'].dois
     payload = [{"$group": {"_id": {"type": "$type", "subtype": "$subtype"},"count": {"$sum": 1}}}]
     try:
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -1462,8 +1554,7 @@ def show_oids():
     '''
     result = initialize_result()
     try:
-        coll = DB['dis'].orcid
-        rows = coll.find({}, {'_id': 0}).collation({"locale": "en"}).sort("family", 1)
+        rows = DB['dis'].orcid.find({}, {'_id': 0}).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -1503,8 +1594,7 @@ def show_oid(oid):
                            {"given": {"$regex": oid, "$options" : "i"}}]
                   }
     try:
-        coll = DB['dis'].orcid
-        rows = coll.find(payload, {'_id': 0})
+        rows = DB['dis'].orcid.find(payload, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     result['rest']['source'] = 'mongo'
@@ -1576,6 +1666,7 @@ def show_home():
 def show_doi_ui(doi):
     ''' Show DOI
     '''
+    # pylint: disable=too-many-return-statements
     doi = doi.lstrip('/').rstrip('/').lower()
     try:
         row = DB['dis'].dois.find_one({"doi": doi})
@@ -1623,26 +1714,51 @@ def show_doi_ui(doi):
             authors = DL.get_author_details(row, DB['dis'].orcid)
         except Exception as err:
             return inspect_error(err, 'Could not get author list details')
-        alist = show_tagged_authors(authors)
+        alist, count = show_tagged_authors(authors)
         if alist:
-            html += f"<br><h4>Janelia authors</h4><div class='scroll'>{''.join(alist)}</div>"
+            html += f"<br><h4>Janelia authors ({count})</h4>" \
+                    + f"<div class='scroll'>{''.join(alist)}</div>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=doi, html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
 
 
-@app.route('/dois_type')
-def dois_type():
-    ''' Show data types
+@app.route('/doisui/<string:name>')
+def show_doi_by_name_ui(name):
+    ''' Show DOIs for a name
+    '''
+    payload = {'$or': [{"author.family": {"$regex": f"^{name}$", "$options" : "i"}},
+                       {"creators.familyName": {"$regex": f"^{name}$", "$options" : "i"}},
+                       {"creators.name": {"$regex": f"{name}$", "$options" : "i"}},
+                      ]}
+    try:
+        rows = DB['dis'].dois.find(payload).collation({"locale": "en"}).sort("doi", 1)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs from dois collection"),
+                               message=error_message(err))
+    html, dois = generate_works_table(rows, name)
+    if not html:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning("Could not find DOIs", 'warning'),
+                               message=f"Could not find any DOIs with author name matching {name}")
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title=f"DOIs for {name} ({len(dois):,})", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_source')
+def dois_source():
+    ''' Show data sources
     '''
     payload = [{"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
                                    "subtype": "$subtype"},
                            "count": {"$sum": 1}}},
                {"$sort" : {"count": -1}}]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get types from dois collection"),
@@ -1650,15 +1766,22 @@ def dois_type():
     html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
            + '</tr></thead><tbody>'
+    data = {}
     for row in rows:
+        if row['_id']['source'] not in data:
+            data[row['_id']['source']] = 0
         for field in ('source', 'type', 'subtype'):
             if field not in row['_id']:
                 row['_id'][field] = ''
+        data[row['_id']['source']] += row['count']
         html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
                 + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI types", html=html,
+    chartscript, chartdiv = DP.pie_chart(data, "DOIs by source", "source",
+                                         colors=DP.SOURCE_PALETTE)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                             title="DOI sources", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1667,27 +1790,42 @@ def dois_type():
 def dois_publisher():
     ''' Show publishers with counts
     '''
-    payload = [{"$group": {"_id": {"publisher": "$publisher"},
-                           "count": {"$sum": 1}}},
-               {"$sort" : {"count": -1}}]
+    payload = [{"$group": {"_id": {"publisher": "$publisher", "source": "$jrc_obtained_from"},
+                           "count":{"$sum": 1}}},
+               {"$sort": {"_id.publisher": 1}}
+              ]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get publishers " \
                                                     + "from dois collection"),
                                message=error_message(err))
     html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Publisher</th><th>Count</th>' \
+           + '<th>Publisher</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    pubs = {}
     for row in rows:
-        onclick = "onclick='nav_post(\"publisher\",\"" + row['_id']['publisher'] + "\")'"
-        link = f"<a href='#' {onclick}>{row['_id']['publisher']}</a>"
-        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+        if row['_id']['publisher'] not in pubs:
+            pubs[row['_id']['publisher']] = {}
+        if row['_id']['source'] not in pubs[row['_id']['publisher']]:
+            pubs[row['_id']['publisher']][row['_id']['source']] = row['count']
+    for pub, val in pubs.items():
+        onclick = "onclick='nav_post(\"publisher\",\"" + pub + "\")'"
+        link = f"<a href='#' {onclick}>{pub}</a>"
+        html += f"<tr><td>{link}</td>"
+        for source in SOURCES:
+            if source in val:
+                onclick = "onclick='nav_post(\"publisher\",\"" + pub \
+                          + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{val[source]:,}</a>"
+            else:
+                link = ""
+            html += f"<td>{link}</td>"
+        html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI publishers", html=html,
+                                             title=f"DOI publishers ({len(pubs):,})", html=html,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1697,27 +1835,94 @@ def dois_tag():
     ''' Show tags with counts
     '''
     payload = [{"$unwind" : "$jrc_tag"},
-               {"$project": {"_id": 0, "jrc_tag": 1}},
-               {"$group": {"_id": {"tag": "$jrc_tag"}, "count":{"$sum": 1}}},
+               {"$project": {"_id": 0, "jrc_tag": 1, "jrc_obtained_from": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag", "source": "$jrc_obtained_from"},
+                           "count":{"$sum": 1}}},
                {"$sort": {"_id.tag": 1}}
               ]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get tags from dois collection"),
                                message=error_message(err))
     html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Tag</th><th>Count</th>' \
+           + '<th>Tag</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    tags = {}
     for row in rows:
-        onclick = "onclick='nav_post(\"jrc_tag\",\"" + row['_id']['tag'] + "\")'"
-        link = f"<a href='#' {onclick}>{row['_id']['tag']}</a>"
-        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+        if row['_id']['tag'] not in tags:
+            tags[row['_id']['tag']] = {}
+        if row['_id']['source'] not in tags[row['_id']['tag']]:
+            tags[row['_id']['tag']][row['_id']['source']] = row['count']
+    for tag, val in tags.items():
+        onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag + "\")'"
+        link = f"<a href='#' {onclick}>{tag}</a>"
+        html += f"<tr><td>{link}</td>"
+        for source in SOURCES:
+            if source in val:
+                onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag \
+                          + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{val[source]:,}</a>"
+            else:
+                link = ""
+            html += f"<td>{link}</td>"
+        html += "</tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="DOI tags", html=html,
+                                             title=f"DOI tags ({len(tags):,})", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_top', defaults={'num': 10})
+@app.route('/dois_top/<int:num>')
+def dois_top(num):
+    ''' Show a chart of DOIs by top tags
+    '''
+    payload = [{"$unwind" : "$jrc_tag"},
+               {"$project": {"_id": 0, "jrc_tag": 1, "jrc_publishing_date": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag",
+                                   "year": {"$substrBytes": ["$jrc_publishing_date", 0, 4]}},
+                           "count": {"$sum": 1}},
+                },
+               {"$sort": {"_id.year": 1, "_id.tag": 1}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get tags from dois collection"),
+                               message=error_message(err))
+    html = ""
+    ytags = {}
+    tags = {}
+    data = {"years": []}
+    for row in rows:
+        if row['_id']['tag'] not in tags:
+            tags[row['_id']['tag']] = 0
+        tags[row['_id']['tag']] += row['count']
+        if row['_id']['year'] not in ytags:
+            ytags[row['_id']['year']] = {}
+            data['years'].append(row['_id']['year'])
+        if row['_id']['tag'] not in ytags[row['_id']['year']]:
+            ytags[row['_id']['year']][row['_id']['tag']] = row['count']
+    top = sorted(tags, key=tags.get, reverse=True)[:num]
+    for year in data['years']:
+        for tag in sorted(tags):
+            if tag not in top:
+                continue
+            if tag not in data:
+                data[tag] = []
+            if tag in ytags[year]:
+                data[tag].append(ytags[year][tag])
+            else:
+                data[tag].append(0)
+    chartscript, chartdiv = DP.stacked_bar_chart(data, f"DOIs published by year for top {num} tags",
+                                                 xaxis="years", yaxis=top)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                             title="DOI tags by year/tag", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1726,25 +1931,51 @@ def dois_tag():
 def dois_year():
     ''' Show publishing years with counts
     '''
-    payload = [{"$group": {"_id": {"pdate": { "$substrBytes": [ "$jrc_publishing_date", 0, 4 ] }},
+    payload = [{"$group": {"_id": {"year": {"$substrBytes": ["$jrc_publishing_date", 0, 4]},
+                                   "source": "$jrc_obtained_from"
+                                  },
                            "count": {"$sum": 1}}},
                {"$sort": {"_id.pdate": -1}}
               ]
     try:
-        coll = DB['dis'].dois
-        rows = coll.aggregate(payload)
+        rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get tags from dois collection"),
                                message=error_message(err))
     html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Year</th><th>Count</th>' \
+           + '<th>Year</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    years = {}
     for row in rows:
-        html += f"<tr><td>{row['_id']['pdate']}</td><td>{row['count']:,}</td></tr>"
+        if row['_id']['year'] not in years:
+            years[row['_id']['year']] = {}
+        if row['_id']['source'] not in years[row['_id']['year']]:
+            years[row['_id']['year']][row['_id']['source']] = row['count']
+    data = {"years": [], "Crossref": [], "DataCite": []}
+    for year in sorted(years, reverse=True):
+        data['years'].insert(0, str(year))
+        onclick = "onclick='nav_post(\"publishing_year\",\"" + year + "\")'"
+        link = f"<a href='#' {onclick}>{year}</a>"
+        html += f"<tr><td>{link}</td>"
+        for source in SOURCES:
+            if source in years[year]:
+                data[source].insert(0, years[year][source])
+                onclick = "onclick='nav_post(\"publishing_year\",\"" + year \
+                          + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{years[year][source]:,}</a>"
+            else:
+                data[source].insert(0, 0)
+                link = ""
+            html += f"<td>{link}</td>"
+        html += "</tr>"
     html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
+    chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/source",
+                                                 xaxis="years", yaxis=SOURCES,
+                                                 colors=DP.SOURCE_PALETTE)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOIs published by year", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -1777,13 +2008,16 @@ def show_doiui_custom():
         description: MongoDB or formatting error
     '''
     ipd = receive_payload()
-    for key in ('field', 'value'):
-        if key not in ipd or not ipd[key]:
+    for row in ('field', 'value'):
+        if row not in ipd or not ipd[row]:
             return render_template('error.html', urlroot=request.url_root,
-                                   title=render_warning(f"Missing {key}"),
-                                   message=f"You must specify a {key}")
+                                   title=render_warning(f"Missing {row}"),
+                                   message=f"You must specify a {row}")
+    display_value = ipd['value']
+    payload, ptitle = get_custom_payload(ipd, display_value)
+    print(payload)
     try:
-        rows = DB['dis'].dois.find({ipd['field']: ipd['value']})
+        rows = DB['dis'].dois.find(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get DOIs"),
@@ -1791,7 +2025,7 @@ def show_doiui_custom():
     if not rows:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("DOIs not found"),
-                               message=f"No DOIs were found for {ipd['field']}={ipd['value']}")
+                               message=f"No DOIs were found for {ipd['field']}={display_value}")
     header = ['Published', 'DOI', 'Title']
     html = "<table id='dois' class='tablesorter standard'><thead><tr>" \
            + ''.join([f"<th>{itm}</th>" for itm in header]) + "</tr></thead><tbody>"
@@ -1799,6 +2033,8 @@ def show_doiui_custom():
     for row in rows:
         published = DL.get_publishing_date(row)
         title = DL.get_title(row)
+        if not title:
+            title = ""
         link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
         works.append({"published": published, "link": link, "title": title, "doi": row['doi']})
     fileoutput = ""
@@ -1809,8 +2045,8 @@ def show_doiui_custom():
     html += '</tbody></table>'
     html = create_downloadable(ipd['field'], header, fileoutput) + html
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"DOIs for {ipd['field']} {ipd['value']}",
-                                             html=html, navbar=generate_navbar('DOIs')))
+                                             title=ptitle, html=html,
+                                             navbar=generate_navbar('DOIs')))
     return response
 
 
@@ -1836,10 +2072,13 @@ def show_oid_ui(oid):
     name = data['person']['name']
     if name['credit-name']:
         who = f"{name['credit-name']['value']}"
+    elif 'family-name' not in name or not name['family-name']:
+        who = f"{name['given-names']['value']} <span style='color: red'>" \
+              + "(Family name is missing in ORCID)</span>"
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
     try:
-        orciddata, dois = get_orcid_from_db(oid)
+        orciddata, dois = get_orcid_from_db(oid, both=True)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning(f"Could not find ORCID ID {oid}", 'error'),
@@ -1880,6 +2119,29 @@ def show_user_ui(eid):
     return response
 
 
+@app.route('/unvaluserui/<string:iid>')
+def show_unvaluser_ui(iid):
+    ''' Show user record by orcid collection ID
+    '''
+    try:
+        orciddata, _ = get_orcid_from_db(iid, bare=True)
+    except CustomException as err:
+        return render_template('error.html', urlroot=request.url_root,
+                                title=render_warning(f"Could not find orcid collection ID {iid}",
+                                                     'warning'),
+                                message=error_message(err))
+    if not orciddata:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find ID {iid}", 'warning'),
+                               message="Could not find any information for this orcid " \
+                                       + "collection ID")
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title="User has no ORCID or employee ID",
+                                             html=orciddata,
+                                             navbar=generate_navbar('ORCID')))
+    return response
+
+
 @app.route('/namesui/<string:name>')
 def show_names_ui(name):
     ''' Show user names
@@ -1888,19 +2150,19 @@ def show_names_ui(name):
                        {"given": {"$regex": name, "$options" : "i"}},
                       ]}
     try:
-        coll = DB['dis'].orcid
-        if not coll.count_documents(payload):
+        if not DB['dis'].orcid.count_documents(payload):
             return render_template('warning.html', urlroot=request.url_root,
                                    title=render_warning("Could not find name", 'warning'),
-                                    message=f"Could not find any name matching {name}")
-        rows = coll.find(payload).collation({"locale": "en"}).sort("family", 1)
+                                    message=f"Could not find any names matching {name}")
+        rows = DB['dis'].orcid.find(payload).collation({"locale": "en"}).sort("family", 1)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not count names in dois collection"),
                                message=error_message(err))
-    html = generate_user_table(rows)
+    html, count = generate_user_table(rows)
+    html = f"Search term: {name}<br>" + html
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"Search term: {name}", html=html,
+                                             title=f"Users: {count:,}", html=html,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -1911,8 +2173,8 @@ def orcid_tag():
     '''
     payload = [{"$unwind" : "$affiliations"},
                {"$project": {"_id": 0, "affiliations": 1}},
-               {"$group": {"_id": {"affiliation": "$affiliations"}, "count":{"$sum": 1}}},
-               {"$sort": {"_id.affiliation": 1}}
+               {"$group": {"_id": "$affiliations", "count":{"$sum": 1}}},
+               {"$sort": {"_id": 1}}
               ]
     try:
         rows = DB['dis'].orcid.aggregate(payload)
@@ -1924,12 +2186,14 @@ def orcid_tag():
     html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Affiliation</th><th>Count</th>' \
            + '</tr></thead><tbody>'
+    count = 0
     for row in rows:
-        link = f"<a href='/affiliation/{row['_id']['affiliation']}'>{row['_id']['affiliation']}</a>"
+        count += 1
+        link = f"<a href='/affiliation/{row['_id']}'>{row['_id']}</a>"
         html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title="ORCID affiliations", html=html,
+                                             title=f"ORCID affiliations ({count:,})", html=html,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -1958,21 +2222,28 @@ def orcid_entry():
                                                     + "from orcid collection"),
                                message=error_message(err))
     total = cntj + cnta
+    data = {}
     html = '<table id="types" class="tablesorter standard"><tbody>'
     html += f"<tr><td>Entries in collection</td><td>{total:,}</td></tr>"
     html += f"<tr><td>Current Janelians</td><td>{cntj:,} ({cntj/total*100:.2f}%)</td></tr>"
     html += f"<tr><td>&nbsp;&nbsp;Janelians with ORCID and employee ID</td><td>{cntb:,}" \
             + f" ({cntb/cntj*100:.2f}%)</td></tr>"
+    data['Janelians with ORCID and employee ID'] = cntb
     html += f"<tr><td>&nbsp;&nbsp;Janelians with ORCID only</td><td>{cnto:,}" \
             + f" ({cnto/cntj*100:.2f}%)</td></tr>"
+    data['Janelians with ORCID only'] = cnto
     html += f"<tr><td>&nbsp;&nbsp;Janelians with employee ID only</td><td>{cnte:,}" \
             + f" ({cnte/cntj*100:.2f}%)</td></tr>"
-    html += f"<tr><td>&nbsp;&nbsp;Janelians without affiliations/groups</td><td>{cntf:,}" \
-            + f" ({cntf/cntj*100:.2f}%)</td></tr>"
+    data['Janelians with employee ID only'] = cnte
+    html += f"<tr><td>&nbsp;&nbsp;Janelians without affiliations/groups</td><td>{cntf:,}</td></tr>"
     html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
+    data['Alumni'] = cnta
     html += '</tbody></table>'
-    response = make_response(render_template('general.html', urlroot=request.url_root,
+    chartscript, chartdiv = DP.pie_chart(data, "ORCID entries", "type",
+                                         colors = DP.TYPE_PALETTE)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="ORCID entries", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -1998,10 +2269,10 @@ def orcid_affiliation(aff):
                                title=render_warning("Could not get affiliations from " \
                                                     + "orcid collection"),
                                message=error_message(err))
-    html += generate_user_table(rows)
+    additional, count = generate_user_table(rows)
     response = make_response(render_template('general.html', urlroot=request.url_root,
-                                             title=f"{aff} affiliation",
-                                             html=html,
+                                             title=f"{aff} affiliation ({count:,})",
+                                             html=html + additional,
                                              navbar=generate_navbar('ORCID')))
     return response
 
@@ -2063,10 +2334,9 @@ def show_groups():
     result = initialize_result()
     expected = 'html' if 'Accept' in request.headers \
                          and 'html' in request.headers['Accept'] else 'json'
-    coll = DB['dis'].orcid
     payload = {"group": {"$exists": True}}
     try:
-        rows = coll.find(payload, {'_id': 0}).sort("group", 1)
+        rows = DB['dis'].orcid.find(payload, {'_id': 0}).sort("group", 1)
     except Exception as err:
         if expected == 'html':
             return render_template('error.html', urlroot=request.url_root,
@@ -2082,8 +2352,9 @@ def show_groups():
         return generate_response(result)
     html = '<table class="standard"><thead><tr><th>Name</th><th>ORCID</th><th>Group</th>' \
            + '<th>Affiliations</th></tr></thead><tbody>'
+    count = 0
     for row in rows:
-        print(row)
+        count += 1
         if 'affiliations' not in row:
             row['affiliations'] = ''
         link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>" if 'orcid' in row else ''
@@ -2091,8 +2362,8 @@ def show_groups():
                 + f"<td style='width: 180px'>{link}</td><td>{row['group']}</td>" \
                 + f"<td>{', '.join(row['affiliations'])}</td></tr>"
     html += '</tbody></table>'
-    return render_template('general.html', urlroot=request.url_root, title='Groups', html=html,
-                           navbar=generate_navbar('ORCID'))
+    return render_template('general.html', urlroot=request.url_root, title=f"Groups ({count:,})",
+                           html=html, navbar=generate_navbar('ORCID'))
 
 # *****************************************************************************
 

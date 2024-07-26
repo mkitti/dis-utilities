@@ -202,6 +202,8 @@ def update_tags():
     print(f"DOIs specified:           {COUNT['specified']}")
     print(f"DOIs selected for update: {COUNT['selected']}")
     print(f"DOIs updated:             {COUNT['updated']}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 
@@ -227,6 +229,5 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
-    REST = JRC.get_config("rest_services")
     update_tags()
     terminate_program()

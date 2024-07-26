@@ -10,9 +10,17 @@
     url = "/doiui/" + $("#doi").val();
     window.location = url;
   }
+  function find_dois() {
+    if (!$('#doiname').val()) {
+      alert("You must enter a name");
+      return;
+    }
+    url = "/doisui/" + $("#doiname").val();
+    window.location = url;
+  }
   function find_oid() {
     if (!$('#oid').val()) {
-      alert("You must enter an ORCID ID");
+      alert("You must enter an ORCID");
       return;
     }
     url = "/orcidui/" + $("#oid").val();
@@ -49,7 +57,19 @@ onload="tableInitialize();"
 <br><br>
 <div class="flexcontainer">
   <div class="flexitem">
-  <span class="form-control-lg">Find an ORCID ID:</span>
+  <span class="form-control-lg">Find DOIs by last name:</span>
+  </div>
+  <div class="flexitem">
+    <input type="text" class="form-control form-control-lg" id="doiname" size=28>
+  </div>
+  <div class="flexitem">
+    <button type="submit" id="doib" class="btn btn-primary btn-md" onclick="find_dois(); return false;" href="#">Look up</button>
+  </div>
+</div>
+<br><br>
+<div class="flexcontainer">
+  <div class="flexitem">
+  <span class="form-control-lg">Find an ORCID:</span>
   </div>
   <div class="flexitem">
     <input type="text" class="form-control form-control-lg" id="oid">
@@ -61,7 +81,7 @@ onload="tableInitialize();"
 <br><br>
 <div class="flexcontainer">
   <div class="flexitem">
-  <span class="form-control-lg">Find ORCID IDs by name:</span>
+  <span class="form-control-lg">Find ORCIDs by name:</span>
   </div>
   <div class="flexitem">
     <input type="text" class="form-control form-control-lg" id="name">

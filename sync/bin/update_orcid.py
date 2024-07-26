@@ -464,6 +464,8 @@ def update_orcid():
     print(f"Records read from ORCID:        {COUNT['orcid']}")
     print(f"ORCID IDs inserted:             {COUNT['insert']}")
     print(f"ORCID IDs updated:              {COUNT['update']}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 

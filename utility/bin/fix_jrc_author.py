@@ -1,8 +1,9 @@
 """ fix_jrc_author.py
-    Add jrc_author field to DOIs
+    Add jrc_author field to DOIs. DOIs are selected by employee ID or by
+    the absence of the jrc_author field.
 """
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import argparse
 import collections
@@ -55,6 +56,39 @@ def initialize_program():
             terminate_program(err)
 
 
+def get_dois():
+    ''' Get a list of DOIs to process
+        Keyword arguments:
+          None
+        Returns:
+          cnt: row count
+          rows: rows object
+    '''
+    if ARG.EMPLOYEE:
+        try:
+            orc = DB['dis'].orcid.find_one({"employeeId": ARG.EMPLOYEE})
+        except Exception as err:
+            terminate_program(err)
+        if not orc:
+            terminate_program(f"Employee ID {ARG.EMPLOYEE} not found")
+        payload = {"$and": [{"$or": [{"author.given": {"$in": orc['given']}},
+                                     {"creators.givenName": {"$in": orc['given']}}]},
+                            {"$or": [{"author.family": {"$in": orc['family']}},
+                                     {"creators.familyName": {"$in": orc['family']}}]}]
+                  }
+    else:
+        payload = {"$or": [{"author": {"$exists": True}},
+                            {"creators": {"$exists": True}}],
+                   "jrc_author": {"$exists": False}
+                  }
+    try:
+        cnt = DB['dis'].dois.count_documents(payload)
+        rows = DB['dis'].dois.find(payload)
+    except Exception as err:
+        terminate_program(err)
+    return cnt, rows
+
+
 def add_jrc_author():
     """ Update tags for specified DOIs
         Keyword arguments:
@@ -63,29 +97,25 @@ def add_jrc_author():
           None
     """
     LOGGER.info(f"Started run (version {__version__})")
-    payload = {"$or": [{"author": {"$exists": True}},
-                        {"creators": {"$exists": True}}],
-               "jrc_author": {"$exists": False}
-              }
-    try:
-        cnt = DB['dis'].dois.count_documents(payload)
-        rows = DB['dis'].dois.find(payload)
-    except Exception as err:
-        terminate_program(err)
+    cnt, rows = get_dois()
     for row in tqdm(rows, total=cnt):
         COUNT['read'] += 1
         auth = DL.update_jrc_author(row['doi'], DB['dis'].dois, DB['dis'].orcid, write=ARG.WRITE)
         if auth:
             COUNT['updated'] += 1
-        LOGGER.debug(f"{row['doi']} {auth}")
+            LOGGER.debug(f"{row['doi']} {auth}")
     print(f"DOIs read:    {COUNT['read']:,}")
     print(f"DOIs updated: {COUNT['updated']:,}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Add jrc_author")
+    PARSER.add_argument('--employee', dest='EMPLOYEE', action='store',
+                        help='Employee ID')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
@@ -98,6 +128,5 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
-    REST = JRC.get_config("rest_services")
     add_jrc_author()
     terminate_program()

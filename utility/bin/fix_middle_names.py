@@ -150,6 +150,8 @@ def process_orcid():
             process_single_add_no_period(row)
     print(f"ORCID read:                {COUNT['read']}")
     print(f"ORCIDs not needing update: {COUNT['found']}")
+    if not ARG.WRITE:
+        LOGGER.warning("Dry run successful, no updates were made")
 
 # -----------------------------------------------------------------------------
 
