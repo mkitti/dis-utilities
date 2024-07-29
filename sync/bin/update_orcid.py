@@ -2,12 +2,10 @@
     Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
 '''
 
-__version__ = '2.1.0'
+__version__ = '2.2.0'
 
 import argparse
 import collections
-from datetime import datetime
-import getpass
 import json
 from operator import attrgetter
 import os
@@ -351,19 +349,7 @@ def generate_email():
         Returns:
           None
     '''
-    msg = ""
-    user = getpass.getuser()
-    if user:
-        try:
-            workday = JRC.simplenamespace_to_dict(JRC.get_config("workday"))
-        except Exception as err:
-            terminate_program(err)
-        if user in workday:
-            rec = workday[user]
-            msg += f"Program (version {__version__}) run by {rec['first']} {rec['last']} " \
-                   + f"at {datetime.now()}\n"
-        else:
-            msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
+    msg = JRC.get_run_data(__file__, __version__)
     msg += f"The following ORCID IDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for oid, val in NEW_ORCID.items():
         if not oid:

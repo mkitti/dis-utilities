@@ -6,12 +6,11 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '3.0.0'
+__version__ = '3.2.0'
 
 import argparse
 import configparser
 from datetime import datetime
-import getpass
 import json
 from operator import attrgetter
 import os
@@ -24,6 +23,7 @@ import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
+
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
 
@@ -567,6 +567,26 @@ def get_tags(authors):
     return new_tags
 
 
+def persist_author(key, authors, tags, persist):
+    ''' Add authors to be persisted
+        Keyword arguments:
+          persist: dict keyed by DOI with value of the Crossref/DataCite record
+        Returns:
+          None
+    '''
+    if tags:
+        LOGGER.info(f"Added jrc_tag {tags}")
+        persist[key]['jrc_tag'] = tags
+    # Update jrc_author
+    jrc_author = []
+    for auth in authors:
+        if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
+            jrc_author.append(auth['employeeId'])
+    if jrc_author:
+        LOGGER.info(f"Added jrc_author {jrc_author}")
+        persist[key]['jrc_author'] = jrc_author
+
+
 def add_tags(persist):
     ''' Add tags to DOI records that will be persisted (jrc_author, jrc_tag)
         Keyword arguments:
@@ -597,17 +617,7 @@ def add_tags(persist):
         for tag in new_tags:
             if tag not in tags:
                 tags.append(tag)
-        if tags:
-            LOGGER.info(f"Added jrc_tag {tags}")
-            persist[key]['jrc_tag'] = tags
-        # Update jrc_author
-        jrc_author = []
-        for auth in authors:
-            if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
-                jrc_author.append(auth['employeeId'])
-        if jrc_author:
-            LOGGER.info(f"Added jrc_author {jrc_author}")
-            persist[key]['jrc_author'] = jrc_author
+        persist_author(key, authors, tags, persist)
 
 
 def update_mongodb(persist):
@@ -626,6 +636,13 @@ def update_mongodb(persist):
         val['jrc_updated'] = datetime.today().replace(microsecond=0)
         LOGGER.debug(val)
         if ARG.WRITE:
+            if ARG.DOI or ARG.FILE:
+                val['jrc_load_source'] = "Manual"
+                uname = JRC.get_user_name()
+                if uname and uname != "root":
+                    val['jrc_loaded_by'] = uname
+            else:
+                val['jrc_load_source'] = "Sync"
             coll.update_one({"doi": key}, {"$set": val}, upsert=True)
         if key in EXISTING:
             COUNT['update'] += 1
@@ -726,19 +743,7 @@ def generate_email():
         Returns:
           None
     '''
-    msg = ""
-    user = getpass.getuser()
-    if user:
-        try:
-            workday = JRC.simplenamespace_to_dict(JRC.get_config("workday"))
-        except Exception as err:
-            terminate_program(err)
-        if user in workday:
-            rec = workday[user]
-            msg += f"Program (version {__version__}) run by {rec['first']} " \
-                   + f"{rec['last']} at {datetime.now()}\n"
-        else:
-            msg += f"Program (version {__version__}) run by {user} at {datetime.now()}\n"
+    msg = JRC.get_run_data(__file__, __version__)
     msg += f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for doi in INSERTED:
         msg += f"\n{doi}"
