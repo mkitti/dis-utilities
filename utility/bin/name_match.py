@@ -22,12 +22,12 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Handle tricky names like 'Miguel Angel Núñez-Ochoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
-#TODO: after running this script, run update_dois.py to add someone to jrc_authors
+#TODO: Add the author's name to the new ORCID record (not just employee names). This will ensure that update_dois.py gets the exact name match it needs to update jrc_authors. 
 #TODO: Filter out People search results where location != Janelia
 
 
 class Author:
-    """ Author objects are constructed solely from the CrossRef-provided author information. """
+    """ Author objects are constructed solely from the Crossref-provided author information. """
     def __init__(self, raw_name, orcid=None, affiliations=None, employee_id=None):
         #self.raw_name = raw_name
         #self.name = self.remove_punctuation(unidecode(raw_name))
@@ -122,7 +122,7 @@ def create_author_objects(doi_record):
     return(author_objects)
 
 def create_employee(id):
-    idsearch_results = search_people_api(id, 'id')
+    idsearch_results = search_people_api(id, mode='id')
     if not isinstance(idsearch_results, MissingPerson):
         job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
         email = idsearch_results['email'] if 'email' in idsearch_results else None
@@ -169,7 +169,7 @@ def guess_employee(author):
     candidate_employees = [] # Includes false positives. For example, if I search 'Virginia',
     # both Virginia Scarlett and Virginia Ruetten will be in this list.
     search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
-    namesearch_results = search_people_api(search_term, 'name')
+    namesearch_results = search_people_api(search_term, mode='name')
     if not isinstance(namesearch_results, MissingPerson):
         candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
         for id in candidate_employee_ids:
