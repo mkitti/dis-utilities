@@ -3,21 +3,22 @@ Given a DOI, try to identify Janelia authors who don't have ORCIDs and correlate
 Update ORCID records as needed.
 """
 
-import os
+#import os
 import sys
-from rapidfuzz import fuzz, utils
+import subprocess
 import string
-from unidecode import unidecode
+import argparse
 import re
 import itertools
-from termcolor import colored
-import jrc_common.jrc_common as JRC
-import doi_common.doi_common as doi_common
+from pathlib import Path
 from operator import attrgetter
-import sys
+from rapidfuzz import fuzz, utils
+#from unidecode import unidecode
+from termcolor import colored
 import inquirer
 from inquirer.themes import BlueComposure
-import argparse
+import jrc_common.jrc_common as JRC
+import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Handle tricky names like 'Miguel Angel Núñez-Ochoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
@@ -385,6 +386,8 @@ if __name__ == '__main__':
     description = "Given a DOI, use fuzzy name matching to correlate Janelia authors who don't have ORCIDs to Janelia employees. Update ORCID records as needed.")
     parser.add_argument('--doi', dest='doi', action='store', required=True,
                          help='DOI whose authors will be processed.')
+    parser.add_argument('--update', dest='UPDATE', action='store_true',
+                        default=False, help='Run update_dois.py at the end of this script.')
     parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         default=False, help='Flag, Chatty')
     parser.add_argument('--debug', dest='DEBUG', action='store_true',
@@ -497,12 +500,18 @@ if __name__ == '__main__':
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
                             doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
-                                                                
 
-
-
-
-                              
+    # Run update_dois.py, which will update the DOI metadata to reflect the new ORCID records                                               
+    if arg.UPDATE:
+        current_script_path = Path(__file__).resolve()
+        dis_repo_directory = current_script_path.parents[2]
+        update_dois_path = f"{dis_repo_directory}/sync/bin/update_dois.py"
+        command = ["python3", update_dois_path, "--target", "dis", "--doi", arg.doi, "--force", "--write"]
+        print("Running:")
+        print(' '.join(command))
+        update_result = subprocess.run(command, capture_output=True, text=True)
+        print("STDOUT:", update_result.stdout)
+        print("STDERR:", update_result.stderr)                           
 
 
 
