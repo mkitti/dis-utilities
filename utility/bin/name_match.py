@@ -23,8 +23,6 @@ import argparse
 #TODO: Handle tricky names like 'Miguel Angel Núñez-Ochoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 #TODO: after running this script, run update_dois.py to add someone to jrc_authors
 #TODO: Filter out People search results where location != Janelia
-#BUG! The menu to select authors manually doesn't show all authors for 10.1101/2024.05.09.593460
-#BUG! The ORCID records I create don't contain family or given names. Example: Briana Yarbrough, employeeId 54017, also Yisheng He and Sambala Banashiva
 
 
 class Author:
@@ -213,7 +211,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
     
     if isinstance(best_guess, MultipleHits):
         print(inform_message)
-        print("Multiple high scoring matches found:")
+        print(f"Multiple high scoring matches found for {author.name}:")
         for guess in best_guess.winners:
             print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
         quest = [inquirer.Checkbox('decision', 
@@ -513,7 +511,7 @@ if __name__ == '__main__':
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
 # doi_collection = nm.DB['dis'].dois
-# doi='10.1101/2024.06.30.601394'
+# doi='10.1101/2024.05.09.593460'
 # doi_record = nm.get_doi_record(doi)
 # all_authors = nm.create_author_objects(doi_record)
 # janelian_authors = [ a for a in all_authors if nm.is_janelian(a, orcid_collection) ]
@@ -522,3 +520,4 @@ if __name__ == '__main__':
 #     janelian_authors = [ a for a in all_authors if a.name in names_picked ]
 
 # janelian_authors[14]
+
