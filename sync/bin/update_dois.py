@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '3.1.0'
+__version__ = '3.2.0'
 
 import argparse
 import configparser
@@ -636,6 +636,13 @@ def update_mongodb(persist):
         val['jrc_updated'] = datetime.today().replace(microsecond=0)
         LOGGER.debug(val)
         if ARG.WRITE:
+            if ARG.DOI or ARG.FILE:
+                val['jrc_load_source'] = "Manual"
+                uname = JRC.get_user_name()
+                if uname and uname != "root":
+                    val['jrc_loaded_by'] = uname
+            else:
+                val['jrc_load_source'] = "Sync"
             coll.update_one({"doi": key}, {"$set": val}, upsert=True)
         if key in EXISTING:
             COUNT['update'] += 1
