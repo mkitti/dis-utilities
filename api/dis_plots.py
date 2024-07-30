@@ -10,6 +10,7 @@ from bokeh.plotting import figure
 from bokeh.transform import cumsum
 
 SOURCE_PALETTE = ["mediumblue", "darkorange"]
+SOURCE3_PALETTE = ["mediumblue", "darkorange", "wheat"]
 TYPE_PALETTE = ["mediumblue", "darkorange", "wheat", "darkgray"]
 
 def pie_chart(data, title, legend, colors=None):

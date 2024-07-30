@@ -2,7 +2,7 @@
     UI and REST API for Data and Information Services
 '''
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import inspect
 from json import JSONEncoder
 from operator import attrgetter
@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "9.2.0"
+__version__ = "10.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -33,7 +33,9 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 
 # Navigation
 NAV = {"Home": "",
-       "DOIs": {"DOIs by publisher": "dois_publisher",
+       "DOIs": {"DOIs by authorship": "dois_author",
+                "DOIs by insertion date": "dois_insertpicker",
+                "DOIs by publisher": "dois_publisher",
                 "DOIs by tag": "dois_tag",
                 "DOIs by source": "dois_source",
                 "DOIs by year": "dois_year",
@@ -341,16 +343,16 @@ def get_work_publication_date(wsumm):
         Returns:
           Publication date
     '''
-    date = ''
+    pdate = ''
     if 'publication-date' in wsumm and wsumm['publication-date']:
         ppd = wsumm['publication-date']
         if 'year' in ppd and ppd['year']['value']:
-            date = ppd['year']['value']
+            pdate = ppd['year']['value']
         if 'month' in ppd and ppd['month'] and ppd['month']['value']:
-            date += f"-{ppd['month']['value']}"
+            pdate += f"-{ppd['month']['value']}"
         if 'day' in ppd and ppd['day'] and ppd['day']['value']:
-            date += f"-{ppd['day']['value']}"
-    return date
+            pdate += f"-{ppd['day']['value']}"
+    return pdate
 
 
 def get_work_doi(work):
@@ -519,13 +521,13 @@ def add_orcid_works(data, dois):
     works = 0
     for work in data['activities-summary']['works']['group']:
         wsumm = work['work-summary'][0]
-        date = get_work_publication_date(wsumm)
+        pdate = get_work_publication_date(wsumm)
         doi = get_work_doi(work)
         if (not doi) or (doi in dois):
             continue
         works += 1
         if not doi:
-            inner += f"<tr><td>{date}</td><td>&nbsp;</td>" \
+            inner += f"<tr><td>{pdate}</td><td>&nbsp;</td>" \
                      + f"<td>{wsumm['title']['title']['value']}</td></tr>"
             continue
         if work['external-ids']['external-id'][0]['external-id-url']:
@@ -535,7 +537,7 @@ def add_orcid_works(data, dois):
                        + f"' target='_blank'>{doi}</a>"
         else:
             link = f"<a href='/doiui/{doi}'>{doi}</a>"
-        inner += f"<tr><td>{date}</td><td>{link}</td>" \
+        inner += f"<tr><td>{pdate}</td><td>{link}</td>" \
                  + f"<td>{wsumm['title']['title']['value']}</td></tr>"
     if inner:
         title = "title is" if works == 1 else f"{works} titles are"
@@ -820,7 +822,9 @@ def create_downloadable(name, header, content):
     '''
     fname = f"{name}_{random_string()}_{datetime.today().strftime('%Y%m%d%H%M%S')}.tsv"
     with open(f"/tmp/{fname}", "w", encoding="utf8") as text_file:
-        text_file.write("\t".join(header) + "\n" + content)
+        if header:
+            content = "\t".join(header) + "\n" + content
+        text_file.write(content)
     return f'<a class="btn btn-outline-success" href="/download/{fname}" ' \
                 + 'role="button">Download tab-delimited file</a>'
 
@@ -851,6 +855,17 @@ def dloop(row, keys, sep="\t"):
     '''
     return sep.join([str(row[fld]) for fld in keys])
 
+
+def last_thursday():
+    ''' Calculate the date of the most recent Thursday
+        Returns:
+          Date of the most recent Thursday
+    '''
+    today = date.today()
+    offset = (today.weekday() - 3) % 7
+    if not offset:
+        offset = 7
+    return today - timedelta(days=offset)
 
 # *****************************************************************************
 # * Documentation                                                             *
@@ -1749,6 +1764,49 @@ def show_doi_by_name_ui(name):
     return response
 
 
+@app.route('/dois_author')
+def dois_author():
+    ''' Show first/last authors
+    '''
+    source = {}
+    for src in ('Crossref', 'DataCite', 'Crossref-none', 'DataCite-none'):
+        payload = {"jrc_obtained_from": src,
+                   "$or": [{"jrc_first_author": {"$exists": True}},
+                           {"jrc_last_author": {"$exists": True}}]}
+        if '-none' in src:
+            payload = {"jrc_obtained_from": src.replace('-none', '')}
+        try:
+            cnt = DB['dis'].dois.count_documents(payload)
+            source[src] = cnt
+        except Exception as err:
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning("Could not get authorship " \
+                                                        + "from dois collection"),
+                                   message=error_message(err))
+    html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
+           + '<th>Authorship</th><th>Crossref</th><th>DataCite</th>' \
+           + '</tr></thead><tbody>'
+    print(source)
+    data = {}
+    for src in SOURCES:
+        data[src] = source[src]
+    html += f"<tr><td>First and/or last</td><td>{source['Crossref']}</td>" \
+            + f"<td>{source['DataCite']}</td></tr>"
+    html += f"<tr><td>Additional only</td><td>{source['Crossref-none']-source['Crossref']}</td>" \
+            + f"<td>{source['DataCite-none']-source['DataCite']}</td></tr>"
+    html += '</tbody></table>'
+    data['Additional'] = source['Crossref-none'] + source['DataCite-none'] - source['Crossref'] \
+                         - source['DataCite']
+    print(data)
+    chartscript, chartdiv = DP.pie_chart(data, "DOIs by authorship", "source",
+                                         colors=DP.SOURCE3_PALETTE)
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                             title="DOI authorship", html=html,
+                                             chartscript=chartscript, chartdiv=chartdiv,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
 @app.route('/dois_source')
 def dois_source():
     ''' Show data sources
@@ -1777,6 +1835,7 @@ def dois_source():
         html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
                 + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
+    print(data)
     chartscript, chartdiv = DP.pie_chart(data, "DOIs by source", "source",
                                          colors=DP.SOURCE_PALETTE)
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
@@ -1978,6 +2037,69 @@ def dois_year():
                                              chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
+
+
+@app.route('/dois_insertpicker')
+def show_insert_picker():
+    '''
+    Show a datepicker for selecting DOIs inserted since a specified date
+    '''
+    before = "Select a minimum DOI insertion date"
+    start = last_thursday()
+    after = '<a class="btn btn-success" role="button" onclick="startdate(); return False;">' \
+            + 'Look up DOIs</a>'
+    return make_response(render_template('picker.html', urlroot=request.url_root,
+                                         title="DOI lookup by insertion date", before=before,
+                                         start=start, stop=str(date.today()),
+                                         after=after, navbar=generate_navbar('DOIs')))
+
+
+@app.route('/doiui/insert/<string:idate>')
+def show_insert(idate):
+    '''
+    Return DOIs that have been inserted since a specified date
+    '''
+    try:
+        isodate = datetime.strptime(idate,'%Y-%m-%d')
+    except Exception as err:
+        raise InvalidUsage(str(err), 400) from err
+    try:
+        rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}},
+                                   {'_id': 0}).sort("jrc_inserted", 1)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs"),
+                               message=error_message(err))
+    if not rows:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("DOIs not found"),
+                               message=f"No DOIs were inserted on or after {idate}")
+    html = '<table id="dois" class="tablesorter numbers"><thead><tr>' \
+           + '<th>DOI</th><th>Source</th><th>Published</th><th>Load source</th><th>Inserted</th>' \
+           + '<th>Is version of</th><th>Newsletter</th></tr></thead><tbody>'
+    fileoutput = ""
+    for row in rows:
+        source = row['jrc_load_source'] if row['jrc_load_source'] == "Manual" else ""
+        version = []
+        if 'relation' in row and 'is-version-of' in row['relation']:
+            for ver in row['relation']['is-version-of']:
+                if ver['id-type'] == 'doi':
+                    version.append(ver['id'])
+        version = ", ".join(version) if version else ""
+        link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
+        news = row['jrc_newsletter'] if 'jrc_newsletter' in row else ""
+        html += "<tr><td>" + "</td><td>".join([link, row['jrc_obtained_from'],
+                                              row['jrc_publishing_date'], source,
+                                              str(row['jrc_inserted']), version,
+                                              news]) + "</td></tr>"
+        frow = "\t".join([row['doi'], row['jrc_obtained_from'], row['jrc_publishing_date'],
+                          str(row['jrc_inserted']), version, news])
+        fileoutput += f"{frow}\n"
+    html += '</tbody></table>'
+    html = create_downloadable("jrc_inserted", None, fileoutput) + html
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title=f"DOIs inserted on or after {idate}", html=html,
+                                         navbar=generate_navbar('DOIs')))
 
 
 @app.route('/doiui/custom', methods=['OPTIONS', 'POST'])
