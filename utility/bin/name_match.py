@@ -23,21 +23,18 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Handle tricky names like 'Miguel Angel Núñez-Ochoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
-#TODO: Add the author's name to the new ORCID record (not just employee names). This will ensure that update_dois.py gets the exact name match it needs to update jrc_authors. 
 #TODO: Filter out People search results where location != Janelia
+#TODO: Add new names to an existing record?
+#TODO: Improve tags on prompts
+#TODO: Search all authors in People BEFORE prompting for individuals?
 
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
-    def __init__(self, name, orcid=None, affiliations=None, employee_id=None):
+    def __init__(self, name, orcid=None, affiliations=None):
         self.name = name
         self.orcid = orcid
         self.affiliations = affiliations if affiliations is not None else [] # Need to avoid the python mutable arguments trap
-        self.employee_id = employee_id
-    
-    # def remove_punctuation(self, raw_name):
-    #     return(raw_name.translate(str.maketrans('', '', string.punctuation)))
-
 
 class Employee:
     """ Employees are constructed from information found in the HHMI People database. """
@@ -48,38 +45,6 @@ class Employee:
         self.first_names = list(set(first_names)) if first_names is not None else [] # Need to avoid the python mutable arguments trap
         self.middle_names = list(set(middle_names)) if middle_names is not None else []
         self.last_names = list(set(last_names)) if last_names is not None else []
-    # def generate_name_permutations(self):
-    #     permutations = set()
-    #     # All possible first names + all possible last names
-    #     for first_name, last_name in itertools.product(self.first_names, self.last_names):
-    #         permutations.add(
-    #             f"{first_name} {last_name}"
-    #         )
-    #     # All possible first names + all possible middle names + all possible last names
-    #     if self.middle_names:
-    #         if any(item for item in self.middle_names if item): # check for ['', '']
-    #             for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-    #                 permutations.add(
-    #                     f"{first_name} {middle_name} {last_name}"
-    #                 )
-    #         # All possible first names + all possible middle initials + all possible last names
-    #             for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-    #                 middle_initial = middle_name[0]
-    #                 permutations.add(
-    #                     f"{first_name} {middle_initial} {last_name}"
-    #                 )
-    #     return list(sorted(permutations))
-    # def generate_family_name_permutations(self): #for adding records to the ORCID collection
-    #     permutations = set()
-    #     all_middle_names = [n for n in self.middle_names if n not in (None, '')]
-    #     if all_middle_names:
-    #         for first in self.first_names:
-    #             for middle in all_middle_names:
-    #                 permutations.add(f"{first} {middle}")
-    #                 permutations.add(f"{first} {middle[0]}.")
-    #         return list(sorted(permutations))
-    #     else:
-    #         return list(set(self.first_names))
 
 class Guess(Employee):
     """ A Guess is a subtype of Employee that includes just one name permutation 
@@ -322,7 +287,6 @@ def generate_name_permutations(first_names, middle_names, last_names):
                     )
         return list(sorted(permutations))
 
-
 def first_names_for_orcid_record(author, employee):
     result = generate_name_permutations(
         [HumanName(author.name).first]+employee.first_names, 
@@ -340,7 +304,6 @@ def last_names_for_orcid_record(author, employee):
     )
     h_result = [HumanName(n) for n in result]
     return(list(set([n.last for n in h_result])))
-
 
 
 def search_people_api(search_term, mode):
@@ -502,7 +465,6 @@ if __name__ == '__main__':
 
         elif not author.orcid:
             inform_message = f"{author.name} does not have an ORCID on this paper."
-            #success_message = ''
             best_guess = guess_employee(author)
             if isinstance(best_guess, MissingPerson):
                 if arg.VERBOSE == True:
