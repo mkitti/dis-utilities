@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "10.0.0"
+__version__ = "10.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -35,6 +35,7 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 NAV = {"Home": "",
        "DOIs": {"DOIs by authorship": "dois_author",
                 "DOIs by insertion date": "dois_insertpicker",
+                "DOIs by preprint status": "dois_preprint",
                 "DOIs by publisher": "dois_publisher",
                 "DOIs by tag": "dois_tag",
                 "DOIs by source": "dois_source",
@@ -1783,21 +1784,19 @@ def dois_author():
                                    title=render_warning("Could not get authorship " \
                                                         + "from dois collection"),
                                    message=error_message(err))
-    html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
+    html = '<table id="authors" class="tablesorter numbers"><thead><tr>' \
            + '<th>Authorship</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
-    print(source)
     data = {}
     for src in SOURCES:
         data[src] = source[src]
-    html += f"<tr><td>First and/or last</td><td>{source['Crossref']}</td>" \
-            + f"<td>{source['DataCite']}</td></tr>"
-    html += f"<tr><td>Additional only</td><td>{source['Crossref-none']-source['Crossref']}</td>" \
-            + f"<td>{source['DataCite-none']-source['DataCite']}</td></tr>"
+    html += f"<tr><td>First and/or last</td><td>{source['Crossref']:,}</td>" \
+            + f"<td>{source['DataCite']:,}</td></tr>"
+    html += f"<tr><td>Additional only</td><td>{source['Crossref-none']-source['Crossref']:,}</td>" \
+            + f"<td>{source['DataCite-none']-source['DataCite']:,}</td></tr>"
     html += '</tbody></table>'
     data['Additional'] = source['Crossref-none'] + source['DataCite-none'] - source['Crossref'] \
                          - source['DataCite']
-    print(data)
     chartscript, chartdiv = DP.pie_chart(data, "DOIs by authorship", "source",
                                          colors=DP.SOURCE3_PALETTE)
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
@@ -1835,12 +1834,86 @@ def dois_source():
         html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
                 + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
     html += '</tbody></table>'
-    print(data)
     chartscript, chartdiv = DP.pie_chart(data, "DOIs by source", "source",
                                          colors=DP.SOURCE_PALETTE)
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOI sources", html=html,
                                              chartscript=chartscript, chartdiv=chartdiv,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
+@app.route('/dois_preprint')
+def dois_preprint():
+    ''' Show preprints
+    '''
+    source = {}
+    for src in SOURCES:
+        payload = {"jrc_obtained_from": src, "jrc_preprint": {"$exists": False}}
+        if src == 'Crossref':
+            payload['type'] = {"$in": ["journal-article", "posted-content"]}
+        else:
+            payload['doi'] = {"$not": {"$regex": "janelia|zenodo"}}
+        try:
+            cnt = DB['dis'].dois.count_documents(payload)
+            source[src] = cnt
+        except Exception as err:
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning("Could not get source counts " \
+                                                        + "from dois collection"),
+                                   message=error_message(err))
+    payload = [{"$match": {"jrc_preprint": {"$exists": True}}},
+               {"$group": {"_id": {"type": "$type", "preprint": "$preprint"},"count": {"$sum": 1}}}]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get preprint counts " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    data = {'Has preprint relation': 0}
+    preprint = {}
+    for row in rows:
+        if 'type' in row['_id']:
+            preprint[row['_id']['type']] = row['count']
+            data['Has preprint relation'] += row['count']
+        else:
+            preprint['DataCite'] = row['count']
+            data['Has preprint relation'] += row['count']
+    html = '<table id="preprints" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Status</th><th>Crossref</th><th>DataCite</th>' \
+           + '</tr></thead><tbody>'
+    html += "<tr><td>Preprints with journal articles</td>" \
+            + f"<td>{preprint['journal-article']:,}</td><td>{preprint['DataCite']}</td></tr>"
+    html += f"<tr><td>Journal articles with preprints</td><td>{preprint['posted-content']:,}</td>" \
+            + "<td>0</td></tr>"
+    html += f"<tr><td>No preprint relation</td><td>{source['Crossref']:,}</td>" \
+            + f"<td>{source['DataCite']:,}</td></tr>"
+    html += '</tbody></table>'
+    data['No preprint relation'] = source['Crossref'] + source['DataCite']
+    payload = [{"$match": { "type": "posted-content"}},
+               {"$group": {"_id": {"institution": "$institution"},"count": {"$sum": 1}}}]
+    chartscript, chartdiv = DP.pie_chart(data, "DOIs by preprint status", "source",
+                                         colors=DP.SOURCE_PALETTE)
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get preprint counts " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    data = {}
+    for row in rows:
+        if not row['_id']['institution']:
+            data['No institution'] = row['count']
+        else:
+            data[row['_id']['institution'][0]['name']] = row['count']
+    chartscript2, chartdiv2 = DP.pie_chart(dict(sorted(data.items())), "Preprint DOI institutions",
+                                           "source")
+    response = make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                             title="DOI preprint status", html=html,
+                                             chartscript=chartscript+chartscript2,
+                                             chartdiv=chartdiv+chartdiv2,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -2137,7 +2210,7 @@ def show_doiui_custom():
                                    message=f"You must specify a {row}")
     display_value = ipd['value']
     payload, ptitle = get_custom_payload(ipd, display_value)
-    print(payload)
+    print(f"Custom payload: {payload}")
     try:
         rows = DB['dis'].dois.find(payload)
     except Exception as err:

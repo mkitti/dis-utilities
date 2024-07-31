@@ -5,7 +5,7 @@
 from math import pi
 import pandas as pd
 from bokeh.embed import components
-from bokeh.palettes import plasma, Viridis
+from bokeh.palettes import all_palettes, plasma
 from bokeh.plotting import figure
 from bokeh.transform import cumsum
 
@@ -24,12 +24,17 @@ def pie_chart(data, title, legend, colors=None):
           Figure components
     '''
     if not colors:
-        colors = Viridis[len(legend) + 1]
+        colors = all_palettes['Category10'][len(data)]
+    elif isinstance(colors, str):
+        print(colors)
+        colors = all_palettes[colors][len(data)]
     pdata = pd.Series(data).reset_index(name='value').rename(columns={'index': legend})
     pdata['angle'] = pdata['value']/pdata['value'].sum() * 2*pi
+    pdata['percentage'] = pdata['value']/pdata['value'].sum()*100
     pdata['color'] = colors
+    tooltips = f"@{legend}: @value (@percentage%)"
     plt = figure(title=title, toolbar_location=None,
-                 tools="hover", tooltips=f"@{legend}: @value", x_range=(-0.5, 1.0))
+                 tools="hover", tooltips=tooltips, x_range=(-0.5, 1.0))
     plt.wedge(x=0, y=1, radius=0.4,
               start_angle=cumsum('angle', include_zero=True), end_angle=cumsum('angle'),
               line_color="white", fill_color='color', legend_field=legend, source=pdata)
