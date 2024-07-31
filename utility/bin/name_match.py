@@ -12,6 +12,7 @@ import re
 import itertools
 from pathlib import Path
 from operator import attrgetter
+from nameparser import HumanName
 from rapidfuzz import fuzz, utils
 #from unidecode import unidecode
 from termcolor import colored
@@ -28,10 +29,8 @@ import doi_common.doi_common as doi_common
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
-    def __init__(self, raw_name, orcid=None, affiliations=None, employee_id=None):
-        #self.raw_name = raw_name
-        #self.name = self.remove_punctuation(unidecode(raw_name))
-        self.name = raw_name
+    def __init__(self, name, orcid=None, affiliations=None, employee_id=None):
+        self.name = name
         self.orcid = orcid
         self.affiliations = affiliations if affiliations is not None else [] # Need to avoid the python mutable arguments trap
         self.employee_id = employee_id
@@ -49,42 +48,42 @@ class Employee:
         self.first_names = list(set(first_names)) if first_names is not None else [] # Need to avoid the python mutable arguments trap
         self.middle_names = list(set(middle_names)) if middle_names is not None else []
         self.last_names = list(set(last_names)) if last_names is not None else []
-    def generate_name_permutations(self):
-        permutations = set()
-        # All possible first names + all possible last names
-        for first_name, last_name in itertools.product(self.first_names, self.last_names):
-            permutations.add(
-                f"{first_name} {last_name}"
-            )
-        # All possible first names + all possible middle names + all possible last names
-        if self.middle_names:
-            if any(item for item in self.middle_names if item): # check for ['', '']
-                for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-                    permutations.add(
-                        f"{first_name} {middle_name} {last_name}"
-                    )
-            # All possible first names + all possible middle initials + all possible last names
-                for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
-                    middle_initial = middle_name[0]
-                    permutations.add(
-                        f"{first_name} {middle_initial} {last_name}"
-                    )
-        return list(sorted(permutations))
-    def generate_family_name_permutations(self): #for adding records to the ORCID collection
-        permutations = set()
-        all_middle_names = [n for n in self.middle_names if n not in (None, '')]
-        if all_middle_names:
-            for first in self.first_names:
-                for middle in all_middle_names:
-                    permutations.add(f"{first} {middle}")
-                    permutations.add(f"{first} {middle[0]}.")
-            return list(sorted(permutations))
-        else:
-            return list(set(self.first_names))
+    # def generate_name_permutations(self):
+    #     permutations = set()
+    #     # All possible first names + all possible last names
+    #     for first_name, last_name in itertools.product(self.first_names, self.last_names):
+    #         permutations.add(
+    #             f"{first_name} {last_name}"
+    #         )
+    #     # All possible first names + all possible middle names + all possible last names
+    #     if self.middle_names:
+    #         if any(item for item in self.middle_names if item): # check for ['', '']
+    #             for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
+    #                 permutations.add(
+    #                     f"{first_name} {middle_name} {last_name}"
+    #                 )
+    #         # All possible first names + all possible middle initials + all possible last names
+    #             for first_name, middle_name, last_name in itertools.product(self.first_names, self.middle_names, self.last_names):
+    #                 middle_initial = middle_name[0]
+    #                 permutations.add(
+    #                     f"{first_name} {middle_initial} {last_name}"
+    #                 )
+    #     return list(sorted(permutations))
+    # def generate_family_name_permutations(self): #for adding records to the ORCID collection
+    #     permutations = set()
+    #     all_middle_names = [n for n in self.middle_names if n not in (None, '')]
+    #     if all_middle_names:
+    #         for first in self.first_names:
+    #             for middle in all_middle_names:
+    #                 permutations.add(f"{first} {middle}")
+    #                 permutations.add(f"{first} {middle[0]}.")
+    #         return list(sorted(permutations))
+    #     else:
+    #         return list(set(self.first_names))
 
 class Guess(Employee):
     """ A Guess is a subtype of Employee that includes just one name permutation 
-    (e.g. Gerald W Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
+    (e.g. Gerald M Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
     def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
         super().__init__(id, job_title, email, first_names, middle_names, last_names)
         self.name = name
@@ -180,7 +179,7 @@ def guess_employee(author):
                 return(MissingPerson)
         guesses = []
         for employee in candidate_employees:
-            employee_permuted_names = employee.generate_name_permutations()
+            employee_permuted_names = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
             for name in employee_permuted_names:
                 guesses.append(create_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
         for guess in guesses:
@@ -300,6 +299,50 @@ def choose_authors_manually(author_list, pre_selected_authors=None):
         print('Exiting program.')
         sys.exit(0)
 
+
+def generate_name_permutations(first_names, middle_names, last_names):
+        permutations = set()
+        # All possible first names + all possible last names
+        for first_name, last_name in itertools.product(first_names, last_names):
+            permutations.add(
+                f"{first_name} {last_name}"
+            )
+        # All possible first names + all possible middle names + all possible last names
+        if middle_names:
+            if any(item for item in middle_names if item): # check for ['', '']
+                for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
+                    permutations.add(
+                        f"{first_name} {middle_name} {last_name}"
+                    )
+            # All possible first names + all possible middle initials + all possible last names
+                for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
+                    middle_initial = middle_name[0]
+                    permutations.add(
+                        f"{first_name} {middle_initial} {last_name}"
+                    )
+        return list(sorted(permutations))
+
+
+def first_names_for_orcid_record(author, employee):
+    result = generate_name_permutations(
+        [HumanName(author.name).first]+employee.first_names, 
+        [HumanName(author.name).middle]+employee.middle_names,
+        [HumanName(author.name).last]+employee.last_names
+    )
+    h_result = [HumanName(n) for n in result]
+    return(list(set([' '.join((n.first,n.middle)).strip() for n in h_result])))
+
+def last_names_for_orcid_record(author, employee):
+    result = generate_name_permutations(
+        [HumanName(author.name).first]+employee.first_names, 
+        [HumanName(author.name).middle]+employee.middle_names,
+        [HumanName(author.name).last]+employee.last_names
+    )
+    h_result = [HumanName(n) for n in result]
+    return(list(set([n.last for n in h_result])))
+
+
+
 def search_people_api(search_term, mode):
     response = None
     if mode not in {'name', 'id'}:
@@ -401,7 +444,7 @@ if __name__ == '__main__':
     doi_collection = DB['dis'].dois
     #doi='10.1101/2021.08.18.456004'
     #doi='10.7554/eLife.80660'
-    #doi='10.1101/2024.05.09.593460' #BUG! The menu to select authors manually doesn't show all authors
+    #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
     #doi='10.1101/2023.12.19.572369'
     doi_record = get_doi_record(arg.doi)
@@ -454,11 +497,12 @@ if __name__ == '__main__':
                         success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=author.orcid)
-        
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
+                            print(f"Record created for {author.name}.")
+
         elif not author.orcid:
             inform_message = f"{author.name} does not have an ORCID on this paper."
-            success_message = ''
+            #success_message = ''
             best_guess = guess_employee(author)
             if isinstance(best_guess, MissingPerson):
                 if arg.VERBOSE == True:
@@ -480,7 +524,9 @@ if __name__ == '__main__':
                             success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
                             confirm_proceed = confirm_action(success_message)
                             if confirm_proceed:
-                                doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
+                                doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=None)
+                                print(f"Record created for {author.name}.")
+                                
             elif isinstance(best_guess, Employee):
                 employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
                 if employeeId_result:
@@ -499,7 +545,8 @@ if __name__ == '__main__':
                         success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=best_guess.generate_family_name_permutations(), family=best_guess.last_names, orcid=None)
+                            doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=None)
+                            print(f"Record created for {author.name}.")
 
     # Run update_dois.py, which will update the DOI metadata to reflect the new ORCID records                                               
     if arg.UPDATE:
