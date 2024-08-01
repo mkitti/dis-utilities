@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "10.1.0"
+__version__ = "10.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -864,7 +864,7 @@ def last_thursday():
     '''
     today = date.today()
     offset = (today.weekday() - 3) % 7
-    if not offset:
+    if offset:
         offset = 7
     return today - timedelta(days=offset)
 
@@ -2059,6 +2059,70 @@ def dois_top(num):
     return response
 
 
+@app.route('/dois_report')
+def dois_report():
+    ''' Show publishers with counts
+    '''
+    pmap = {"journal-article": "Journal articles", "posted-content": "Preprints",
+            "proceedings-article": "Proceedings articles", "book-chapter": "Book chapters",
+            "datasets": "Datasets", "peer-review": "Peer reviews", "grant": "Grants",
+            "other": "Other"}
+    year = '2024'
+    payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$group": {"_id": {"type": "$type", "subtype": "$subtype"}, "count": {"$sum": 1}}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get yearly metrics " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    typed = {}
+    for row in rows:
+        typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
+        sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
+        if sub == 'preprint':
+            typ = 'posted-content'
+        if typ not in typed:
+            typed[typ] = 0
+        typed[typ] += row['count']
+    payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
+                           "jrc_first_author": {"$exists": True}}},
+               {"$group": {"_id": {"type": "$type", "subtype": "$subtype"}, "count": {"$sum": 1}}}
+              ]
+    first = {}
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get yearly metrics " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    for row in rows:
+        typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
+        sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
+        if sub == 'preprint':
+            typ = 'posted-content'
+        if typ not in first:
+            first[typ] = 0
+        first[typ] += row['count']
+    print(first)
+    html = ""
+    for key, val in pmap.items():
+        if key in typed:
+            additional = ""
+            if key in first:
+                additional = f" ({first[key]:,} with first author)"
+            html += f"<h4>{val}: {typed[key]}{additional}</h4>"
+    if 'DataCite' in typed:
+        html += f"<h4>DataCite entries: {typed['DataCite']}</h4>"
+    response = make_response(render_template('general.html', urlroot=request.url_root,
+                                             title=f"{year}", html=html,
+                                             navbar=generate_navbar('DOIs')))
+    return response
+
+
 @app.route('/dois_year')
 def dois_year():
     ''' Show publishing years with counts
@@ -2148,11 +2212,14 @@ def show_insert(idate):
                                title=render_warning("DOIs not found"),
                                message=f"No DOIs were inserted on or after {idate}")
     html = '<table id="dois" class="tablesorter numbers"><thead><tr>' \
-           + '<th>DOI</th><th>Source</th><th>Published</th><th>Load source</th><th>Inserted</th>' \
-           + '<th>Is version of</th><th>Newsletter</th></tr></thead><tbody>'
+           + '<th>DOI</th><th>Source</th><th>Type</th><th>Published</th><th>Load source</th>' \
+           + '<th>Inserted</th><th>Is version of</th><th>Newsletter</th></tr></thead><tbody>'
     fileoutput = ""
     for row in rows:
-        source = row['jrc_load_source'] if row['jrc_load_source'] == "Manual" else ""
+        source = row['jrc_load_source'] if row['jrc_load_source'] else ""
+        typ = row['type'] if 'type' in row else ""
+        if 'subtype' in row:
+            typ += f" {row['subtype']}"
         version = []
         if 'relation' in row and 'is-version-of' in row['relation']:
             for ver in row['relation']['is-version-of']:
@@ -2161,12 +2228,12 @@ def show_insert(idate):
         version = ", ".join(version) if version else ""
         link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
         news = row['jrc_newsletter'] if 'jrc_newsletter' in row else ""
-        html += "<tr><td>" + "</td><td>".join([link, row['jrc_obtained_from'],
+        html += "<tr><td>" + "</td><td>".join([link, row['jrc_obtained_from'], typ,
                                               row['jrc_publishing_date'], source,
                                               str(row['jrc_inserted']), version,
                                               news]) + "</td></tr>"
-        frow = "\t".join([row['doi'], row['jrc_obtained_from'], row['jrc_publishing_date'],
-                          str(row['jrc_inserted']), version, news])
+        frow = "\t".join([row['doi'], row['jrc_obtained_from'], typ, row['jrc_publishing_date'],
+                          source, str(row['jrc_inserted']), version, news])
         fileoutput += f"{frow}\n"
     html += '</tbody></table>'
     html = create_downloadable("jrc_inserted", None, fileoutput) + html
