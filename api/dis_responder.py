@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "10.2.0"
+__version__ = "10.3.0"
 # Database
 DB = {}
 # Custom queries
@@ -1891,29 +1891,28 @@ def dois_preprint():
             + f"<td>{source['DataCite']:,}</td></tr>"
     html += '</tbody></table>'
     data['No preprint relation'] = source['Crossref'] + source['DataCite']
-    payload = [{"$match": { "type": "posted-content"}},
-               {"$group": {"_id": {"institution": "$institution"},"count": {"$sum": 1}}}]
     chartscript, chartdiv = DP.pie_chart(data, "DOIs by preprint status", "source",
-                                         colors=DP.SOURCE_PALETTE)
+                                         colors=DP.SOURCE_PALETTE, width=500)
+    # Preprint types
     try:
-        rows = DB['dis'].dois.aggregate(payload)
+        chartscript2, chartdiv2 = DP.preprint_type_piechart(DB['dis'].dois)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get preprint counts " \
                                                     + "from dois collection"),
                                message=error_message(err))
-    data = {}
-    for row in rows:
-        if not row['_id']['institution']:
-            data['No institution'] = row['count']
-        else:
-            data[row['_id']['institution'][0]['name']] = row['count']
-    chartscript2, chartdiv2 = DP.pie_chart(dict(sorted(data.items())), "Preprint DOI institutions",
-                                           "source")
+    # Preprint capture
+    try:
+        chartscript3, chartdiv3 = DP.preprint_capture_piechart(DB['dis'].dois)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get preprint counts " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOI preprint status", html=html,
-                                             chartscript=chartscript+chartscript2,
-                                             chartdiv=chartdiv+chartdiv2,
+                                             chartscript=chartscript+chartscript2+chartscript3,
+                                             chartdiv=chartdiv+chartdiv2+chartdiv3,
                                              navbar=generate_navbar('DOIs')))
     return response
 
@@ -2501,8 +2500,8 @@ def orcid_entry():
     html += f"<tr><td>Alumni</td><td>{cnta:,} ({cnta/total*100:.2f}%)</td></tr>"
     data['Alumni'] = cnta
     html += '</tbody></table>'
-    chartscript, chartdiv = DP.pie_chart(data, "ORCID entries", "type",
-                                         colors = DP.TYPE_PALETTE)
+    chartscript, chartdiv = DP.pie_chart(data, "ORCID entries", "type", height=500, width=600,
+                                         colors=DP.TYPE_PALETTE, location="top_right")
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="ORCID entries", html=html,
                                              chartscript=chartscript, chartdiv=chartdiv,

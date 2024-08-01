@@ -13,12 +13,68 @@ SOURCE_PALETTE = ["mediumblue", "darkorange"]
 SOURCE3_PALETTE = ["mediumblue", "darkorange", "wheat"]
 TYPE_PALETTE = ["mediumblue", "darkorange", "wheat", "darkgray"]
 
-def pie_chart(data, title, legend, colors=None):
+# ******************************************************************************
+# * Utility functions                                                          *
+# ******************************************************************************
+def preprint_type_piechart(coll):
+    ''' Create a preprint type pie chart
+        Keyword arguments:
+          coll: dois collection
+        Returns:
+          Chart components
+    '''
+    payload = [{"$match": { "type": "posted-content"}},
+               {"$group": {"_id": {"institution": "$institution"},"count": {"$sum": 1}}}]
+    try:
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        raise err
+    data = {}
+    for row in rows:
+        if not row['_id']['institution']:
+            data['No institution'] = row['count']
+        else:
+            data[row['_id']['institution'][0]['name']] = row['count']
+    return pie_chart(dict(sorted(data.items())), "Preprint DOI institutions",
+                        "source", width=500)
+
+
+def preprint_capture_piechart(coll):
+    ''' Create a preprint capture pie chart
+        Keyword arguments:
+          coll: dois collection
+        Returns:
+          Chart components
+    '''
+    data = {}
+    payload = {"subtype": "preprint", "jrc_preprint": {"$exists": 1},
+               "relation.is-preprint-of": {"$exists": 0}}
+    try:
+        data['Fuzzy matching'] = coll.count_documents(payload)
+    except Exception as err:
+        raise err
+    del payload['relation.is-preprint-of']
+    try:
+        data['Crossref relation'] = coll.count_documents(payload)
+    except Exception as err:
+        raise err
+    data['Crossref relation'] = data['Crossref relation'] - data['Fuzzy matching']
+    return pie_chart(data, "Preprint capture method", "source",
+                     width=500, colors=SOURCE_PALETTE)
+
+
+# ******************************************************************************
+# * Basic charts                                                               *
+# ******************************************************************************
+
+def pie_chart(data, title, legend, height=300, width=400, location="right", colors=None):
     ''' Create a pie chart
         Keyword arguments:
           data: dictionary of data
           title: chart title
           legend: data key name
+          height: height of the chart (optional)
+          width: width of the chart (optional)
           colors: list of colors (optional)
         Returns:
           Figure components
@@ -33,7 +89,7 @@ def pie_chart(data, title, legend, colors=None):
     pdata['percentage'] = pdata['value']/pdata['value'].sum()*100
     pdata['color'] = colors
     tooltips = f"@{legend}: @value (@percentage%)"
-    plt = figure(title=title, toolbar_location=None,
+    plt = figure(title=title, toolbar_location=None, height=height, width=width,
                  tools="hover", tooltips=tooltips, x_range=(-0.5, 1.0))
     plt.wedge(x=0, y=1, radius=0.4,
               start_angle=cumsum('angle', include_zero=True), end_angle=cumsum('angle'),
@@ -41,6 +97,7 @@ def pie_chart(data, title, legend, colors=None):
     plt.axis.axis_label = None
     plt.axis.visible = False
     plt.grid.grid_line_color = None
+    plt.legend.location = location
     return components(plt)
 
 
