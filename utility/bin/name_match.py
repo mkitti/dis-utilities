@@ -27,6 +27,7 @@ import doi_common.doi_common as doi_common
 #TODO: Add new names to an existing record?
 #TODO: Improve tags on prompts
 #TODO: Search all authors in People BEFORE prompting for individuals?
+#TODO: Instead of running update_dois.py, call doi_common.update_jrc_author
 
 
 class Author:
