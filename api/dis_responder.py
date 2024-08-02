@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "10.3.0"
+__version__ = "10.4.0"
 # Database
 DB = {}
 # Custom queries
@@ -1231,6 +1231,8 @@ def show_citation(doi):
     authors = DL.get_author_list(row)
     title = DL.get_title(row)
     result['data'] = f"{authors} {title}. https://doi.org/{doi}."
+    if 'jrc_preprint' in row:
+        result['jrc_preprint'] = row['jrc_preprint']
     return generate_response(result)
 
 
@@ -1324,6 +1326,8 @@ def show_flylight_citation(doi):
     title = DL.get_title(row)
     journal = DL.get_journal(row)
     result['data'] = f"{authors} {title}. {journal}."
+    if 'jrc_preprint' in row:
+        result['jrc_preprint'] = row['jrc_preprint']
     return generate_response(result)
 
 
@@ -2058,15 +2062,15 @@ def dois_top(num):
     return response
 
 
+@app.route('/dois_report/<string:year>')
 @app.route('/dois_report')
-def dois_report():
+def dois_report(year=str(datetime.now().year)):
     ''' Show publishers with counts
     '''
     pmap = {"journal-article": "Journal articles", "posted-content": "Preprints",
             "proceedings-article": "Proceedings articles", "book-chapter": "Book chapters",
             "datasets": "Datasets", "peer-review": "Peer reviews", "grant": "Grants",
             "other": "Other"}
-    year = '2024'
     payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}},
                {"$group": {"_id": {"type": "$type", "subtype": "$subtype"}, "count": {"$sum": 1}}}
               ]
@@ -2106,16 +2110,15 @@ def dois_report():
         if typ not in first:
             first[typ] = 0
         first[typ] += row['count']
-    print(first)
     html = ""
     for key, val in pmap.items():
         if key in typed:
             additional = ""
             if key in first:
                 additional = f" ({first[key]:,} with first author)"
-            html += f"<h4>{val}: {typed[key]}{additional}</h4>"
+            html += f"<h4>{val}: {typed[key]:,}{additional}</h4>"
     if 'DataCite' in typed:
-        html += f"<h4>DataCite entries: {typed['DataCite']}</h4>"
+        html += f"<h4>DataCite entries: {typed['DataCite']:,}</h4>"
     response = make_response(render_template('general.html', urlroot=request.url_root,
                                              title=f"{year}", html=html,
                                              navbar=generate_navbar('DOIs')))
