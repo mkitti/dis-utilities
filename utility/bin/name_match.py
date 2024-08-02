@@ -14,7 +14,7 @@ from pathlib import Path
 from operator import attrgetter
 from nameparser import HumanName
 from rapidfuzz import fuzz, utils
-#from unidecode import unidecode
+from unidecode import unidecode
 from termcolor import colored
 import inquirer
 from inquirer.themes import BlueComposure
@@ -139,8 +139,10 @@ def guess_employee(author):
         A missing person object, a multiple hits object, OR an employee object.
     """
     candidate_employees = []
-    search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
+    search_term = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
     namesearch_results = search_people_api(search_term, mode='name')
+    if isinstance(namesearch_results, MissingPerson): 
+        namesearch_results = search_tricky_names(author.name)
     if not isinstance(namesearch_results, MissingPerson):
         candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
         for id in candidate_employee_ids:
@@ -319,6 +321,29 @@ def last_names_for_orcid_record(author, employee):
     )
     h_result = [HumanName(n) for n in result]
     return(list(set([n.last for n in h_result])))
+
+def search_tricky_names(author_name):
+    name = HumanName(author_name)
+    namesearch_results = search_people_api(name.last, mode='name')
+    if not isinstance(namesearch_results, MissingPerson):
+        return(namesearch_results)
+    namesearch_results = search_people_api(unidecode(name.last), mode='name')
+    if not isinstance(namesearch_results, MissingPerson):
+        return(namesearch_results)
+    if '-' in name.last:
+        namesearch_results = search_people_api(unidecode(name.last).split('-')[0], mode='name')
+        if not isinstance(namesearch_results, MissingPerson):
+            return(namesearch_results)
+        namesearch_results = search_people_api(unidecode(name.last).split('-')[1], mode='name')
+        if not isinstance(namesearch_results, MissingPerson):
+            return(namesearch_results)
+    namesearch_results = search_people_api(name.first, mode='name')
+    if not isinstance(namesearch_results, MissingPerson):
+        return(namesearch_results)
+    return(MissingPerson())
+
+
+    
 
 
 def search_people_api(query, mode):
@@ -528,7 +553,7 @@ if __name__ == '__main__':
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
 # doi_collection = nm.DB['dis'].dois
-# doi='10.1101/2024.05.09.593460'
+# doi='10.1101/2024.06.30.601394'
 # doi_record = nm.get_doi_record(doi)
 # all_authors = nm.create_author_objects(doi_record)
 # janelian_authors = [ a for a in all_authors if nm.is_janelian(a, orcid_collection) ]
