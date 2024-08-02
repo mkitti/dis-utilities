@@ -23,9 +23,7 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Handle tricky names like 'Miguel Angel Núñez-Ochoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
-#TODO: Filter out People search results where location != Janelia
 #TODO: Add new names to an existing record?
-#TODO: Improve tags on prompts
 #TODO: Search all authors in People BEFORE prompting for individuals?
 
 class Author:
@@ -37,12 +35,12 @@ class Author:
 
 class Employee:
     """ Employees are constructed from information found in the HHMI People database. """
-    def __init__(self, id, job_title=None, email=None, location=None, cost_center=None, first_names=None, middle_names=None, last_names=None):
+    def __init__(self, id, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None):
         self.id = id
         self.job_title = job_title
         self.email = email
         self.location = location
-        self.cost_center = cost_center
+        self.supOrgName = supOrgName
         self.first_names = list(set(first_names)) if first_names is not None else [] # Need to avoid the python mutable arguments trap
         self.middle_names = list(set(middle_names)) if middle_names is not None else []
         self.last_names = list(set(last_names)) if last_names is not None else []
@@ -50,8 +48,8 @@ class Employee:
 class Guess(Employee):
     """ A Guess is a subtype of Employee that consists of just ONE name permutation 
     (e.g. Gerald M Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
-    def __init__(self, id, job_title=None, email=None, location=None, cost_center=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
-        super().__init__(id, job_title, email, location, cost_center, first_names, middle_names, last_names)
+    def __init__(self, id, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
+        super().__init__(id, job_title, email, location, supOrgName, first_names, middle_names, last_names)
         self.name = name
         self.score = score
 
@@ -93,7 +91,7 @@ def create_employee(id):
         job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
         email = idsearch_results['email'] if 'email' in idsearch_results else None
         location = idsearch_results['locationName'] if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
-        cost_center = idsearch_results['ccDescr'] if 'ccDescr' in idsearch_results and any(idsearch_results['ccDescr']) else None
+        supOrgName = idsearch_results['supOrgName'] if 'supOrgName' in idsearch_results and any(idsearch_results['supOrgName']) else None
         first_names = [ idsearch_results['nameFirstPreferred'], idsearch_results['nameFirst'] ]
         middle_names = [ idsearch_results['nameMiddlePreferred'], idsearch_results['nameMiddle'] ]
         last_names = [ idsearch_results['nameLastPreferred'], idsearch_results['nameLast'] ]
@@ -103,7 +101,7 @@ def create_employee(id):
             job_title=job_title,
             email=email,
             location=location,
-            cost_center = cost_center,
+            supOrgName = supOrgName,
             first_names=first_names, 
             middle_names=middle_names,
             last_names=last_names)
@@ -118,7 +116,7 @@ def create_guess(employee, name=None, score=None):
         employee.job_title, 
         employee.email,
         employee.location,
-        employee.cost_center, 
+        employee.supOrgName, 
         employee.first_names, 
         employee.middle_names, 
         employee.last_names, 
@@ -190,7 +188,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
         for guess in best_guess.winners:
-            print(colored(f"{guess.name}, title = {guess.job_title}, CC = {guess.cost_center}, {guess.email}", 'blue'))
+            print(colored(f"{guess.name}, title = {guess.job_title}, CC = {guess.supOrgName}, {guess.email}", 'blue'))
         quest = [inquirer.Checkbox('decision', 
                                    carousel=True, 
                                    message="Choose a person from the list", 
@@ -207,13 +205,13 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
             if verbose:
                 print(inform_message)
                 print(
-                    f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, cost center: {best_guess.cost_center}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
+                    f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, supOrgName: {best_guess.supOrgName}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
                     )
             # Do nothing
         else:
             print(inform_message)
             print(colored(
-                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, cost center: {best_guess.cost_center}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
+                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, supOrgName: {best_guess.supOrgName}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
                 "blue"
                 ))
             quest = [inquirer.List('decision', 
