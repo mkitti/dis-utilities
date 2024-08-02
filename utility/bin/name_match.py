@@ -27,8 +27,6 @@ import doi_common.doi_common as doi_common
 #TODO: Add new names to an existing record?
 #TODO: Improve tags on prompts
 #TODO: Search all authors in People BEFORE prompting for individuals?
-#TODO: Instead of running update_dois.py, call doi_common.update_jrc_author
-
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
@@ -266,6 +264,11 @@ def choose_authors_manually(author_list, pre_selected_authors=None):
         sys.exit(0)
 
 
+def add_orcid_record_and_update_jrc_authors(best_guess, orcid_collection, doi_collection, author, doi):
+    doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
+    doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
+    print(f"Record created for {author.name} in orcid collection, and jrc_authors updated.")
+
 def generate_name_permutations(first_names, middle_names, last_names):
         permutations = set()
         # All possible first names + all possible last names
@@ -332,7 +335,6 @@ def strip_orcid_if_provided_as_url(orcid):
     return(orcid)
 
 
-
 DB = {}
 PROJECT = {}
 
@@ -391,10 +393,10 @@ def terminate_program(msg=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(
     description = "Given a DOI, use fuzzy name matching to correlate Janelia authors who don't have ORCIDs to Janelia employees. Update ORCID records as needed.")
-    parser.add_argument('--doi', dest='doi', action='store', required=True,
+    parser.add_argument('--doi', dest='DOI', action='store', required=True,
                          help='DOI whose authors will be processed.')
-    parser.add_argument('--update', dest='UPDATE', action='store_true',
-                        default=False, help='Run update_dois.py at the end of this script.')
+    # parser.add_argument('--update', dest='UPDATE', action='store_true',
+    #                     default=False, help='Run update_dois.py at the end of this script.')
     parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         default=False, help='Flag, Chatty')
     parser.add_argument('--debug', dest='DEBUG', action='store_true',
@@ -411,7 +413,7 @@ if __name__ == '__main__':
     #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
     #doi='10.1101/2023.12.19.572369'
-    doi_record = get_doi_record(arg.doi)
+    doi_record = get_doi_record(arg.DOI)
     all_authors = create_author_objects(doi_record)
     janelian_authors = [ a for a in all_authors if is_janelian(a, orcid_collection) ]
     if not any([a.affiliations for a in all_authors]):
@@ -461,8 +463,7 @@ if __name__ == '__main__':
                         success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
-                            print(f"Record created for {author.name}.")
+                            add_orcid_record_and_update_jrc_authors(best_guess, orcid_collection, doi_collection, author, arg.DOI)
 
         elif not author.orcid:
             inform_message = f"{author.name} does not have an ORCID on this paper."
@@ -487,8 +488,7 @@ if __name__ == '__main__':
                             success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
                             confirm_proceed = confirm_action(success_message)
                             if confirm_proceed:
-                                doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=None)
-                                print(f"Record created for {author.name}.")
+                                add_orcid_record_and_update_jrc_authors(best_guess, orcid_collection, doi_collection, author, arg.DOI)
                                 
             elif isinstance(best_guess, Employee):
                 employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
@@ -508,20 +508,7 @@ if __name__ == '__main__':
                         success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
                         confirm_proceed = confirm_action(success_message)
                         if confirm_proceed:
-                            doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=None)
-                            print(f"Record created for {author.name}.")
-
-    # Run update_dois.py, which will update the DOI metadata to reflect the new ORCID records                                               
-    if arg.UPDATE:
-        current_script_path = Path(__file__).resolve()
-        dis_repo_directory = current_script_path.parents[2]
-        update_dois_path = f"{dis_repo_directory}/sync/bin/update_dois.py"
-        command = ["python3", update_dois_path, "--target", "dis", "--doi", arg.doi, "--force", "--write"]
-        print("Running:")
-        print(' '.join(command))
-        update_result = subprocess.run(command, capture_output=True, text=True)
-        print("STDOUT:", update_result.stdout)
-        print("STDERR:", update_result.stderr)                           
+                            add_orcid_record_and_update_jrc_authors(best_guess, orcid_collection, doi_collection, author, arg.DOI)                      
 
 
 
