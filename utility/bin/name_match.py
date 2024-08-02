@@ -5,7 +5,7 @@ Update ORCID records as needed.
 
 #import os
 import sys
-import subprocess
+#import subprocess
 import string
 import argparse
 import re
@@ -22,7 +22,6 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
-#TODO: Handle tricky names like 'Miguel Angel Núñez-Ochoa' for 10.1101/2024.06.30.601394, which can't be found in the People API.
 #TODO: Add new names to an existing record?
 #TODO: Search all authors in People BEFORE prompting for individuals?
 
@@ -124,7 +123,6 @@ def create_guess(employee, name=None, score=None):
         score
         )
     )
-
 
 
 
@@ -341,9 +339,6 @@ def search_tricky_names(author_name):
     if not isinstance(namesearch_results, MissingPerson):
         return(namesearch_results)
     return(MissingPerson())
-
-
-    
 
 
 def search_people_api(query, mode):
