@@ -23,7 +23,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "10.4.0"
+__version__ = "10.5.0"
 # Database
 DB = {}
 # Custom queries
@@ -1774,12 +1774,12 @@ def dois_author():
     ''' Show first/last authors
     '''
     source = {}
-    for src in ('Crossref', 'DataCite', 'Crossref-none', 'DataCite-none'):
+    for src in ('Crossref', 'DataCite', 'Crossref-all', 'DataCite-all'):
         payload = {"jrc_obtained_from": src,
                    "$or": [{"jrc_first_author": {"$exists": True}},
                            {"jrc_last_author": {"$exists": True}}]}
-        if '-none' in src:
-            payload = {"jrc_obtained_from": src.replace('-none', '')}
+        if '-all' in src:
+            payload = {"jrc_obtained_from": src.replace('-all', '')}
         try:
             cnt = DB['dis'].dois.count_documents(payload)
             source[src] = cnt
@@ -1791,18 +1791,31 @@ def dois_author():
     html = '<table id="authors" class="tablesorter numbers"><thead><tr>' \
            + '<th>Authorship</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
+    print(source)
     data = {}
     for src in SOURCES:
         data[src] = source[src]
     html += f"<tr><td>First and/or last</td><td>{source['Crossref']:,}</td>" \
             + f"<td>{source['DataCite']:,}</td></tr>"
-    html += f"<tr><td>Additional only</td><td>{source['Crossref-none']-source['Crossref']:,}</td>" \
-            + f"<td>{source['DataCite-none']-source['DataCite']:,}</td></tr>"
+    html += f"<tr><td>Additional only</td><td>{source['Crossref-all']-source['Crossref']:,}</td>" \
+            + f"<td>{source['DataCite-all']-source['DataCite']:,}</td></tr>"
     html += '</tbody></table>'
-    data['Additional'] = source['Crossref-none'] + source['DataCite-none'] - source['Crossref'] \
+    data['Additional'] = source['Crossref-all'] + source['DataCite-all'] - source['Crossref'] \
                          - source['DataCite']
     chartscript, chartdiv = DP.pie_chart(data, "DOIs by authorship", "source",
                                          colors=DP.SOURCE3_PALETTE)
+    data = {"First and/or last": source['Crossref'],
+            "Additional": source['Crossref-all']-source['Crossref']}
+    script2, div2 = DP.pie_chart(data, "Crossref DOIs by authorship", "source",
+                                 colors=DP.SOURCE_PALETTE)
+    chartscript += script2
+    chartdiv += div2
+    data = {"First and/or last": source['DataCite'],
+            "Additional": source['DataCite-all']-source['DataCite']}
+    script2, div2 = DP.pie_chart(data, "DataCite DOIs by authorship", "source",
+                                 colors=DP.SOURCE_PALETTE)
+    chartscript += script2
+    chartdiv += div2
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOI authorship", html=html,
                                              chartscript=chartscript, chartdiv=chartdiv,
@@ -1899,7 +1912,9 @@ def dois_preprint():
                                          colors=DP.SOURCE_PALETTE, width=500)
     # Preprint types
     try:
-        chartscript2, chartdiv2 = DP.preprint_type_piechart(DB['dis'].dois)
+        script2, div2 = DP.preprint_type_piechart(DB['dis'].dois)
+        chartscript += script2
+        chartdiv += div2
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get preprint counts " \
@@ -1907,7 +1922,9 @@ def dois_preprint():
                                message=error_message(err))
     # Preprint capture
     try:
-        chartscript3, chartdiv3 = DP.preprint_capture_piechart(DB['dis'].dois)
+        script2, div2 = DP.preprint_capture_piechart(DB['dis'].dois)
+        chartscript += script2
+        chartdiv += div2
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get preprint counts " \
@@ -1915,8 +1932,7 @@ def dois_preprint():
                                message=error_message(err))
     response = make_response(render_template('bokeh.html', urlroot=request.url_root,
                                              title="DOI preprint status", html=html,
-                                             chartscript=chartscript+chartscript2+chartscript3,
-                                             chartdiv=chartdiv+chartdiv2+chartdiv3,
+                                             chartscript=chartscript, chartdiv=chartdiv,
                                              navbar=generate_navbar('DOIs')))
     return response
 
