@@ -23,7 +23,41 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
-#TODO: Search all authors in People BEFORE prompting for individuals?
+#TODO: Search all authors in People BEFORE prompting for individuals? In this case, we would do:
+# authors_to_test: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
+# revised_jrc_authors = []
+# for author in authors_to_test:
+#   if author has an orcid on the paper:
+#       if that orcid has a record in our collection:
+#           if that record has an employeeId:
+#               Add any new names to the existing record
+#               Add employeeId to revised_jrc_authors
+#           elif that record does not have an employeeId:
+#               Search the people API. 
+#               If user confirms the match:
+#                   Add employeeId and any new names to the existing record
+#                   Add employeeId to revised_jrc_authors
+#       elif that orcid does not have a record in our collection:
+#           Search the People API.
+#           If user confirms the match:
+#               Create a record with both orcid and employeeId
+#               Add employeeId to revised_jrc_authors
+#   elif author does not have an orcid on the paper:
+#       Search the People API.
+#       If user confirms the match:
+#           If a record with that employeeId already exists in our collection:
+#               Add any new names to the existing record
+#               Add employeeId to revised_jrc_authors
+#           else:
+#               Create a record for that employee with their employeeId and their names.
+#               Add employeeId to revised_jrc_authors
+#               
+# add any employeeIds in revised_jrc_authors to jrc authors if they are not in jrc_authors already
+#   
+#                   
+#
+#               
+#       
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
@@ -243,8 +277,6 @@ def confirm_action(success_message):
         return False
 
 
-
-
 ### Miscellaneous low-level functions and variables
 
 def is_janelian(author, orcid_collection):
@@ -426,8 +458,6 @@ if __name__ == '__main__':
     description = "Given a DOI, use fuzzy name matching to correlate Janelia authors who don't have ORCIDs to Janelia employees. Update ORCID records as needed.")
     parser.add_argument('--doi', dest='DOI', action='store', required=True,
                          help='DOI whose authors will be processed.')
-    # parser.add_argument('--update', dest='UPDATE', action='store_true',
-    #                     default=False, help='Run update_dois.py at the end of this script.')
     parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         default=False, help='Flag, Chatty')
     parser.add_argument('--debug', dest='DEBUG', action='store_true',
