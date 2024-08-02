@@ -37,19 +37,21 @@ class Author:
 
 class Employee:
     """ Employees are constructed from information found in the HHMI People database. """
-    def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None):
+    def __init__(self, id, job_title=None, email=None, location=None, cost_center=None, first_names=None, middle_names=None, last_names=None):
         self.id = id
         self.job_title = job_title
         self.email = email
+        self.location = location
+        self.cost_center = cost_center
         self.first_names = list(set(first_names)) if first_names is not None else [] # Need to avoid the python mutable arguments trap
         self.middle_names = list(set(middle_names)) if middle_names is not None else []
         self.last_names = list(set(last_names)) if last_names is not None else []
 
 class Guess(Employee):
-    """ A Guess is a subtype of Employee that includes just one name permutation 
+    """ A Guess is a subtype of Employee that consists of just ONE name permutation 
     (e.g. Gerald M Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
-    def __init__(self, id, job_title=None, email=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
-        super().__init__(id, job_title, email, first_names, middle_names, last_names)
+    def __init__(self, id, job_title=None, email=None, location=None, cost_center=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
+        super().__init__(id, job_title, email, location, cost_center, first_names, middle_names, last_names)
         self.name = name
         self.score = score
 
@@ -60,7 +62,8 @@ class MissingPerson:
 class MultipleHits:
     """ 
     This class indicates that an author name matched multiple HHMI employees with equally high scores. 
-    This class's only attribute is a list of employee objects.
+    This class's only attribute is a list of employee objects. These employees' names had an equally 
+    high fuzzy match score against the author name (therefore I call them 'winners').
     """
     def __init__(self, winners=None):
         self.winners = winners if winners is not None else []
@@ -89,6 +92,8 @@ def create_employee(id):
     if not isinstance(idsearch_results, MissingPerson):
         job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
         email = idsearch_results['email'] if 'email' in idsearch_results else None
+        location = idsearch_results['locationName'] if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
+        cost_center = idsearch_results['ccDescr'] if 'ccDescr' in idsearch_results and any(idsearch_results['ccDescr']) else None
         first_names = [ idsearch_results['nameFirstPreferred'], idsearch_results['nameFirst'] ]
         middle_names = [ idsearch_results['nameMiddlePreferred'], idsearch_results['nameMiddle'] ]
         last_names = [ idsearch_results['nameLastPreferred'], idsearch_results['nameLast'] ]
@@ -97,18 +102,23 @@ def create_employee(id):
             id,
             job_title=job_title,
             email=email,
+            location=location,
+            cost_center = cost_center,
             first_names=first_names, 
-            middle_names=middle_names, 
+            middle_names=middle_names,
             last_names=last_names)
         )
     else:
         return(MissingPerson())
+        
 
 def create_guess(employee, name=None, score=None):
     return(Guess(
         employee.id, 
         employee.job_title, 
-        employee.email, 
+        employee.email,
+        employee.location,
+        employee.cost_center, 
         employee.first_names, 
         employee.middle_names, 
         employee.last_names, 
@@ -116,6 +126,7 @@ def create_guess(employee, name=None, score=None):
         score
         )
     )
+
 
 
 
@@ -129,8 +140,7 @@ def guess_employee(author):
     Returns:
         A missing person object, a multiple hits object, OR an employee object.
     """
-    candidate_employees = [] # Includes false positives. For example, if I search 'Virginia',
-    # both Virginia Scarlett and Virginia Ruetten will be in this list.
+    candidate_employees = []
     search_term  = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
     namesearch_results = search_people_api(search_term, mode='name')
     if not isinstance(namesearch_results, MissingPerson):
@@ -141,6 +151,9 @@ def guess_employee(author):
                 candidate_employees.append(employee_from_id_search)
             else:
                 return(MissingPerson)
+        candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
+        if not candidate_employees:
+            return(MissingPerson())
         guesses = []
         for employee in candidate_employees:
             employee_permuted_names = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
@@ -177,7 +190,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
         for guess in best_guess.winners:
-            print(colored(f"{guess.name}, {guess.job_title}, {guess.email}", 'blue'))
+            print(colored(f"{guess.name}, title = {guess.job_title}, CC = {guess.cost_center}, {guess.email}", 'blue'))
         quest = [inquirer.Checkbox('decision', 
                                    carousel=True, 
                                    message="Choose a person from the list", 
@@ -194,13 +207,13 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
             if verbose:
                 print(inform_message)
                 print(
-                    f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
+                    f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, cost center: {best_guess.cost_center}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
                     )
             # Do nothing
         else:
             print(inform_message)
             print(colored(
-                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
+                f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, cost center: {best_guess.cost_center}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
                 "blue"
                 ))
             quest = [inquirer.List('decision', 
@@ -310,14 +323,14 @@ def last_names_for_orcid_record(author, employee):
     return(list(set([n.last for n in h_result])))
 
 
-def search_people_api(search_term, mode):
+def search_people_api(query, mode):
     response = None
     if mode not in {'name', 'id'}:
         raise ValueError("HHMI People API search mode must be either 'name' or 'id'.")
     if mode == 'name':
-        response = JRC.call_people_by_name(search_term)
+        response = JRC.call_people_by_name(query)
     elif mode == 'id':
-        response = JRC.call_people_by_id(search_term)
+        response = JRC.call_people_by_id(query)
     if not response:
         return(MissingPerson())
     else:
@@ -412,7 +425,7 @@ if __name__ == '__main__':
     #doi='10.7554/eLife.80660'
     #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
-    #doi='10.1101/2023.12.19.572369'
+    #doi='10.1038/s41556-023-01154-4'
     doi_record = get_doi_record(arg.DOI)
     all_authors = create_author_objects(doi_record)
     janelian_authors = [ a for a in all_authors if is_janelian(a, orcid_collection) ]
