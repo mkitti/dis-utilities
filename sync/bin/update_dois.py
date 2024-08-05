@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '4.0.0'
+__version__ = '4.1.0'
 
 import argparse
 import configparser
@@ -655,6 +655,17 @@ def add_first_last_authors(rec):
             rec["jrc_last_author"] = janelian
     if first:
         rec["jrc_first_author"] = first
+    if (not first) and ('jrc_last_author' not in rec):
+        return
+    first = []
+    det = DL.get_author_details(rec, DB['dis']['orcid'])
+    for auth in det:
+        if auth['janelian'] and 'employeeId' in auth and 'is_first' in auth:
+            first.append(auth['employeeId'])
+        if auth['janelian'] and 'employeeId' in auth and 'is_last' in auth:
+            rec["jrc_last_id"] = auth['employeeId']
+    if first:
+        rec["jrc_first_id"] = first
 
 
 def update_mongodb(persist):
@@ -671,7 +682,7 @@ def update_mongodb(persist):
         val['jrc_publishing_date'] = DL.get_publishing_date(val)
         # First/last authors
         add_first_last_authors(val)
-        for aname in ('jrc_first_author', 'jrc_last_author'):
+        for aname in ('jrc_first_author', 'jrc_first_id', 'jrc_last_author', 'jrc_last_id'):
             if aname in val:
                 LOGGER.info(f"Added {aname} {val[aname]} to {key}")
         # Insert/update timestamps
