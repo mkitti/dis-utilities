@@ -18,6 +18,14 @@
     url = "/doisui/" + $("#doiname").val();
     window.location = url;
   }
+  function find_titles() {
+    if (!$('#doistitle').val()) {
+      alert("You must enter a title");
+      return;
+    }
+    url = "/titlesui/" + $("#doistitle").val();
+    window.location = url;
+  }
   function find_oid() {
     if (!$('#oid').val()) {
       alert("You must enter an ORCID");
@@ -64,6 +72,18 @@ onload="tableInitialize();"
   </div>
   <div class="flexitem">
     <button type="submit" id="doib" class="btn btn-primary btn-md" onclick="find_dois(); return false;" href="#">Look up</button>
+  </div>
+</div>
+<br><br>
+<div class="flexcontainer">
+  <div class="flexitem">
+  <span class="form-control-lg">Find DOIs by title:</span>
+  </div>
+  <div class="flexitem">
+    <input type="text" class="form-control form-control-lg" id="doistitle" size=28>
+  </div>
+  <div class="flexitem">
+    <button type="submit" id="doib" class="btn btn-primary btn-md" onclick="find_titles(); return false;" href="#">Look up</button>
   </div>
 </div>
 <br><br>
