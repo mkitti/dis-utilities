@@ -12,7 +12,7 @@
 
 First, create a Python virtual environment:
 
-    cd utility/bin
+    cd sync/bin
     python3 -m venv my_venv
 
 Enter the virtual environment and install necessary libraries:
