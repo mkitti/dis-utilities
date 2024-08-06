@@ -23,3 +23,16 @@ This repository is split into three sections:
 ![DIS system architecture](DIS_architecture.png?raw=true "DIS system architecture")
 
 The DIS system is based on a MongoDB database with collections to persist DOIs, ORCIDs, and project mappings. Python programs are used for ETL and updates. A Flask-based application provides user interface, visualizations, and a REST API.
+
+### Python command line programs
+The Python programs in the "sync" and "utility" sections of this repository are meant to be run from the Unix command line, preferably from inside a Python virtual environment. To see which command line parameters may be specified for programs, use --help:
+
+    my_venv/bin/python3 update_dois.py --help
+
+### Common command line parameters
+Most of the command line programs have a set of common parameters:
+
+- --manifold: used to specify the MOngoDB database manifold (dev or prod)
+- --write: actually write to the database. If not specified, no rows will be updated in the MongoDB database
+- --verbose: verbose mode for logging - status messages are printed to STDOUT - this is chatty
+- --debug: debug mode for logging - debug messages are printed to STDOUT - this is chatty in the extreme
