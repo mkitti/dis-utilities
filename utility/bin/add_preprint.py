@@ -1,5 +1,12 @@
 """ add_preprint.py
-    Update the  jrc_preprint field in the dois collection for all locally-stored DOIs.
+    Update the jrc_preprint field in the dois collection for all locally-stored DOIs.
+    Every preprint (from DataCite and Crossref) will be compared to every "primary" DOI
+    (from Crossref) to determine if each pair is the same publication. The publication
+    pair must have a RapidFuzz score greater than or equal to the threshold value.
+    The first and last author for each pair must also match using the same criteria.
+    For each pair with a title/author match, a relationship will be created between the
+    DOIs. When all DOIs have been processed, the relationships will be written to the
+    jrc_preprint field in the dois collection.
 """
 
 __version__ = '1.0.0'
@@ -10,7 +17,7 @@ from datetime import datetime
 from operator import attrgetter
 import sys
 import pandas as pd
-from rapidfuzz import fuzz
+from rapidfuzz import fuzz, utils
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
@@ -28,8 +35,8 @@ PRIMARYREL = {}
 PREPRINTREL = {}
 # Output data
 AUDIT = []
-MATCH = {"DOI": [], "Title": [], "Score": [], "First author": [], "Last author": [],
-         "Publishing date": [], "Decision": []}
+MATCH = {"DOI": [], "Title": [], "Score": [], "First author": [], "First author score": [],
+         "Last author": [], "Last author score": [], "Publishing date": [], "Decision": []}
 MISSING = {}
 
 def terminate_program(msg=None):
@@ -150,7 +157,7 @@ def process_pair(prerec, primrec):
     if "relation" in prerec or "relation" in primrec:
         make_relationships(prerec, primrec)
     COUNT['comparisons'] += 1
-    score = fuzz.token_sort_ratio(pretitle, primtitle)
+    score = fuzz.token_sort_ratio(pretitle, primtitle, processor=utils.default_process)
     if score < ARG.THRESHOLD:
         return
     authors = DL.get_author_list(prerec, returntype="list")
@@ -163,11 +170,15 @@ def process_pair(prerec, primrec):
     MATCH['Title'].extend([pretitle, primtitle])
     MATCH['Score'].extend([score, score])
     MATCH['First author'].extend([prefirst, primfirst])
+    first_score = fuzz.token_sort_ratio(prefirst, primfirst, processor=utils.default_process)
+    MATCH['First author score'].extend([first_score, first_score])
     MATCH['Last author'].extend([prelast, primlast])
+    last_score = fuzz.token_sort_ratio(prelast, primlast, processor=utils.default_process)
+    MATCH['Last author score'].extend([last_score, last_score])
     MATCH['Publishing date'].extend([DL.get_publishing_date(prerec),
                                      DL.get_publishing_date(primrec)])
     COUNT['title_match'] += 1
-    if (prefirst == primfirst) and (prelast == primlast):
+    if (first_score >= ARG.THRESHOLD) and (last_score >= ARG.THRESHOLD):
         make_doi_relationships(predoi, primdoi)
         MATCH['Decision'].extend(["Relate", "Relate"])
         COUNT['title_author_match'] += 1
@@ -251,10 +262,6 @@ def add_jrc_preprint():
 if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Update jrc_preprint in the dois collection")
-    PARSER.add_argument('--doi', dest='DOI', action='store',
-                        help='Primary (non-preprint) DOI')
-    PARSER.add_argument('--preprint', dest='PREPRINT', action='store',
-                        help='Preprint DOI')
     PARSER.add_argument('--threshold', dest='THRESHOLD', action='store',
                         default=90, type=int, help='Fuzzy matching threshold')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
