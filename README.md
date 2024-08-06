@@ -25,7 +25,7 @@ This repository is split into three sections:
 The DIS system is based on a MongoDB database with collections to persist DOIs, ORCIDs, and project mappings. Python programs are used for ETL and updates. A Flask-based application provides user interface, visualizations, and a REST API.
 
 ### Python command line programs
-The Python programs in the "sync" and "utility" sections of this repository are meant to be run from the Unix command line, preferably from inside a Python virtual environment. To see which command line parameters may be specified for programs, use --help:
+The Python programs in the [sync](sync/README.md) and [utility](utility/README.md) sections of this repository are meant to be run from the Unix command line, preferably from inside a Python virtual environment. To see which command line parameters may be specified for programs, use --help:
 
     my_venv/bin/python3 update_dois.py --help
 
