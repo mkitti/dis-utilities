@@ -9,3 +9,12 @@
 [![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
 ## Utilities for Data and Information Services
+
+This repository is split into three sections:
+
+- api: Web-based user interface and REST API
+- sync: programs meant to be periodically run in the backgroud to sync the DIS database from external data sources
+- utility: utility programs
+
+## DIS system architecture
+![Alt text](architecture.png?raw=true "Title")
