@@ -1,6 +1,7 @@
 inquirer
 openpyxl
 pandas
+rapidfuzz
 tqdm
 unidecode
 git+https://github.com/JaneliaSciComp/jrc_common.git

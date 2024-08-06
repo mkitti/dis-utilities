@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '3.2.0'
+__version__ = '4.1.0'
 
 import argparse
 import configparser
@@ -575,7 +575,7 @@ def persist_author(key, authors, tags, persist):
           None
     '''
     if tags:
-        LOGGER.info(f"Added jrc_tag {tags}")
+        LOGGER.info(f"Added jrc_tag {tags} to {key}")
         persist[key]['jrc_tag'] = tags
     # Update jrc_author
     jrc_author = []
@@ -583,7 +583,7 @@ def persist_author(key, authors, tags, persist):
         if auth['janelian'] and 'employeeId' in auth and auth['employeeId']:
             jrc_author.append(auth['employeeId'])
     if jrc_author:
-        LOGGER.info(f"Added jrc_author {jrc_author}")
+        LOGGER.info(f"Added jrc_author {jrc_author} to {key}")
         persist[key]['jrc_author'] = jrc_author
 
 
@@ -620,6 +620,54 @@ def add_tags(persist):
         persist_author(key, authors, tags, persist)
 
 
+def add_first_last_authors(rec):
+    ''' Add first and last authors to record
+        Keyword arguments:
+          rec: Crossref/DataCite record
+        Returns:
+          None
+    '''
+    first = []
+    if 'jrc_obtained_from' in rec and rec['jrc_obtained_from'] == "DataCite":
+        field = 'creators'
+        datacite = True
+    else:
+        field = 'author'
+        datacite = False
+    if field in rec:
+        if not datacite:
+            for auth in rec[field]:
+                if 'sequence' in auth and auth['sequence'] == 'additional':
+                    break
+                try:
+                    janelian = DL.is_janelia_author(auth, DB['dis'].orcid, PROJECT)
+                except Exception as err:
+                    LOGGER.error(f"Could not process {rec['doi']}")
+                    terminate_program(err)
+                if janelian:
+                    first.append(janelian)
+        else:
+            janelian = DL.is_janelia_author(rec[field][0], DB['dis'].orcid, PROJECT)
+            if janelian:
+                first.append(janelian)
+        janelian = DL.is_janelia_author(rec[field][-1], DB['dis'].orcid, PROJECT)
+        if janelian:
+            rec["jrc_last_author"] = janelian
+    if first:
+        rec["jrc_first_author"] = first
+    if (not first) and ('jrc_last_author' not in rec):
+        return
+    first = []
+    det = DL.get_author_details(rec, DB['dis']['orcid'])
+    for auth in det:
+        if auth['janelian'] and 'employeeId' in auth and 'is_first' in auth:
+            first.append(auth['employeeId'])
+        if auth['janelian'] and 'employeeId' in auth and 'is_last' in auth:
+            rec["jrc_last_id"] = auth['employeeId']
+    if first:
+        rec["jrc_first_id"] = first
+
+
 def update_mongodb(persist):
     ''' Persist DOI records in MongoDB
         Keyword arguments:
@@ -630,7 +678,14 @@ def update_mongodb(persist):
     coll = DB['dis'].dois
     for key, val in tqdm(persist.items(), desc='Update DIS Mongo'):
         val['doi'] = key
+        # Publishing date
         val['jrc_publishing_date'] = DL.get_publishing_date(val)
+        # First/last authors
+        add_first_last_authors(val)
+        for aname in ('jrc_first_author', 'jrc_first_id', 'jrc_last_author', 'jrc_last_id'):
+            if aname in val:
+                LOGGER.info(f"Added {aname} {val[aname]} to {key}")
+        # Insert/update timestamps
         if key not in EXISTING:
             val['jrc_inserted'] = datetime.today().replace(microsecond=0)
         val['jrc_updated'] = datetime.today().replace(microsecond=0)
@@ -841,6 +896,10 @@ if __name__ == '__main__':
         EXISTING = JRC.simplenamespace_to_dict(JRC.get_config(CKEY[ARG.TARGET]))
     else:
         EXISTING = get_dis_dois_from_mongo()
+        try:
+            PROJECT = DL.get_project_map(DB['dis'].project_map)
+        except Exception as gerr:
+            terminate_program(gerr)
     process_dois()
     post_activities()
     terminate_program()
