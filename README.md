@@ -12,9 +12,11 @@
 
 This repository is split into three sections:
 
-- api: Web-based user interface and REST API
-- sync: programs meant to be periodically run in the backgroud to sync the DIS database from external data sources
-- utility: utility programs
+- [api](api/README.md): Web-based user interface and REST API
+- [sync](sync/README.md): programs meant to be periodically run in the backgroud to sync the DIS database from external data sources
+- [utility](utility/README.md): utility programs
 
 ## DIS system architecture
-![Alt text](architecture.png?raw=true "Title")
+![DIS system architecture](DIS_architecture.png?raw=true "DIS system architecture")
+
+The DIS system is based on a MongoDB database with collections to persist DOIs, ORCIDs, and project mappings. Python programs are used for ETL and updates. A Flask-based application provides user interface, visualizations, and a REST API.
