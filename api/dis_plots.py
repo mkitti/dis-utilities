@@ -16,14 +16,18 @@ TYPE_PALETTE = ["mediumblue", "darkorange", "wheat", "darkgray"]
 # ******************************************************************************
 # * Utility functions                                                          *
 # ******************************************************************************
-def preprint_type_piechart(coll):
+def preprint_type_piechart(coll, year):
     ''' Create a preprint type pie chart
         Keyword arguments:
           coll: dois collection
+          year: year or "All"
         Returns:
           Chart components
     '''
-    payload = [{"$match": { "type": "posted-content"}},
+    match = {"type": "posted-content"}
+    if year != 'All':
+        match['jrc_publishing_date'] = {"$regex": "^"+ year}
+    payload = [{"$match": match},
                {"$group": {"_id": {"institution": "$institution"},"count": {"$sum": 1}}}]
     try:
         rows = coll.aggregate(payload)
@@ -35,20 +39,28 @@ def preprint_type_piechart(coll):
             data['No institution'] = row['count']
         else:
             data[row['_id']['institution'][0]['name']] = row['count']
-    return pie_chart(dict(sorted(data.items())), "Preprint DOI institutions",
-                        "source", width=500)
+    if not data:
+        return None, None
+    title = "Preprint DOI institutions"
+    if year != 'All':
+        title += f" ({year})"
+    return pie_chart(dict(sorted(data.items())), title,
+                     "source", width=500)
 
 
-def preprint_capture_piechart(coll):
+def preprint_capture_piechart(coll, year):
     ''' Create a preprint capture pie chart
         Keyword arguments:
           coll: dois collection
+          year: year or "All"
         Returns:
           Chart components
     '''
     data = {}
     payload = {"subtype": "preprint", "jrc_preprint": {"$exists": 1},
                "relation.is-preprint-of": {"$exists": 0}}
+    if year != 'All':
+        payload['jrc_publishing_date'] = {"$regex": "^"+ year}
     try:
         data['Fuzzy matching'] = coll.count_documents(payload)
     except Exception as err:
@@ -59,7 +71,12 @@ def preprint_capture_piechart(coll):
     except Exception as err:
         raise err
     data['Crossref relation'] = data['Crossref relation'] - data['Fuzzy matching']
-    return pie_chart(data, "Preprint capture method", "source",
+    if not data['Crossref relation'] and not data['Fuzzy matching']:
+        return None, None
+    title = "Preprint capture method"
+    if year != 'All':
+        title += f" ({year})"
+    return pie_chart(data, title, "source",
                      width=500, colors=SOURCE_PALETTE)
 
 
@@ -79,6 +96,10 @@ def pie_chart(data, title, legend, height=300, width=400, location="right", colo
         Returns:
           Figure components
     '''
+    if len(data) == 1:
+        colors = ["mediumblue"]
+    elif len(data) == 2:
+        colors = SOURCE_PALETTE
     if not colors:
         colors = all_palettes['Category10'][len(data)]
     elif isinstance(colors, str):
