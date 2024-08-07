@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '4.2.0'
+__version__ = '4.4.0'
 
 import argparse
 import configparser
@@ -281,18 +281,19 @@ def get_dois():
         return {"dois": [ARG.DOI]}
     if ARG.FILE:
         return {"dois": ARG.FILE.read().splitlines()}
-    # Handle input from STDIN
-    inp = ""
-    piped = False
-    while sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
-        piped = True
-        line = sys.stdin.readline()
-        if line:
-            inp += line
-        else:
-            break
-    if piped:
-        return {"dois": inp.splitlines()}
+    if ARG.PIPE:
+        # Handle input from STDIN
+        inp = ""
+        piped = False
+        while sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+            piped = True
+            line = sys.stdin.readline()
+            if line:
+                inp += line
+            else:
+                break
+        if piped:
+            return {"dois": inp.splitlines()}
     flycore = call_responder('flycore', '?request=doilist')
     LOGGER.info(f"Got {len(flycore['dois']):,} DOIs from FLYF2")
     if ARG.TARGET == 'dis':
@@ -885,6 +886,8 @@ if __name__ == '__main__':
     PARSER.add_argument('--file', dest='FILE', action='store',
                         type=argparse.FileType("r", encoding="ascii"),
                         help='File of DOIs to process')
+    PARSER.add_argument('--pipe', dest='PIPE', action='store_true',
+                        default=False, help='Accepted input from STDIN')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
