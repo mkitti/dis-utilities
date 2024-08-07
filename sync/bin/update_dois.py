@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '4.1.0'
+__version__ = '4.2.0'
 
 import argparse
 import configparser
@@ -15,6 +15,7 @@ import json
 from operator import attrgetter
 import os
 import re
+import select
 import sys
 from time import sleep, strftime
 from unidecode import unidecode
@@ -59,11 +60,13 @@ COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
         Keyword arguments:
-          msg: error message
+          msg: error message or object
         Returns:
           None
     '''
     if msg:
+        if not isinstance(msg, str):
+            msg = f"An exception of type {type(msg).__name__} occurred. Arguments:\n{msg.args}"
         LOGGER.critical(msg)
     sys.exit(-1 if msg else 0)
 
@@ -278,6 +281,18 @@ def get_dois():
         return {"dois": [ARG.DOI]}
     if ARG.FILE:
         return {"dois": ARG.FILE.read().splitlines()}
+    # Handle input from STDIN
+    inp = ""
+    piped = False
+    while sys.stdin in select.select([sys.stdin], [], [], 0)[0]:
+        piped = True
+        line = sys.stdin.readline()
+        if line:
+            inp += line
+        else:
+            break
+    if piped:
+        return {"dois": inp.splitlines()}
     flycore = call_responder('flycore', '?request=doilist')
     LOGGER.info(f"Got {len(flycore['dois']):,} DOIs from FLYF2")
     if ARG.TARGET == 'dis':
