@@ -20,7 +20,6 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
-#TODO: When you get multiple hits, do a fuzzy name match on the full name. Eliminate candidates below a 90% threshold.
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
@@ -51,11 +50,10 @@ import doi_common.doi_common as doi_common
 #               Add employeeId to revised_jrc_authors
 #               
 # add any employeeIds in revised_jrc_authors to jrc authors if they are not in jrc_authors already
-#   
-#                   
-#
-#               
-#       
+
+
+
+
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
@@ -173,7 +171,9 @@ def guess_employee(author):
     namesearch_results = search_people_api(search_term, mode='name')
     if isinstance(namesearch_results, MissingPerson): 
         namesearch_results = search_tricky_names(author.name)
-    if not isinstance(namesearch_results, MissingPerson):
+    if isinstance(namesearch_results, MissingPerson):
+        return(MissingPerson())
+    else:
         candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
         for id in candidate_employee_ids:
             employee_from_id_search = create_employee(id) 
@@ -192,13 +192,29 @@ def guess_employee(author):
         for guess in guesses:
             guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace 
         high_score = max( [g.score for g in guesses] )
-        winner = [ g for g in guesses if g.score == high_score ]
-        if len(winner) > 1:
-            return(MultipleHits(winners = winner))
-        else:
-            return(winner[0])
-    else:
-        return(MissingPerson())
+        winners = [ g for g in guesses if g.score == high_score ]
+        if len(winners) == 1:
+            return winners[0]
+        elif len(winners) > 1:
+            new_search_term = max(author.name.replace(search_term, '').strip(), key=len) # Now search again with the second-longest word in their name
+            new_namesearch_results = search_people_api(new_search_term, mode='name')
+            if isinstance(new_namesearch_results, MissingPerson):
+                return(MissingPerson())
+            else:
+                new_candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in new_namesearch_results ]
+                ids_in_both_searches = list(set([g.id for g in guesses]).intersection(set(new_candidate_employee_ids)))
+                if len(ids_in_both_searches) == 0:
+                    return(MissingPerson)
+                elif len(ids_in_both_searches) == 1:
+                    winning_id = ids_in_both_searches[0]
+                    winners = [ w for w in winners if w.id == winning_id ]
+                    if len(winners) > 1: # The same employee ID might be in the people system twice
+                        return(MultipleHits(winners = winners))
+                    else:
+                        return(winners[0])
+                elif len(ids_in_both_searches) > 1: # There might be two Janelians with the exact same name
+                    return(MultipleHits(winners = winners))
+
 
 def evaluate_guess(author, best_guess, inform_message, verbose=False):
     """ 
@@ -244,7 +260,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
             print(inform_message)
             print(colored(
                 f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, supOrgName: {best_guess.supOrgName}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
-                "blue"
+                "black", "on_yellow"
                 ))
             quest = [inquirer.List('decision', 
                                    message=f"Select {best_guess.name}?", 
@@ -626,7 +642,7 @@ if __name__ == '__main__':
 # doi='10.1101/2024.06.30.601394'
 # doi_record = nm.get_doi_record(doi)
 
-    #doi='10.1101/2021.08.18.456004'
+    #doi='10.1038/s41587-022-01524-7'
     #doi='10.7554/elife.80660'
     #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
