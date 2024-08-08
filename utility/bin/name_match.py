@@ -3,14 +3,11 @@ Given a DOI, try to identify Janelia authors who don't have ORCIDs and correlate
 Update ORCID records as needed.
 """
 
-#import os
 import sys
-#import subprocess
 import string
 import argparse
 import re
 import itertools
-from pathlib import Path
 from operator import attrgetter
 from nameparser import HumanName
 from rapidfuzz import fuzz, utils
@@ -24,6 +21,8 @@ import doi_common.doi_common as doi_common
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
 #TODO: When you get multiple hits, do a fuzzy name match on the full name. Eliminate candidates below a 90% threshold.
+#TODO: Ingest a list of dois from a file
+
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
 # for author in authors_to_check:
@@ -222,7 +221,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
         for guess in best_guess.winners:
-            print(colored(f"{guess.name}, title: {guess.job_title}, CC: {guess.supOrgName}, {guess.email}", 'blue'))
+            print(colored(f"{guess.name}, title: {guess.job_title}, CC: {guess.supOrgName}, {guess.email}", 'black', 'on_yellow'))
         quest = [inquirer.Checkbox('decision', 
                                    carousel=True, 
                                    message="Choose a person from the list", 
