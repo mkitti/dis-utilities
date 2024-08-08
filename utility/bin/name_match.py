@@ -23,7 +23,7 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
-#TODO: Search all authors in People BEFORE prompting for individuals? In this case, we would do:
+#TODO: When you get multiple hits, do a fuzzy name match on the full name. Eliminate candidates below a 90% threshold.
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
 # for author in authors_to_check:
@@ -222,7 +222,7 @@ def evaluate_guess(author, best_guess, inform_message, verbose=False):
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
         for guess in best_guess.winners:
-            print(colored(f"{guess.name}, title = {guess.job_title}, CC = {guess.supOrgName}, {guess.email}", 'blue'))
+            print(colored(f"{guess.name}, title: {guess.job_title}, CC: {guess.supOrgName}, {guess.email}", 'blue'))
         quest = [inquirer.Checkbox('decision', 
                                    carousel=True, 
                                    message="Choose a person from the list", 
@@ -492,7 +492,7 @@ if __name__ == '__main__':
     orcid_collection = DB['dis'].orcid
     doi_collection = DB['dis'].dois
     #doi='10.1101/2021.08.18.456004'
-    #doi='10.7554/eLife.80660'
+    #doi='10.7554/elife.80660'
     #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
     #doi='10.1038/s41556-023-01154-4'
