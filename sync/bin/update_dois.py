@@ -25,7 +25,6 @@ from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 
-
 # pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
 
 # Database
