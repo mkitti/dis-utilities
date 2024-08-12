@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "11.2.0"
+__version__ = "11.3.0"
 # Database
 DB = {}
 # Custom queries
@@ -791,7 +791,6 @@ def s2_citation_count(doi):
           Citation count
     '''
     url = f"{app.config['S2_GRAPH']}paper/DOI:{doi}?fields=citationCount"
-    print(url)
     try:
         resp = requests.get(url, timeout=10)
         if resp.status_code != 200:
@@ -1823,7 +1822,7 @@ def show_doi_ui(doi):
         return render_template('warning.html', urlroot=request.url_root,
                                 title=render_warning("Could not find DOI", 'warning'),
                                 message=f"Could not find DOI {doi}")
-    authors = DL.get_author_list(data, orcid=True)
+    authors = DL.get_author_list(data, orcid=True, project_map=DB['dis'].project_map)
     if not authors:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning("Could not generate author list"),
