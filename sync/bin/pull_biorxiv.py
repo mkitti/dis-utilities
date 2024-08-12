@@ -185,13 +185,13 @@ def run_search():
         with open('biorxiv_review.txt', 'w', encoding='ascii') as outstream:
             for item in review:
                 outstream.write(f"{item}\n")
-    print(f"DOIs read from bioRxiv:          {COUNT['read']}")
-    print(f"DOIs already in database:        {COUNT['in_dois']}")
-    print(f"DOIs not in Crossref (asserted): {COUNT['asserted_crossref']}")
-    print(f"DOIs not in Crossref:            {COUNT['no_crossref']}")
-    print(f"DOIs with no Janelian authors:   {COUNT['no_janelians']}")
-    print(f"DOIs ready for processing:       {len(ready)}")
-    print(f"DOIs requiring review:           {len(review)}")
+    print(f"DOIs read from bioRxiv:          {COUNT['read']:,}")
+    print(f"DOIs already in database:        {COUNT['in_dois']:,}")
+    print(f"DOIs not in Crossref (asserted): {COUNT['asserted_crossref']:,}")
+    print(f"DOIs not in Crossref:            {COUNT['no_crossref']:,}")
+    print(f"DOIs with no Janelian authors:   {COUNT['no_janelians']:,}")
+    print(f"DOIs ready for processing:       {len(ready):,}")
+    print(f"DOIs requiring review:           {len(review):,}")
 
 # -----------------------------------------------------------------------------
 
