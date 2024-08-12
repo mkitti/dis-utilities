@@ -2,10 +2,11 @@
     Update the MongoDB orcid collection with ORCIDs and names for Janelia authors
 '''
 
-__version__ = '2.3.0'
+__version__ = '2.4.0'
 
 import argparse
 import collections
+import configparser
 import json
 from operator import attrgetter
 import os
@@ -126,7 +127,7 @@ def get_name(oid):
         Returns:
           family and given name
     '''
-    url = f"https://pub.orcid.org/v3.0/{oid}"
+    url = f"{CONFIG['orcid']['base']}{oid}"
     try:
         resp = requests.get(url, timeout=10,
                             headers={"Accept": "application/json"})
@@ -149,8 +150,8 @@ def add_from_orcid(oids):
           None
     '''
     authors = []
-    base = 'https://pub.orcid.org/v3.0/search'
-    for url in ('/?q=ror-org-id:"https://ror.org/013sk6x84"',
+    base = f"{CONFIG['orcid']['base']}search"
+    for url in ('/?q=ror-org-id:"' + CONFIG['ror']['janelia'] + '"',
                 '/?q=affiliation-org-name:"Janelia Research Campus"',
                 '/?q=affiliation-org-name:"Janelia Farm Research Campus"'):
         try:
@@ -511,6 +512,8 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
+    CONFIG = configparser.ConfigParser()
+    CONFIG.read('config.ini')
     DISCONFIG = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     update_orcid()
     terminate_program()
