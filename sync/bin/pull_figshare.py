@@ -65,19 +65,26 @@ def doi_exists(doi):
     return bool(row)
 
 
-def pull_single_group(group, dois):
+def pull_single_group(dois, institution=None, group=None):
     ''' Pull DOIs for one group
         Keyword arguments:
-          group: figshare group to process
           dois: list of DOIs to process
+          institution: institution to process
+          group: figshare group to process
         Returns:
           None
     '''
-    base = f"{CONFIG['figshare']['base']}{CONFIG['figshare']['group']}{group}"
+    if institution:
+        stype = "institution"
+        sterm = institution
+    else:
+        stype = "group"
+        sterm = group
+    base = f"{CONFIG['figshare']['base']}{CONFIG['figshare'][stype]}{sterm}"
     offset = 0
     parts = 0
     done = False
-    LOGGER.info(f"Getting DOIs from figshare for group {group}")
+    LOGGER.info(f"Getting DOIs from figshare for {stype} {sterm}")
     while not done:
         resp = requests.get(f"{base}&offset={offset}", timeout=10)
         if resp.status_code == 200:
@@ -106,8 +113,9 @@ def pull_figshare():
     '''
 
     dois = []
-    for group in (11380, 49461):
-        pull_single_group(group, dois)
+    pull_single_group(dois, institution=295)
+    #for group in (11380, 49461):
+    #    pull_single_group(dois, group=group)
     if dois:
         LOGGER.info(f"Got {len(dois):,} DOIs from figshare")
         LOGGER.info("Writing DOIs to figshare_dois.txt")
