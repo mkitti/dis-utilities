@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "11.1.0"
+__version__ = "11.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -592,7 +592,7 @@ def generate_user_table(rows):
 # ******************************************************************************
 
 def get_doi(doi):
-    ''' Add a table of custom JRC fields
+    ''' Get a single DOI record
         Keyword arguments:
           doi: DOI
         Returns:
@@ -727,6 +727,34 @@ def compute_preprint_data(rows):
     return data, preprint
 
 
+def get_first_last_authors(year):
+    ''' Get first and last author counts
+    '''
+    stat = {'first': {}, 'last': {}}
+    for which in ("first", "last"):
+        payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
+                               f"jrc_{which}_author": {"$exists": True}}},
+                   {"$group": {"_id": {"type": "$type", "subtype": "$subtype"},
+                               "count": {"$sum": 1}}}
+                  ]
+        try:
+            rows = DB['dis'].dois.aggregate(payload)
+        except Exception as err:
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning("Could not get yearly metrics " \
+                                                        + "from dois collection"),
+                                   message=error_message(err))
+        for row in rows:
+            typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
+            sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
+            if sub == 'preprint':
+                typ = 'posted-content'
+            if typ not in stat[which]:
+                stat[which][typ] = 0
+            stat[which][typ] += row['count']
+    return stat['first'], stat['last']
+
+
 def get_preprint_stats(rows):
     ''' Create a dictionary of preprint statistics
         Keyword arguments:
@@ -753,6 +781,28 @@ def get_preprint_stats(rows):
                     stat[row['_id']['year']][sub] = 0
             stat[row['_id']['year']]['journal'] += row['count']
     return stat
+
+
+def s2_citation_count(doi):
+    ''' Get citation count from Semantic Scholar
+        Keyword arguments:
+          doi: DOI
+        Returns:
+          Citation count
+    '''
+    url = f"{app.config['S2_GRAPH']}paper/DOI:{doi}?fields=citationCount"
+    print(url)
+    try:
+        resp = requests.get(url, timeout=10)
+        if resp.status_code != 200:
+            return 0
+        data = resp.json()
+        cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
+              + f"{data['citationCount']}</a>"
+        return cnt
+    except Exception:
+        return 0
+
 
 # ******************************************************************************
 # * Badge utility functions                                                    *
@@ -1715,7 +1765,7 @@ def show_oidapi(oid):
         description: ORCID data
     '''
     result = initialize_result()
-    url = f"https://pub.orcid.org/v3.0/{oid}"
+    url = f"{app.config['ORCID']}{oid}"
     try:
         resp = requests.get(url, headers={"Accept": "application/json"}, timeout=10)
         result['data'] = resp.json()
@@ -1796,8 +1846,14 @@ def show_doi_ui(doi):
         chead += f" for {data['type'].replace('-', ' ')}"
         if 'subtype' in data:
             chead += f" {data['subtype'].replace('-', ' ')}"
-    html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}." \
-            + f"<br>DOI: {link}</span> {tiny_badge('primary', 'Raw data', rlink)}<br><br>"
+    html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}.</span><br><br>"
+    html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
+            + "</span><br>"
+    if row:
+        citations = s2_citation_count(doi)
+        if citations:
+            html += f"<span class='paperdata'>Citations: {citations}</span><br>"
+    html += "<br>"
     html += add_relations(data)
     if row:
         try:
@@ -2358,36 +2414,40 @@ def dois_report(year=str(datetime.now().year)):
         if typ not in typed:
             typed[typ] = 0
         typed[typ] += row['count']
-    print(typed)
-    payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
-                           "jrc_first_author": {"$exists": True}}},
-               {"$group": {"_id": {"type": "$type", "subtype": "$subtype"}, "count": {"$sum": 1}}}
+    first, last = get_first_last_authors(year)
+    stat = {}
+    payload = [{"$match": {"container-title": {"$exists": True}, "type": "journal-article",
+                           "jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$group": {"_id": "$container-title", "count":{"$sum": 1}}}
               ]
-    first = {}
     try:
         rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get yearly metrics " \
+                               title=render_warning("Could not get journal metrics " \
                                                     + "from dois collection"),
                                message=error_message(err))
+    cnt = 0
     for row in rows:
-        typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
-        sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
-        if sub == 'preprint':
-            typ = 'posted-content'
-        if typ not in first:
-            first[typ] = 0
-        first[typ] += row['count']
-    html = ""
+        if row['_id']:
+            cnt += 1
     for key, val in pmap.items():
         if key in typed:
-            additional = ""
+            additional = []
             if key in first:
-                additional = f" ({first[key]:,} with first author)"
-            html += f"<h4>{val}: {typed[key]:,}{additional}</h4>"
+                additional.append(f"{first[key]:,} with first author")
+            if key in last:
+                additional.append(f"{last[key]:,} with last author")
+            additional = f" ({', '.join(additional)})" if additional else ""
+            stat[val] = f"<span style='font-weight: bold'>{typed[key]:,}</span> {val.lower()}"
+            if val == 'Journal articles':
+                stat[val] += f" in {cnt:,} journals"
+            stat[val] += additional
     if 'DataCite' in typed:
-        html += f"<h4>DataCite entries: {typed['DataCite']:,}</h4>"
+        stat['DataCite'] = f"<span style='font-weight: bold'>{typed['DataCite']:,}" \
+                           + "</span> DataCite entries"
+    html = f"{stat['Journal articles']}<br>{stat['Preprints']}<br>{stat['DataCite']}<br>"
+    html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"{year}", html=html,
                                          navbar=generate_navbar('DOIs')))
@@ -2590,7 +2650,7 @@ def show_oid_ui(oid):
     ''' Show ORCID user
     '''
     try:
-        resp = requests.get(f"https://pub.orcid.org/v3.0/{oid}",
+        resp = requests.get(f"{app.config['ORCID']}{oid}",
                             headers={"Accept": "application/json"}, timeout=10)
         data = resp.json()
     except Exception as err:
