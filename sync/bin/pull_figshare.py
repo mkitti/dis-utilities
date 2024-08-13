@@ -94,10 +94,10 @@ def pull_single_group(dois, institution=None, group=None):
                 COUNT['checked'] += 1
                 if art['doi'].startswith("10.25378"):
                     COUNT['janelia'] += 1
-                    if doi_exists(art['doi']):
-                        COUNT['in_dois'] += 1
-                    else:
-                        dois.append(art['doi'])
+                if doi_exists(art['doi']):
+                    COUNT['in_dois'] += 1
+                else:
+                    dois.append(art['doi'])
             offset += 500
         else:
             done = True
