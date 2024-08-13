@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "11.3.0"
+__version__ = "11.4.0"
 # Database
 DB = {}
 # Custom queries
@@ -35,9 +35,10 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 # Navigation
 NAV = {"Home": "",
        "DOIs": {"DOIs by insertion date": "dois_insertpicker",
+                "DOIs by journal": "dois_journal",
                 "DOIs by publisher": "dois_publisher",
-                "DOIs by tag": "dois_tag",
                 "DOIs by source": "dois_source",
+                "DOIs by tag": "dois_tag",
                 "DOIs by year": "dois_year",
                 "Top tags by year": "dois_top"
             },
@@ -2085,6 +2086,49 @@ def doiui_group(year='All'):
                                          navbar=generate_navbar('DOIs')))
 
 
+@app.route('/dois_journal/<string:year>')
+@app.route('/dois_journal')
+def dois_journal(year='All'):
+    ''' Show journals
+    '''
+    match = {"container-title": {"$exists": True, "$ne" : ""}}
+    if year != 'All':
+        match["jrc_publishing_date"] = {"$regex": "^"+ year}
+    payload = [{"$unwind" : "$container-title"},
+               {"$match": match},
+               {"$group": {"_id": "$container-title", "count":{"$sum": 1}}},
+               {"$sort": {"count": -1}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get sources from dois collection"),
+                               message=error_message(err))
+    html = '<table id="journals" class="tablesorter numberlast"><thead><tr>' \
+           + '<th>Journal</th><th>Count</th></tr></thead><tbody>'
+    data = {}
+    for row in rows:
+        if len(data) >= 10:
+            continue
+        if row['_id'] not in data:
+            data[row['_id']] = 0
+        data[row['_id']] += row['count']
+        html += f"<tr><td>{row['_id']}</td><td>{row['count']:,}</td></tr>"
+    html += '</tbody></table><br>' + year_pulldown('dois_journal')
+    title = "DOIs by journal"
+    if year != 'All':
+        title += f" ({year})"
+    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550)
+    title = "Top 10 DOI journals"
+    if year != 'All':
+        title += f" ({year})"
+    return make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                         title=title, html=html,
+                                         chartscript=chartscript, chartdiv=chartdiv,
+                                         navbar=generate_navbar('DOIs')))
+
+
 @app.route('/dois_source/<string:year>')
 @app.route('/dois_source')
 def dois_source(year='All'):
@@ -2415,7 +2459,8 @@ def dois_report(year=str(datetime.now().year)):
         typed[typ] += row['count']
     first, last = get_first_last_authors(year)
     stat = {}
-    payload = [{"$match": {"container-title": {"$exists": True}, "type": "journal-article",
+    payload = [{"$unwind" : "$container-title"},
+               {"$match": {"container-title": {"$exists": True}, "type": "journal-article",
                            "jrc_publishing_date": {"$regex": "^"+ year}}},
                {"$group": {"_id": "$container-title", "count":{"$sum": 1}}}
               ]
