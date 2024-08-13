@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "11.4.0"
+__version__ = "11.5.0"
 # Database
 DB = {}
 # Custom queries
@@ -2055,7 +2055,6 @@ def doiui_group(year='All'):
                                                     + "from dois collection"),
                                message=error_message(err))
     html = "<table id='group' class='tablesorter numbers'><thead></thead><tbody>"
-    html += f"<tr><td>Non-lab head author</td><td>{cnt['total']:,}</td></tr>"
     html += f"<tr><td>Lab head first author</td><td>{cnt['first']:,}</td></tr>"
     html += f"<tr><td>Lab head last author</td><td>{cnt['last']:,}</td></tr>"
     html += "</tbody></table><br>" + year_pulldown('doiui_group')
@@ -2097,24 +2096,37 @@ def dois_journal(year='All'):
     payload = [{"$unwind" : "$container-title"},
                {"$match": match},
                {"$group": {"_id": "$container-title", "count":{"$sum": 1}}},
-               {"$sort": {"count": -1}}
               ]
     try:
         rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get sources from dois collection"),
+                               title=render_warning("Could not get Crossref journals"),
+                               message=error_message(err))
+    journal = {}
+    for row in rows:
+        journal[row['_id']] = row['count']
+    payload = [{"$unwind" : "$institution"},
+               {"$match": match},
+               {"$group": {"_id": "$institution.name", "count":{"$sum": 1}}},
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get Crossref journals"),
                                message=error_message(err))
     html = '<table id="journals" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Journal</th><th>Count</th></tr></thead><tbody>'
-    data = {}
     for row in rows:
+        journal[row['_id']] = row['count']
+    data = {}
+    for key in sorted(journal, key=journal.get, reverse=True):
+        val = journal[key]
         if len(data) >= 10:
             continue
-        if row['_id'] not in data:
-            data[row['_id']] = 0
-        data[row['_id']] += row['count']
-        html += f"<tr><td>{row['_id']}</td><td>{row['count']:,}</td></tr>"
+        data[key] = val
+        html += f"<tr><td>{key}</td><td>{val:,}</td></tr>"
     html += '</tbody></table><br>' + year_pulldown('dois_journal')
     title = "DOIs by journal"
     if year != 'All':
@@ -2479,9 +2491,9 @@ def dois_report(year=str(datetime.now().year)):
         if key in typed:
             additional = []
             if key in first:
-                additional.append(f"{first[key]:,} with first author")
+                additional.append(f"{first[key]:,} with Janelian first author")
             if key in last:
-                additional.append(f"{last[key]:,} with last author")
+                additional.append(f"{last[key]:,} with Janelian last author")
             additional = f" ({', '.join(additional)})" if additional else ""
             stat[val] = f"<span style='font-weight: bold'>{typed[key]:,}</span> {val.lower()}"
             if val == 'Journal articles':
