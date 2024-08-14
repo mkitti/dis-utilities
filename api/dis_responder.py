@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta
 from html import escape
 import inspect
 from json import JSONEncoder
-from operator import attrgetter
+from operator import attrgetter, itemgetter
 import os
 import random
 import re
@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "12.0.0"
+__version__ = "13.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -442,6 +442,7 @@ def generate_works_table(rows, name=None):
     dois = []
     authors = {}
     html = ""
+    fileoutput = ""
     for row in rows:
         if row['doi']:
             doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
@@ -457,6 +458,7 @@ def generate_works_table(rows, name=None):
                    "title": title
                   }
         works.append(payload)
+        fileoutput += f"{payload['date']}\t{payload['doi']}\t{payload['title']}\n"
         if name:
             alist = DL.get_author_details(row)
             for auth in alist:
@@ -464,9 +466,8 @@ def generate_works_table(rows, name=None):
                     authors[f"{auth['given']} {auth['family']}"] = True
     if not works:
         return html, []
-    html += f"Publications: {len(works)}<br><table id='pubs' class='tablesorter standard'>" \
+    html += "<table id='pubs' class='tablesorter standard'>" \
             + '<thead><tr><th>Published</th><th>DOI</th><th>Title</th></tr></thead><tbody>'
-
     for work in sorted(works, key=lambda row: row['date'], reverse=True):
         html += f"<tr><td>{work['date']}</td><td>{work['doi'] if work['doi'] else '&nbsp;'}</td>" \
                 + f"<td>{work['title']}</td></tr>"
@@ -475,6 +476,8 @@ def generate_works_table(rows, name=None):
     if authors:
         html = f"Authors found: {', '.join(sorted(authors.keys()))}<br>" \
                + f"This may include non-Janelia authors<br>{html}"
+    html = create_downloadable('works', ['Published', 'DOI', 'Title'], fileoutput) + html
+    html = f"Publications: {len(works)}<br>" + html
     return html, dois
 
 
@@ -780,6 +783,33 @@ def get_first_last_authors(year):
     return stat['first'], stat['last']
 
 
+def get_no_relation():
+    ''' Get DOIs with no relation
+        Keyword arguments:
+          None
+        Returns:
+          Dictionary of types/subtypes with no relation
+    '''
+    no_relation = {"Crossref": {}, "DataCite": {}}
+    payload = {"Crossref_journal": {"type": "journal-article", "subtype": {"$ne": "preprint"},
+                                    "jrc_preprint": {"$exists": False}},
+               "Crossref_preprint": {"subtype": "preprint", "jrc_preprint": {"$exists": False}},
+               "DataCite_journal": {"jrc_obtained_from": "DataCite",
+                                    "types.resourceTypeGeneral": {"$ne": "Preprint"},
+                                    "jrc_preprint": {"$exists": False}},
+               "DataCite_preprint": {"types.resourceTypeGeneral": "Preprint",
+                                     "jrc_preprint": {"$exists": False}}
+              }
+    for key, val in payload.items():
+        try:
+            cnt = DB['dis'].dois.count_documents(val)
+        except Exception as err:
+            raise err
+        src, typ = key.split('_')
+        no_relation[src][typ] = cnt
+    return no_relation
+
+
 def get_preprint_stats(rows):
     ''' Create a dictionary of preprint statistics
         Keyword arguments:
@@ -806,6 +836,56 @@ def get_preprint_stats(rows):
                     stat[row['_id']['year']][sub] = 0
             stat[row['_id']['year']]['journal'] += row['count']
     return stat
+
+
+def get_source_data(year):
+    ''' Get DOI data by source and type/subtype or resourceTypeGeneral
+        Keyword arguments:
+          year: year to get data for
+        Returns:
+          Data dictionary and html dictionary
+    '''
+    # Crossref
+    if year != 'All':
+        match = {"jrc_obtained_from": "Crossref",
+                 "jrc_publishing_date": {"$regex": "^"+ year}}
+    else:
+        match = {"jrc_obtained_from": "Crossref"}
+    payload = [{"$match": match},
+               {"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
+                                   "subtype": "$subtype"},
+                           "count": {"$sum": 1}}},
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get Crossref types from dois"),
+                               message=error_message(err))
+    data = {"Crossref": 0, "DataCite": 0}
+    hdict = {}
+    for row in rows:
+        for field in ('type', 'subtype'):
+            if field not in row['_id']:
+                row['_id'][field] = ''
+        data['Crossref'] += row['count']
+        hdict["_".join([row['_id']['source'], row['_id']['type'],
+                        row['_id']['subtype']])] = row['count']
+    # DataCite
+    match['jrc_obtained_from'] = "DataCite"
+    payload = [{"$match": match},
+               {"$group": {"_id": "$types.resourceTypeGeneral","count": {"$sum": 1}}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DataCite types from dois"),
+                               message=error_message(err))
+    for row in rows:
+        data['DataCite'] += row['count']
+        hdict["_".join(['DataCite', row['_id'], ""])] = row['count']
+    return data, hdict
 
 
 def s2_citation_count(doi):
@@ -1893,7 +1973,7 @@ def show_doi_ui(doi):
                                          navbar=generate_navbar('DOIs')))
 
 
-@app.route('/doisui/<string:name>')
+@app.route('/doisui_name/<string:name>')
 def show_doi_by_name_ui(name):
     ''' Show DOIs for a name
     '''
@@ -1914,6 +1994,28 @@ def show_doi_by_name_ui(name):
                                message=f"Could not find any DOIs with author name matching {name}")
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"DOIs for {name}", html=html,
+                                         navbar=generate_navbar('DOIs')))
+
+
+@app.route('/doisui_type/<string:typ>/<string:sub>')
+def show_doi_by_type_ui(typ, sub):
+    ''' Show DOIs for a given type/subtype
+    '''
+    payload = {"type": typ, "subtype": sub}
+    try:
+        rows = DB['dis'].dois.find(payload).collation({"locale": "en"}).sort("doi", 1)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs from dois collection"),
+                               message=error_message(err))
+    html, _ = generate_works_table(rows)
+    if not html:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning("Could not find DOIs", 'warning'),
+                               message="Could not find any DOIs with type/subtype matching " \
+                                       + f"{typ}/{sub}")
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title=f"DOIs for {typ}/{sub}", html=html,
                                          navbar=generate_navbar('DOIs')))
 
 
@@ -2170,31 +2272,30 @@ def dois_journal(year='All'):
 def dois_source(year='All'):
     ''' Show data sources
     '''
-    payload = [{"$group": {"_id": {"source": "$jrc_obtained_from", "type": "$type",
-                                   "subtype": "$subtype"},
-                           "count": {"$sum": 1}}},
-               {"$sort" : {"count": -1}}]
-    if year != 'All':
-        payload.insert(0, {"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}})
     try:
-        rows = DB['dis'].dois.aggregate(payload)
+        data, hdict = get_source_data(year)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get sources from dois collection"),
+                               title=render_warning("Could not get source data from dois"),
                                message=error_message(err))
+    # HTML and charts
     html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Source</th><th>Type</th><th>Subtype</th><th>Count</th>' \
            + '</tr></thead><tbody>'
-    data = {}
-    for row in rows:
-        if row['_id']['source'] not in data:
-            data[row['_id']['source']] = 0
-        for field in ('source', 'type', 'subtype'):
-            if field not in row['_id']:
-                row['_id'][field] = ''
-        data[row['_id']['source']] += row['count']
-        html += f"<tr><td>{row['_id']['source']}</td><td>{row['_id']['type']}</td>" \
-                + f"<td>{row['_id']['subtype']}</td><td>{row['count']:,}</td></tr>"
+    for key, val in sorted(hdict.items(), key=itemgetter(1), reverse=True):
+        src, typ, sub = key.split('_')
+        if src == 'Crossref':
+            if sub:
+                val = f"<a href='/doisui_type/{typ}/{sub}'>{val}</a>"
+            else:
+                onclick = "onclick='nav_post(\"type\",\"" + typ \
+                          + "\",\"" + src + "\")'"
+                val = f"<a href='#' {onclick}>{val:,}</a>"
+        else:
+            onclick = "onclick='nav_post(\"types.resourceTypeGeneral\",\"" + typ \
+                      + "\",\"" + src + "\")'"
+            val = f"<a href='#' {onclick}>{val:,}</a>"
+        html += f"<tr><td>{src}</td><td>{typ}</td><td>{sub}</td><td>{val}</td></tr>"
     html += '</tbody></table><br>' + year_pulldown('dois_source')
     title = "DOIs by source"
     if year != 'All':
@@ -2231,6 +2332,7 @@ def dois_source(year='All'):
                                          chartscript=chartscript, chartdiv=chartdiv,
                                          navbar=generate_navbar('DOIs')))
 
+
 @app.route('/dois_preprint/<string:year>')
 @app.route('/dois_preprint')
 def dois_preprint(year='All'):
@@ -2244,7 +2346,7 @@ def dois_preprint(year='All'):
         if src == 'Crossref':
             payload['type'] = {"$in": ["journal-article", "posted-content"]}
         else:
-            payload['doi'] = {"$not": {"$regex": f"{JANELIA_PREFIX}|zenodo|arxiv"}}
+            payload['type'] = {"types.resourceTypeGeneral": "Preprint"}
         try:
             cnt = DB['dis'].dois.count_documents(payload)
             source[src] = cnt
@@ -2266,6 +2368,7 @@ def dois_preprint(year='All'):
                                                     + "from dois collection"),
                                message=error_message(err))
     data, preprint = compute_preprint_data(rows)
+    no_relation = get_no_relation()
     html = '<table id="preprints" class="tablesorter numbers"><thead><tr>' \
            + '<th>Status</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
@@ -2273,8 +2376,12 @@ def dois_preprint(year='All'):
             + f"<td>{preprint['journal-article']:,}</td><td>{preprint['DataCite']}</td></tr>"
     html += f"<tr><td>Journal articles with preprints</td><td>{preprint['posted-content']:,}</td>" \
             + "<td>0</td></tr>"
-    html += f"<tr><td>No preprint relation</td><td>{source['Crossref']:,}</td>" \
-            + f"<td>{source['DataCite']:,}</td></tr>"
+    html += "<tr><td>Journals without preprints</td>" \
+            f"<td>{no_relation['Crossref']['journal']:,}</td>" \
+            + f"<td>{no_relation['DataCite']['journal']:,}</td></tr>"
+    html += "<tr><td>Preprints without journals</td>" \
+            f"<td>{no_relation['Crossref']['preprint']:,}</td>" \
+            + f"<td>{no_relation['DataCite']['preprint']:,}</td></tr>"
     html += '</tbody></table><br>' + year_pulldown('dois_preprint')
     data['No preprint relation'] = source['Crossref'] + source['DataCite']
     try:
@@ -2702,13 +2809,18 @@ def show_doiui_custom():
         description: MongoDB or formatting error
     '''
     ipd = receive_payload()
-    for row in ('field', 'value'):
-        if row not in ipd or not ipd[row]:
-            return render_template('error.html', urlroot=request.url_root,
-                                   title=render_warning(f"Missing {row}"),
-                                   message=f"You must specify a {row}")
-    display_value = ipd['value']
-    payload, ptitle = get_custom_payload(ipd, display_value)
+    if request.form:
+        for row in ('field', 'value'):
+            if row not in ipd or not ipd[row]:
+                return render_template('error.html', urlroot=request.url_root,
+                                       title=render_warning(f"Missing {row}"),
+                                       message=f"You must specify a {row}")
+        display_value = ipd['value']
+        payload, ptitle = get_custom_payload(ipd, display_value)
+    else:
+        payload = ipd['query']
+        ipd['field'] = "_".join(list(payload.keys()))
+        ptitle = ''
     print(f"Custom payload: {payload}")
     try:
         rows = DB['dis'].dois.find(payload)
@@ -2738,6 +2850,7 @@ def show_doiui_custom():
         fileoutput += dloop(row, ['published', 'doi', 'title']) + "\n"
     html += '</tbody></table>'
     html = create_downloadable(ipd['field'], header, fileoutput) + html
+    html = f"Publications: {len(works)}<br>" + html
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=ptitle, html=html,
                                          navbar=generate_navbar('DOIs')))
