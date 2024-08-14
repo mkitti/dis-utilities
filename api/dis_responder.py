@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "11.5.0"
+__version__ = "12.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -40,7 +40,8 @@ NAV = {"Home": "",
                 "DOIs by source": "dois_source",
                 "DOIs by tag": "dois_tag",
                 "DOIs by year": "dois_year",
-                "Top tags by year": "dois_top"
+                "Top tags by year": "dois_top",
+                "DOI yearly report": "dois_report"
             },
        "Authorship": {"DOIs by authorship": "dois_author",
                       "DOIs with lab head first/last authors": "doiui_group"},
@@ -728,8 +729,31 @@ def compute_preprint_data(rows):
     return data, preprint
 
 
+def counts_by_type(rows):
+    ''' Count DOIs by type
+        Keyword arguments:
+          rows: aggregate rows from dois collection
+        Returns:
+          Dictionary of type counts
+    '''
+    typed = {}
+    for row in rows:
+        typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
+        sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
+        if sub == 'preprint':
+            typ = 'posted-content'
+        if typ not in typed:
+            typed[typ] = 0
+        typed[typ] += row['count']
+    return typed
+
+
 def get_first_last_authors(year):
     ''' Get first and last author counts
+        Keyword arguments:
+          year: year to get counts for
+        Returns:
+          First and last author counts
     '''
     stat = {'first': {}, 'last': {}}
     for which in ("first", "last"):
@@ -970,14 +994,14 @@ def last_thursday():
     return today - timedelta(days=offset)
 
 
-def year_pulldown(prefix):
+def year_pulldown(prefix, all_years=True):
     ''' Generate a year pulldown
         Keyword arguments:
           prefic: navigation prefix
         Returns:
           Pulldown HTML
     '''
-    years = ['All']
+    years = ['All'] if all_years else []
     for year in range(datetime.now().year, 2005, -1):
         years.append(str(year))
     html = "<div class='btn-group'><button type='button' class='btn btn-info dropdown-toggle' " \
@@ -2220,7 +2244,7 @@ def dois_preprint(year='All'):
         if src == 'Crossref':
             payload['type'] = {"$in": ["journal-article", "posted-content"]}
         else:
-            payload['doi'] = {"$not": {"$regex": f"{JANELIA_PREFIX}|zenodo"}}
+            payload['doi'] = {"$not": {"$regex": f"{JANELIA_PREFIX}|zenodo|arxiv"}}
         try:
             cnt = DB['dis'].dois.count_documents(payload)
             source[src] = cnt
@@ -2293,6 +2317,16 @@ def dois_preprint_year():
         data['years'].append(key)
         data['Journal article'].append(val['journal'])
         data['Preprint'].append(val['preprint'])
+    payload = {"doi": {"$regex": "arxiv", "$options": "i"}}
+    try:
+        rows = DB['dis'].dois.find(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get arXiv DOIs"),
+                               message=error_message(err))
+    for row in rows:
+        year = row['jrc_publishing_date'][:4]
+        data['Preprint'][data['years'].index(year)] += 1
     chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/preprint status",
                                                  xaxis="years",
                                                  yaxis=('Journal article', 'Preprint'),
@@ -2460,17 +2494,21 @@ def dois_report(year=str(datetime.now().year)):
                                title=render_warning("Could not get yearly metrics " \
                                                     + "from dois collection"),
                                message=error_message(err))
-    typed = {}
-    for row in rows:
-        typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
-        sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
-        if sub == 'preprint':
-            typ = 'posted-content'
-        if typ not in typed:
-            typed[typ] = 0
-        typed[typ] += row['count']
+    typed = counts_by_type(rows)
     first, last = get_first_last_authors(year)
+    # arXiv count
+    try:
+        cnt = DB['dis'].dois.count_documents({"doi": {"$regex": "arxiv", "$options": "i"},
+                                              "jrc_publishing_date": {"$regex": "^"+ year}})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get arXiv metrics " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    if cnt:
+        typed['posted-content'] += cnt
     stat = {}
+    # Journal count
     payload = [{"$unwind" : "$container-title"},
                {"$match": {"container-title": {"$exists": True}, "type": "journal-article",
                            "jrc_publishing_date": {"$regex": "^"+ year}}},
@@ -2502,8 +2540,15 @@ def dois_report(year=str(datetime.now().year)):
     if 'DataCite' in typed:
         stat['DataCite'] = f"<span style='font-weight: bold'>{typed['DataCite']:,}" \
                            + "</span> DataCite entries"
+    if 'Journal articles' not in stat:
+        stat['Journal articles'] = "<span style='font-weight: bold'>0</span> journal articles"
+    if 'Preprints' not in stat:
+        stat['Preprints'] = "<span style='font-weight: bold'>0</span> preprints"
+    if 'DataCite' not in stat:
+        stat['DataCite'] = "<span style='font-weight: bold'>0</span> DataCite entries"
     html = f"{stat['Journal articles']}<br>{stat['Preprints']}<br>{stat['DataCite']}<br>"
     html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
+    html += '<br>' + year_pulldown('dois_report', all_years=False)
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"{year}", html=html,
                                          navbar=generate_navbar('DOIs')))
