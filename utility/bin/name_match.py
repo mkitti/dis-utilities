@@ -20,6 +20,8 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
+#TODO: Troubleshoot: Why did this doi 10.1016/j.cub.2024.07.036 give me multiple irrelevant 'Daniel's? Shouldn't the section with new_namesearch_results prevent this?
+# TODO: Add support for arxiv DOIs
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
