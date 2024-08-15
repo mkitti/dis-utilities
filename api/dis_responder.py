@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.0.0"
+__version__ = "13.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -1997,11 +1997,18 @@ def show_doi_by_name_ui(name):
                                          navbar=generate_navbar('DOIs')))
 
 
-@app.route('/doisui_type/<string:typ>/<string:sub>')
-def show_doi_by_type_ui(typ, sub):
+@app.route('/doisui_type/<string:src>/<string:typ>/<string:sub>', defaults={'year': 'All'})
+@app.route('/doisui_type/<string:src>/<string:typ>/<string:sub>/<string:year>')
+def show_doi_by_type_ui(src, typ, sub, year):
     ''' Show DOIs for a given type/subtype
     '''
-    payload = {"type": typ, "subtype": sub}
+    payload = {"jrc_obtained_from": src,
+               ("type" if src == 'Crossref' else 'types.resourceTypeGeneral'): typ}
+    if sub != 'None':
+        payload["subtype"] = sub
+    if year != 'All':
+        payload['jrc_publishing_date'] = {"$regex": "^" + year}
+    print(payload)
     try:
         rows = DB['dis'].dois.find(payload).collation({"locale": "en"}).sort("doi", 1)
     except Exception as err:
@@ -2009,13 +2016,18 @@ def show_doi_by_type_ui(typ, sub):
                                title=render_warning("Could not get DOIs from dois collection"),
                                message=error_message(err))
     html, _ = generate_works_table(rows)
+    desc = f"{src} {typ}"
+    if sub != 'None':
+        desc += f"/{sub}"
+    if year != 'All':
+        desc += f" ({year})"
     if not html:
         return render_template('warning.html', urlroot=request.url_root,
                                title=render_warning("Could not find DOIs", 'warning'),
                                message="Could not find any DOIs with type/subtype matching " \
-                                       + f"{typ}/{sub}")
+                                       + desc)
     return make_response(render_template('general.html', urlroot=request.url_root,
-                                         title=f"DOIs for {typ}/{sub}", html=html,
+                                         title=f"DOIs for {desc}", html=html,
                                          navbar=generate_navbar('DOIs')))
 
 
@@ -2284,18 +2296,14 @@ def dois_source(year='All'):
            + '</tr></thead><tbody>'
     for key, val in sorted(hdict.items(), key=itemgetter(1), reverse=True):
         src, typ, sub = key.split('_')
-        if src == 'Crossref':
-            if sub:
-                val = f"<a href='/doisui_type/{typ}/{sub}'>{val}</a>"
-            else:
-                onclick = "onclick='nav_post(\"type\",\"" + typ \
-                          + "\",\"" + src + "\")'"
-                val = f"<a href='#' {onclick}>{val:,}</a>"
+        if not sub:
+            sub = 'None'
+        if year == 'All':
+            val = f"<a href='/doisui_type/{src}/{typ}/{sub}'>{val}</a>"
         else:
-            onclick = "onclick='nav_post(\"types.resourceTypeGeneral\",\"" + typ \
-                      + "\",\"" + src + "\")'"
-            val = f"<a href='#' {onclick}>{val:,}</a>"
-        html += f"<tr><td>{src}</td><td>{typ}</td><td>{sub}</td><td>{val}</td></tr>"
+            val = f"<a href='/doisui_type/{src}/{typ}/{sub}/{year}'>{val}</a>"
+        html += f"<tr><td>{src}</td><td>{typ}</td><td>{sub if sub != 'None' else ''}</td>" \
+                + f"<td>{val}</td></tr>"
     html += '</tbody></table><br>' + year_pulldown('dois_source')
     title = "DOIs by source"
     if year != 'All':
