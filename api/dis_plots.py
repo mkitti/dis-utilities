@@ -16,7 +16,7 @@ TYPE_PALETTE = ["mediumblue", "darkorange", "wheat", "darkgray"]
 # ******************************************************************************
 # * Utility functions                                                          *
 # ******************************************************************************
-def preprint_type_piechart(coll, year):
+def _preprint_type_piechart(coll, year):
     ''' Create a preprint type pie chart
         Keyword arguments:
           coll: dois collection
@@ -48,7 +48,7 @@ def preprint_type_piechart(coll, year):
                      "source", width=500)
 
 
-def preprint_capture_piechart(coll, year):
+def _preprint_capture_piechart(coll, year):
     ''' Create a preprint capture pie chart
         Keyword arguments:
           coll: dois collection
@@ -79,6 +79,38 @@ def preprint_capture_piechart(coll, year):
     return pie_chart(data, title, "source",
                      width=500, colors=SOURCE_PALETTE)
 
+
+def preprint_pie_charts(data, year, coll):
+    ''' Create a preprint capture pie chart
+        Keyword arguments:
+          data: dictionary of data
+          year: year or "All"
+          coll: dois collection
+        Returns:
+          Chart components
+    '''
+    title = "DOIs by preprint status"
+    if year != 'All':
+        title += f" ({year})"
+    chartscript, chartdiv = pie_chart(data, title, "source",
+                                      colors=SOURCE_PALETTE, width=500)
+    # Preprint types
+    try:
+        script2, div2 = _preprint_type_piechart(coll, year)
+        if script2:
+            chartscript += script2
+            chartdiv += div2
+    except Exception as err:
+        raise err
+    # Preprint capture
+    try:
+        script2, div2 = _preprint_capture_piechart(coll, year)
+        if script2:
+            chartscript += script2
+            chartdiv += div2
+    except Exception as err:
+        raise err
+    return chartscript, chartdiv
 
 # ******************************************************************************
 # * Basic charts                                                               *

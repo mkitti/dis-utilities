@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.0.0'
+__version__ = '5.1.0'
 
 import argparse
 import configparser
@@ -24,7 +24,6 @@ import requests
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
-
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
 
@@ -139,6 +138,8 @@ def get_dis_dois_from_mongo():
                 terminate_program(f"Could not find updated field for {rec['doi']} (DataCite)")
             result[rec['doi']] = {"updated": rec['updated']}
         else:
+            if "deposited" not in rec:
+                terminate_program(f"Could not find deposited field for {rec['doi']} (Crossref)")
             result[rec['doi']] = {"deposited": {'date-time': rec['deposited']['date-time']}}
     LOGGER.info(f"Got {len(result):,} DOIs from DIS Mongo")
     return result

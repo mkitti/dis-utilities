@@ -1,11 +1,12 @@
 ''' update_orcid.py
-    Update the MongoDB orcid collection with ORCID IDs and names for Janelia authors
+    Update the MongoDB orcid collection with ORCIDs and names for Janelia authors
 '''
 
-__version__ = '2.2.0'
+__version__ = '2.4.0'
 
 import argparse
 import collections
+import configparser
 import json
 from operator import attrgetter
 import os
@@ -29,6 +30,7 @@ COUNT = collections.defaultdict(lambda: 0, {})
 # General
 PRESENT = {}
 NEW_ORCID = {}
+ALUMNI = []
 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
@@ -125,7 +127,7 @@ def get_name(oid):
         Returns:
           family and given name
     '''
-    url = f"https://pub.orcid.org/v3.0/{oid}"
+    url = f"{CONFIG['orcid']['base']}{oid}"
     try:
         resp = requests.get(url, timeout=10,
                             headers={"Accept": "application/json"})
@@ -148,8 +150,8 @@ def add_from_orcid(oids):
           None
     '''
     authors = []
-    base = 'https://pub.orcid.org/v3.0/search'
-    for url in ('/?q=ror-org-id:"https://ror.org/013sk6x84"',
+    base = f"{CONFIG['orcid']['base']}search"
+    for url in ('/?q=ror-org-id:"' + CONFIG['ror']['janelia'] + '"',
                 '/?q=affiliation-org-name:"Janelia Research Campus"',
                 '/?q=affiliation-org-name:"Janelia Farm Research Campus"'):
         try:
@@ -350,15 +352,20 @@ def generate_email():
           None
     '''
     msg = JRC.get_run_data(__file__, __version__)
-    msg += f"The following ORCID IDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
-    for oid, val in NEW_ORCID.items():
-        if not oid:
-            oid = '(no ORCID)'
-        msg += f"\n{oid}: {val}"
+    if NEW_ORCID:
+        msg += f"The following ORCIDs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
+        for oid, val in NEW_ORCID.items():
+            if not oid:
+                oid = '(no ORCID)'
+            msg += f"\n{oid}: {val}"
+    if ALUMNI:
+        msg += "\nThe following ORCIDs were set to alumni status:"
+        for alum in ALUMNI:
+            msg += f"\n{alum}"
     try:
         LOGGER.info(f"Sending email to {RECEIVERS}")
         JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
-                       "New ORCID IDs")
+                       "ORCID updates")
     except Exception as err:
         LOGGER.error(err)
 
@@ -401,6 +408,31 @@ def should_continue(rec):
     return True
 
 
+def perform_cleanup():
+    ''' Check all ORCIDs to see if they are alumni
+        Keyword arguments:
+          None
+        Returns:
+          None
+    '''
+    payload = {"employeeId": {"$exists": True}, "alumni": {"$exists": False}}
+    try:
+        cnt = DB['dis'].orcid.count_documents(payload)
+        rows = DB['dis'].orcid.find(payload)
+    except Exception as err:
+        terminate_program(err)
+    LOGGER.info(f"Found {cnt} potential alumni")
+    for row in tqdm(rows, desc='Alumni', total=cnt):
+        idresp = JRC.call_people_by_id(row['employeeId'])
+        if not idresp or not idresp['employeeId']:
+            msg = f"{row['given']} {row['family']} ({row['employeeId']}) is now alumni"
+            LOGGER.warning(msg)
+            ALUMNI.append(msg)
+            COUNT['alumni'] += 1
+            if ARG.WRITE:
+                DB['dis'].orcid.update_one({"_id": row['_id']}, {"$set": {"alumni": True}})
+
+
 def update_orcid():
     ''' Update the orcid collection
         Keyword arguments:
@@ -426,7 +458,7 @@ def update_orcid():
                 LOGGER.warning("Record was not inserted")
                 terminate_program()
     else:
-        # Get ORCID IDs from the doi collection
+        # Get ORCIDs from the doi collection
         dcoll = DB['dis'].dois
         # Crossref
         payload = {"author.affiliation.name": {"$regex": "Janelia"},
@@ -442,14 +474,16 @@ def update_orcid():
                 process_author(aut, oids, "crossref")
         add_from_orcid(oids)
         add_janelia_info(oids)
+    perform_cleanup()
     if ARG.WRITE:
         write_records(oids)
-        if NEW_ORCID:
+        if NEW_ORCID or ALUMNI:
             generate_email()
     print(f"Records read from MongoDB:dois: {COUNT['records']}")
     print(f"Records read from ORCID:        {COUNT['orcid']}")
-    print(f"ORCID IDs inserted:             {COUNT['insert']}")
-    print(f"ORCID IDs updated:              {COUNT['update']}")
+    print(f"ORCIDs inserted:                {COUNT['insert']}")
+    print(f"ORCIDs updated:                 {COUNT['update']}")
+    print(f"ORCIDs set to alumni:           {COUNT['alumni']}")
     if not ARG.WRITE:
         LOGGER.warning("Dry run successful, no updates were made")
 
@@ -478,6 +512,8 @@ if __name__ == '__main__':
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
     initialize_program()
+    CONFIG = configparser.ConfigParser()
+    CONFIG.read('config.ini')
     DISCONFIG = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     update_orcid()
     terminate_program()

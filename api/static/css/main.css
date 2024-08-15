@@ -1,3 +1,23 @@
+.citation {
+  font: 13pt Times;
+}
+
+.paperdata {
+  font-size: 14pt;
+  color: #f5fffa;
+}
+.titlestat {
+  text-align: center;
+  font: 28pt Arial,sans-serif;
+  font-weight: bold;
+  color: white;
+  background-color: black;
+}
+.yearstat {
+  font: 18pt Tahoma,sans-serif;
+  color: black;
+  background-color: #89c242;
+}
 table.standard {
   border-collapse: collapse;
   font-size: 12pt;
