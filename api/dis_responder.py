@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.1.0"
+__version__ = "13.1.1"
 # Database
 DB = {}
 # Custom queries
@@ -474,7 +474,7 @@ def generate_works_table(rows, name=None):
     if dois:
         html += "</tbody></table>"
     if authors:
-        html = f"Authors found: {', '.join(sorted(authors.keys()))}<br>" \
+        html = f"<br>Authors found: {', '.join(sorted(authors.keys()))}<br>" \
                + f"This may include non-Janelia authors<br>{html}"
     html = create_downloadable('works', ['Published', 'DOI', 'Title'], fileoutput) + html
     html = f"Publications: {len(works)}<br>" + html
