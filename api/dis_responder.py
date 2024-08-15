@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.1.1"
+__version__ = "13.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -458,7 +458,7 @@ def generate_works_table(rows, name=None):
                    "title": title
                   }
         works.append(payload)
-        fileoutput += f"{payload['date']}\t{payload['doi']}\t{payload['title']}\n"
+        fileoutput += f"{payload['date']}\t{row['doi']}\t{payload['title']}\n"
         if name:
             alist = DL.get_author_details(row)
             for auth in alist:
@@ -1950,6 +1950,8 @@ def show_doi_ui(doi):
         chead += f" for {data['type'].replace('-', ' ')}"
         if 'subtype' in data:
             chead += f" {data['subtype'].replace('-', ' ')}"
+    elif 'types' in data and 'resourceTypeGeneral' in data['types']:
+        chead += f" for {data['types']['resourceTypeGeneral']}"
     html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}.</span><br><br>"
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
             + "</span><br>"
