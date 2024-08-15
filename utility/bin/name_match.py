@@ -293,6 +293,13 @@ def confirm_action(success_message):
 
 ### Miscellaneous low-level functions and variables
 
+def determine_authors_to_check(doi_record):
+    all_authors = create_author_objects(doi_record)
+    if not any([a.affiliations for a in all_authors]):
+        return(all_authors)
+    else:
+        return([ a for a in all_authors if is_janelian(a, orcid_collection) ])
+
 def is_janelian(author, orcid_collection):
     result = False
     if author.orcid:
@@ -464,16 +471,7 @@ def terminate_program(msg=None):
 
 
 
-# EXPERIMENTAL FUNCTIONS; WORK IN PROGRESS
-
-def determine_authors_to_check(doi_record):
-    all_authors = create_author_objects(doi_record)
-    if not any([a.affiliations for a in all_authors]):
-        return(all_authors)
-    else:
-        return([ a for a in all_authors if is_janelian(a, orcid_collection) ])
-
-
+# WORK IN PROGRESS:
 
 # def update_orcid_record_names_if_needed(author, employee, mongo_orcid_record):
 #     if any(first_names_for_orcid_record(author, employee) not in mongo_orcid_record['given']):
