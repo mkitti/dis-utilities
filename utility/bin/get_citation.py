@@ -63,9 +63,9 @@ if __name__ == '__main__':
             with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
                     results.append( doi_to_citation(doi) )
-        except Exception as err:
+        except:
             print(f"Could not process {arg.FILE}")
-            exit()
+            raise ImportError
     
         for citation in sorted(results):
             if citation:   # a REST error will produce a None object; we don't want to print that.
