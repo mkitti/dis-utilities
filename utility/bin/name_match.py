@@ -8,6 +8,7 @@ import string
 import argparse
 import re
 import itertools
+from collections.abc import Iterable
 from operator import attrgetter
 from nameparser import HumanName
 from rapidfuzz import fuzz, utils
@@ -20,8 +21,7 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
-#TODO: Troubleshoot: Why did this doi 10.1016/j.cub.2024.07.036 give me multiple irrelevant 'Daniel's? Shouldn't the section with new_namesearch_results prevent this?
-# TODO: Add support for arxiv DOIs
+#TODO: Add support for arxiv DOIs
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
@@ -84,18 +84,6 @@ class Guess(Employee):
         self.name = name
         self.score = score
 
-class MissingPerson:
-    """ This class indicates that searching the HHMI People API yielded no results. """
-    pass
-
-class MultipleHits:
-    """ 
-    This class indicates that an author name matched multiple HHMI employees with equally high scores. 
-    This class's only attribute is a list of employee objects. These employees' names had an equally 
-    high fuzzy match score against the author name (therefore I call them 'winners').
-    """
-    def __init__(self, winners=None):
-        self.winners = winners if winners is not None else []
 
 
 
@@ -118,7 +106,7 @@ def create_author_objects(doi_record):
 
 def create_employee(id):
     idsearch_results = search_people_api(id, mode='id')
-    if not isinstance(idsearch_results, MissingPerson):
+    if idsearch_results:
         job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
         email = idsearch_results['email'] if 'email' in idsearch_results else None
         location = idsearch_results['locationName'] if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
@@ -138,7 +126,7 @@ def create_employee(id):
             last_names=last_names)
         )
     else:
-        return(MissingPerson())
+        return(None)
         
 
 def create_guess(employee, name=None, score=None):
@@ -158,7 +146,10 @@ def create_guess(employee, name=None, score=None):
 
 
 
+
+
 ### Functions for matching authors to employees
+
 
 def guess_employee(author):
     """ 
@@ -166,108 +157,93 @@ def guess_employee(author):
     Arguments: 
         author: an author object.
     Returns:
-        A missing person object, a multiple hits object, OR an employee object.
+        A list of candidate employee objects OR an empty list.
     """
-    candidate_employees = []
-    search_term = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
-    print('----------------------------------')
-    print(search_term)
-    namesearch_results = search_people_api(search_term, mode='name')
-    if isinstance(namesearch_results, MissingPerson): 
-        print('TRICKY')
-        namesearch_results = search_tricky_names(author.name)
-    if isinstance(namesearch_results, MissingPerson): # If we still can't find some records in People
-        return(MissingPerson())
+    name = HumanName(author.name)
+    basic = name_search(name.first, name.last)
+    stripped = name_search(unidecode(name.first), unidecode(name.last)) # decode accents and other special characters
+    hyphen_split1 = name_search(name.first, name.last.split('-')[0]) if '-' in name.last else None
+    hyphen_split2 = name_search(name.first, name.last.split('-')[1]) if '-' in name.last else None
+    strp_hyph1 = name_search(unidecode(name.first), unidecode(name.last.split('-')[0])) if '-' in name.last else None
+    strp_hyph2 = name_search(unidecode(name.first), unidecode(name.last.split('-')[1])) if '-' in name.last else None
+    two_middle_names1 = name_search(name.first, name.middle.split(' ')[0]) if len(name.middle.split())==2 else None
+    two_middle_names2 = name_search(name.first, name.middle.split(' ')[1]) if len(name.middle.split())==2 else None
+    strp_middle1 = name_search(unidecode(name.first), unidecode(name.middle.split()[0])) if len(name.middle.split())==2 else None
+    strp_middle2 = name_search(unidecode(name.first), unidecode(name.middle.split()[1])) if len(name.middle.split())==2 else None
+
+    all_results = [basic, stripped, hyphen_split1, hyphen_split2, strp_hyph1, strp_hyph2, two_middle_names1, two_middle_names2, strp_middle1, strp_middle2]
+    candidate_ids = [id for id in list(set(flatten(all_results))) if id is not None]
+    candidate_employees = [create_employee(id) for id in candidate_ids]
+    candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
+    if candidate_employees:
+        return(fuzzy_match(author, candidate_employees))
     else:
-        candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
-        print('----------------------------------')
-        print(candidate_employee_ids)
-        for id in candidate_employee_ids:
-            employee_from_id_search = create_employee(id) 
-            if not isinstance(employee_from_id_search, MissingPerson):
-                candidate_employees.append(employee_from_id_search)
-            else:
-                return(MissingPerson)
-        candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
-        print('----------------------------------')
-        print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in candidate_employees])
-        if not candidate_employees:
-            return(MissingPerson())
-        guesses = []
-        for employee in candidate_employees:
-            employee_permuted_names = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
-            for name in employee_permuted_names:
-                guesses.append(create_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
-        for guess in guesses:
-            guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace 
+        return(None)
+
+def name_search(first, last):
+    search_results1 = search_people_api(first, mode='name')
+    search_results2 = search_people_api(last, mode='name')
+    if search_results1 and search_results2:
+        return( process_search_results(search_results1, search_results2) )
+    else:
+        return(None)
+
+def process_search_results(list1, list2): # We require that the same employeeId appear in both the first and last name searches
+    employee_ids_list1 = {item['employeeId'] for item in list1}
+    employee_ids_list2 = {item['employeeId'] for item in list2}
+    common_ids = list(employee_ids_list1.intersection(employee_ids_list2))
+    if common_ids:
+        return(common_ids)
+    else:
+        return(None)
+
+def fuzzy_match(author, candidate_employees):
+    guesses = []
+    for employee in candidate_employees:
+        employee_permuted_names = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
+        for name in employee_permuted_names:
+            guesses.append(create_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
+    for guess in guesses:
+        guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace 
         high_score = max( [g.score for g in guesses] )
         winners = [ g for g in guesses if g.score == high_score ]
-        if len(winners) == 1:
-            return winners[0]
-        elif len(winners) > 1:
-            print('----------------------------------')
-            print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in winners])
-            new_search_term = max(author.name.replace(search_term, '').strip(), key=len) # Now search again with the second-longest word in their name
-            print('----------------------------------')
-            print(new_search_term)
-            new_namesearch_results = search_people_api(new_search_term, mode='name')
-            if isinstance(new_namesearch_results, MissingPerson):
-                return(MissingPerson())
-            else:
-                #print('----------------------------------')
-                #print( [ (' '.join((employee_dic['nameFirstPreferred'], employee_dic['nameLastPreferred'])), employee_dic['employeeId']) for employee_dic in new_namesearch_results ] )
-                new_candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in new_namesearch_results ]
-                ids_in_both_searches = list(set([g.id for g in guesses]).intersection(set(new_candidate_employee_ids)))
-                #print('----------------------------------')
-                #temp = [ w for w in winners if w.id in new_candidate_employee_ids ]
-                #print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in temp])
-                #print(ids_in_both_searches)
-                if len(ids_in_both_searches) == 0:
-                    return(MissingPerson)
-                elif len(ids_in_both_searches) == 1:
-                    winning_id = ids_in_both_searches[0]
-                    winners = [ w for w in winners if w.id == winning_id ]
-                    if len(winners) > 1: # The same employee ID might be in the people system twice
-                        return(MultipleHits(winners = winners))
-                    else:
-                        return(winners[0])
-                elif len(ids_in_both_searches) > 1: # There might be two Janelians with the exact same name
-                    return(MultipleHits(winners = winners))
+        return(winners)
 
 
-def evaluate_guess(author, best_guess, inform_message, verbose=False):
+def evaluate_guess(author, candidates, inform_message, verbose=False):
     """ 
     A function that lets the user manually evaluate the best-guess employee for a given author. 
     Arguments:
         author: an author object
-        best_guess: a guess object
+        candidates: list of guess objects, or an empty list
         inform_message: an informational message will be printed to the terminal if verbose==True OR if some action is needed.
         verbose: boolean, passed from command line.
     Returns:
         A guess object if the/a guess was approved, otherwise returns False.
     """
-    if isinstance(best_guess, MissingPerson):
+    if not candidates:
         if verbose:
-            print(f"{author.name} could not be found in the HHMI People API. No action to take.\n")
+            print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
         return False
     
-    if isinstance(best_guess, MultipleHits):
+    if len(candidates) > 1:
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
-        for guess in best_guess.winners:
+        for guess in candidates:
             print(colored(f"{guess.name}, title: {guess.job_title}, CC: {guess.supOrgName}, {guess.email}", 'black', 'on_yellow'))
         quest = [inquirer.Checkbox('decision', 
                                    carousel=True, 
                                    message="Choose a person from the list", 
-                                   choices=[guess.name for guess in best_guess.winners] + ['None of the above'], 
+                                   choices=[guess.name for guess in candidates] + ['None of the above'], 
                                    default=['None of the above'])]
         ans = inquirer.prompt(quest, theme=BlueComposure())
         if ans['decision'] != ['None of the above']:
-            return next(g for g in best_guess.winners if g.name == ans['decision'][0])
+            return next(g for g in candidates if g.name == ans['decision'][0])
         elif ans['decision'] == ['None of the above']:
             print(f"No action will be taken for {author.name}.\n")
             return False
     else:
+        best_guess = candidates[0]
         if float(best_guess.score) < 85.0:
             if verbose:
                 print(inform_message)
@@ -346,12 +322,10 @@ def choose_authors_manually(author_list, pre_selected_authors=None):
         print('Exiting program.')
         sys.exit(0)
 
-
 def create_orcid_record(best_guess, orcid_collection, author):
     doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
     #doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
     print(f"Record created for {author.name} in orcid collection.")
-
 
 def generate_name_permutations(first_names, middle_names, last_names):
         permutations = set()
@@ -393,27 +367,6 @@ def last_names_for_orcid_record(author, employee):
     h_result = [HumanName(n) for n in result]
     return(list(set([n.last for n in h_result])))
 
-def search_tricky_names(author_name):
-    name = HumanName(author_name)
-    namesearch_results = search_people_api(name.last, mode='name')
-    if not isinstance(namesearch_results, MissingPerson):
-        return(namesearch_results)
-    namesearch_results = search_people_api(unidecode(name.last), mode='name')
-    if not isinstance(namesearch_results, MissingPerson):
-        return(namesearch_results)
-    if '-' in name.last:
-        namesearch_results = search_people_api(unidecode(name.last).split('-')[0], mode='name')
-        if not isinstance(namesearch_results, MissingPerson):
-            return(namesearch_results)
-        namesearch_results = search_people_api(unidecode(name.last).split('-')[1], mode='name')
-        if not isinstance(namesearch_results, MissingPerson):
-            return(namesearch_results)
-    namesearch_results = search_people_api(name.first, mode='name')
-    if not isinstance(namesearch_results, MissingPerson):
-        return(namesearch_results)
-    return(MissingPerson())
-
-
 def search_people_api(query, mode):
     response = None
     if mode not in {'name', 'id'}:
@@ -422,10 +375,14 @@ def search_people_api(query, mode):
         response = JRC.call_people_by_name(query)
     elif mode == 'id':
         response = JRC.call_people_by_id(query)
-    if not response:
-        return(MissingPerson())
-    else:
-        return(response)
+    return(response)
+
+def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists
+    for x in xs:
+        if isinstance(x, Iterable) and not isinstance(x, (str, bytes)):
+            yield from flatten(x)
+        else:
+            yield x
 
 def get_doi_record(doi):
     result = JRC.call_crossref(doi)
@@ -555,8 +512,8 @@ if __name__ == '__main__':
                             print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
                     elif 'employeeId' not in mongo_orcid_record:
                         inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
-                        best_guess = guess_employee(author)
-                        proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE) 
+                        candidates = guess_employee(author)
+                        proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE) 
                         if proceed:
                             best_guess = proceed # if there were multiple best guesses, assign the user-selected one
                             success_message = string.Template("Confirm you wish to add $name's employee ID to their existing ORCID record") #can't use best_guess.name bc guess may be None (MissingPerson)
@@ -568,8 +525,8 @@ if __name__ == '__main__':
 
                 elif not mongo_orcid_record:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
-                    best_guess = guess_employee(author)
-                    proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
+                    candidates = guess_employee(author)
+                    proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
                     if proceed:
                         best_guess = proceed # if there were multiple best guesses, assign the user-selected one
                         employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
@@ -597,12 +554,12 @@ if __name__ == '__main__':
 
             elif not author.orcid:
                 inform_message = f"{author.name} does not have an ORCID on this paper."
-                best_guess = guess_employee(author)
-                if isinstance(best_guess, MissingPerson):
+                candidates = guess_employee(author)
+                if not candidates:
                     if arg.VERBOSE == True:
-                        print(f"{author.name} could not be found in the HHMI People API. No action to take.\n")
-                elif isinstance(best_guess, MultipleHits):
-                        proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
+                        print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
+                elif len(candidates) > 1:
+                        proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
                         best_guess = proceed # if there were multiple best guesses, assign the user-selected one
                         if proceed:
                             employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
@@ -622,7 +579,8 @@ if __name__ == '__main__':
                                 if confirm_proceed:
                                     create_orcid_record(best_guess, orcid_collection, author)
                                     revised_jrc_authors.append(best_guess.id)
-                elif isinstance(best_guess, Employee):
+                elif len(candidates) == 1:
+                    best_guess = candidates[0]
                     employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
                     if employeeId_result:
                         if 'orcid' in employeeId_result:
@@ -636,7 +594,7 @@ if __name__ == '__main__':
                             #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
                             revised_jrc_authors.append(best_guess.id)
                     else:
-                        proceed = evaluate_guess(author, best_guess, inform_message, verbose=arg.VERBOSE)
+                        proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
                         if proceed:
                             print(f"There is no record in our collection for {author.name}.")
                             success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
