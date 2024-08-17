@@ -170,13 +170,18 @@ def guess_employee(author):
     """
     candidate_employees = []
     search_term = max(author.name.split(), key=len) # We can only search the People API by one name, so just pick the longest one
+    print('----------------------------------')
+    print(search_term)
     namesearch_results = search_people_api(search_term, mode='name')
     if isinstance(namesearch_results, MissingPerson): 
+        print('TRICKY')
         namesearch_results = search_tricky_names(author.name)
-    if isinstance(namesearch_results, MissingPerson):
+    if isinstance(namesearch_results, MissingPerson): # If we still can't find some records in People
         return(MissingPerson())
     else:
         candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in namesearch_results ]
+        print('----------------------------------')
+        print(candidate_employee_ids)
         for id in candidate_employee_ids:
             employee_from_id_search = create_employee(id) 
             if not isinstance(employee_from_id_search, MissingPerson):
@@ -184,6 +189,8 @@ def guess_employee(author):
             else:
                 return(MissingPerson)
         candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
+        print('----------------------------------')
+        print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in candidate_employees])
         if not candidate_employees:
             return(MissingPerson())
         guesses = []
@@ -198,13 +205,23 @@ def guess_employee(author):
         if len(winners) == 1:
             return winners[0]
         elif len(winners) > 1:
+            print('----------------------------------')
+            print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in winners])
             new_search_term = max(author.name.replace(search_term, '').strip(), key=len) # Now search again with the second-longest word in their name
+            print('----------------------------------')
+            print(new_search_term)
             new_namesearch_results = search_people_api(new_search_term, mode='name')
             if isinstance(new_namesearch_results, MissingPerson):
                 return(MissingPerson())
             else:
+                #print('----------------------------------')
+                #print( [ (' '.join((employee_dic['nameFirstPreferred'], employee_dic['nameLastPreferred'])), employee_dic['employeeId']) for employee_dic in new_namesearch_results ] )
                 new_candidate_employee_ids = [ employee_dic['employeeId'] for employee_dic in new_namesearch_results ]
                 ids_in_both_searches = list(set([g.id for g in guesses]).intersection(set(new_candidate_employee_ids)))
+                #print('----------------------------------')
+                #temp = [ w for w in winners if w.id in new_candidate_employee_ids ]
+                #print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in temp])
+                #print(ids_in_both_searches)
                 if len(ids_in_both_searches) == 0:
                     return(MissingPerson)
                 elif len(ids_in_both_searches) == 1:
