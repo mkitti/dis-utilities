@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.2.0"
+__version__ = "13.3.0"
 # Database
 DB = {}
 # Custom queries
@@ -293,7 +293,6 @@ def receive_payload():
 
 def initialize_result():
     ''' Initialize the result dictionary
-        An auth header with a JWT token is required for all POST and DELETE requests
         Returns:
           decoded partially populated result dictionary
     '''
@@ -2766,9 +2765,13 @@ def show_insert(idate):
     fileoutput = ""
     for row in rows:
         source = row['jrc_load_source'] if row['jrc_load_source'] else ""
-        typ = row['type'] if 'type' in row else ""
-        if 'subtype' in row:
-            typ += f" {row['subtype']}"
+        typ = ""
+        if 'type' in row:
+            typ = row['type']
+            if 'subtype' in row:
+                typ += f" {row['subtype']}"
+        elif 'types' in row and 'resourceTypeGeneral' in row['types']:
+            typ = row['types']['resourceTypeGeneral']
         version = []
         if 'relation' in row and 'is-version-of' in row['relation']:
             for ver in row['relation']['is-version-of']:
