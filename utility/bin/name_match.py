@@ -23,6 +23,7 @@ import doi_common.doi_common as doi_common
 #TODO: Add new names to an existing record?
 #TODO: Add support for arxiv DOIs
 #TODO: Add an "exists" method to Employee, instead of returning None if no employee is found
+#TODO: 10.7554/eLife.80622 throws an error!
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
