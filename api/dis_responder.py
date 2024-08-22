@@ -1191,7 +1191,7 @@ def show_doi_authors(doi):
     try:
         orgs = DL.get_supervisory_orgs()
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     if 'jrc_tag' in row:
         for atag in row['jrc_tag']:
             if atag not in tagname:
@@ -1276,7 +1276,7 @@ def show_doi_migration(doi):
         try:
             orgs = DL.get_supervisory_orgs()
         except Exception as err:
-            raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+            raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
         try:
             rec = get_migration_data(row, orgs)
         except Exception as err:
@@ -1325,7 +1325,7 @@ def show_doi_migrations(idate):
     try:
         orgs = DL.get_supervisory_orgs()
     except Exception as err:
-        raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+        raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     for row in rows:
         try:
             doi = row['doi']
