@@ -67,6 +67,7 @@ def doi_exists(doi):
         row = DB['dis']['dois'].find_one({"doi": doi})
     except Exception as err:
         terminate_program(err)
+    return False #PLUG
     return bool(row)
 
 
@@ -115,7 +116,7 @@ def check_corresponding_institution(item, resp, ready):
           resp: response from Crossref
           ready: list of DOIs ready for processing
         Returns:
-          None
+          True or False
     '''
 
     if 'author_corresponding_institution' in item \
@@ -123,9 +124,11 @@ def check_corresponding_institution(item, resp, ready):
         if resp and 'message' in resp:
             LOGGER.info(f"Janelia found as corresponding institution for {item['doi']}")
             ready.append(item['doi'].lower())
+            return True
         else:
             COUNT['asserted_crossref'] += 1
             LOGGER.error(f"{item['doi']} with Janelia corresponding institution not in Crossref")
+    return False
 
 
 def parse_authors(doi, msg, ready, review):
