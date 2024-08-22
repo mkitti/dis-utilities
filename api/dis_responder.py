@@ -12,7 +12,7 @@ import random
 import re
 import string
 import sys
-from time import time
+from time import sleep, time
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.3.0"
+__version__ = "13.4.0"
 # Database
 DB = {}
 # Custom queries
@@ -887,7 +887,7 @@ def get_source_data(year):
     return data, hdict
 
 
-def s2_citation_count(doi):
+def s2_citation_count(doi, format='plain'):
     ''' Get citation count from Semantic Scholar
         Keyword arguments:
           doi: DOI
@@ -895,13 +895,19 @@ def s2_citation_count(doi):
           Citation count
     '''
     url = f"{app.config['S2_GRAPH']}paper/DOI:{doi}?fields=citationCount"
+    headers = {'x-api-key': app.config['S2_API_KEY']}
     try:
-        resp = requests.get(url, timeout=10)
-        if resp.status_code != 200:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 429:
+            raise Exception("Rate limit exceeded")
+        elif resp.status_code != 200:
             return 0
         data = resp.json()
-        cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
-              + f"{data['citationCount']}</a>"
+        if format == 'html':
+            cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
+                  + f"{data['citationCount']}</a>"
+        else:
+            cnt = data['citationCount']
         return cnt
     except Exception:
         return 0
@@ -1955,7 +1961,7 @@ def show_doi_ui(doi):
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
             + "</span><br>"
     if row:
-        citations = s2_citation_count(doi)
+        citations = s2_citation_count(doi, format='html')
         if citations:
             html += f"<span class='paperdata'>Citations: {citations}</span><br>"
     html += "<br>"
@@ -2662,7 +2668,27 @@ def dois_report(year=str(datetime.now().year)):
         stat['Preprints'] = "<span style='font-weight: bold'>0</span> preprints"
     if 'DataCite' not in stat:
         stat['DataCite'] = "<span style='font-weight: bold'>0</span> DataCite entries"
+    # Citations
+    try:
+        rows = DB['dis'].dois.find({"jrc_publishing_date": {"$regex": "^"+ year}})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get journal metrics " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
     html = f"{stat['Journal articles']}<br>{stat['Preprints']}<br>{stat['DataCite']}<br>"
+    #cnt = 0
+    #for row in rows:
+    #    if row['jrc_obtained_from'] != 'Crossref':
+    #        continue
+    #    try:
+    #        cnt += s2_citation_count(row['doi'])
+    #    except Exception as err:
+    #        return render_template('error.html', urlroot=request.url_root,
+    #                               title=render_warning("Could not get citation count"),
+    #                               message=error_message(err))
+    #    sleep(.1)
+    # html += f"Citations: {cnt:,}"
     html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
     html += '<br>' + year_pulldown('dois_report', all_years=False)
     return make_response(render_template('general.html', urlroot=request.url_root,
@@ -2750,7 +2776,7 @@ def show_insert(idate):
         raise InvalidUsage(str(err), 400) from err
     try:
         rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}},
-                                   {'_id': 0}).sort("jrc_inserted", 1)
+                                   {'_id': 0}).sort([("jrc_obtained_from", 1), ("jrc_inserted", 1)])
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get DOIs"),
