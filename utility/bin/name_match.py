@@ -401,6 +401,7 @@ def create_orcid_record(best_guess, orcid_collection, author):
     print(f"Record created for {author.name} in orcid collection.")
 
 def generate_name_permutations(first_names, middle_names, last_names):
+        middle_names = [n for n in middle_names if n not in ('', None)] # some example middle_names, from HHMI People system: [None], ['D.', ''], ['Marie Sophie'], ['', '']
         permutations = set()
         # All possible first names + all possible last names
         for first_name, last_name in itertools.product(first_names, last_names):
@@ -409,17 +410,16 @@ def generate_name_permutations(first_names, middle_names, last_names):
             )
         # All possible first names + all possible middle names + all possible last names
         if middle_names:
-            if any(item for item in middle_names if item): # check for ['', '']
-                for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
-                    permutations.add(
-                        f"{first_name} {middle_name} {last_name}"
-                    )
-            # All possible first names + all possible middle initials + all possible last names
-                for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
-                    middle_initial = middle_name[0]
-                    permutations.add(
-                        f"{first_name} {middle_initial} {last_name}"
-                    )
+            for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
+                permutations.add(
+                    f"{first_name} {middle_name} {last_name}"
+                )
+        # All possible first names + all possible middle initials + all possible last names
+            for first_name, middle_name, last_name in itertools.product(first_names, middle_names, last_names):
+                middle_initial = middle_name[0]
+                permutations.add(
+                    f"{first_name} {middle_initial} {last_name}"
+                )
         return list(sorted(permutations))
 
 def first_names_for_orcid_record(author, employee):
@@ -440,6 +440,27 @@ def last_names_for_orcid_record(author, employee):
     h_result = [HumanName(n) for n in result]
     return(list(set([n.last for n in h_result])))
 
+
+
+def get_mongo_orcid_record(search_term):
+    if not search_term:
+        return(MongoOrcidRecord(exists=False))
+    else:
+        result = ''
+        if len(search_term) == 19:
+            result = doi_common.single_orcid_lookup(search_term, orcid_collection, 'orcid')
+        else:
+            result = doi_common.single_orcid_lookup(search_term, orcid_collection, 'employeeId')
+        if result:
+            if 'orcid' in result and 'employeeId' in result:
+                return(MongoOrcidRecord(orcid=result['orcid'], employeeId=result['employeeId'], exists=True))
+            if 'orcid' in result and 'employeeId' not in result:
+                return(MongoOrcidRecord(orcid=result['orcid'], exists=True))
+            if 'orcid' not in result and 'employeeId' in result:
+                return(MongoOrcidRecord(employeeId=result['employeeId'], exists=True))
+        else:
+            return(MongoOrcidRecord(exists=False))
+
 def search_people_api(query, mode):
     response = None
     if mode not in {'name', 'id'}:
@@ -449,13 +470,6 @@ def search_people_api(query, mode):
     elif mode == 'id':
         response = JRC.call_people_by_id(query)
     return(response)
-
-def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists
-    for x in xs:
-        if isinstance(x, Iterable) and not isinstance(x, (str, bytes)):
-            yield from flatten(x)
-        else:
-            yield x
 
 def get_doi_record(doi):
     result = JRC.call_crossref(doi)
@@ -468,6 +482,13 @@ def strip_orcid_if_provided_as_url(orcid):
             return orcid[len(prefix):]
     return(orcid)
 
+
+def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists
+    for x in xs:
+        if isinstance(x, Iterable) and not isinstance(x, (str, bytes)):
+            yield from flatten(x)
+        else:
+            yield x
 
 DB = {}
 PROJECT = {}
@@ -520,37 +541,6 @@ def terminate_program(msg=None):
 
 
 
-# WORK IN PROGRESS:
-
-# def update_orcid_record_names_if_needed(author, employee, mongo_orcid_record):
-#     if any(first_names_for_orcid_record(author, employee) not in mongo_orcid_record['given']):
-#         #ADD NEW NAMES! TODO for Rob
-
-
-
-
-def get_mongo_orcid_record(search_term):
-    if not search_term:
-        return(MongoOrcidRecord(exists=False))
-    else:
-        result = ''
-        if len(search_term) == 19:
-            result = doi_common.single_orcid_lookup(search_term, orcid_collection, 'orcid')
-        else:
-            result = doi_common.single_orcid_lookup(search_term, orcid_collection, 'employeeId')
-        if result:
-            if 'orcid' in result and 'employeeId' in result:
-                return(MongoOrcidRecord(orcid=result['orcid'], employeeId=result['employeeId'], exists=True))
-            if 'orcid' in result and 'employeeId' not in result:
-                return(MongoOrcidRecord(orcid=result['orcid'], exists=True))
-            if 'orcid' not in result and 'employeeId' in result:
-                return(MongoOrcidRecord(employeeId=result['employeeId'], exists=True))
-        else:
-            return(MongoOrcidRecord(exists=False))
-
-
-
-
 
 
 # -----------------------------------------------------------------------------
@@ -590,7 +580,7 @@ if __name__ == '__main__':
         doi_record = get_doi_record(doi)
         print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
-        #revised_jrc_authors = []
+        #TODO?revised_jrc_authors = []
 
         for author in authors_to_check:
 
@@ -599,8 +589,8 @@ if __name__ == '__main__':
                 if mongo_orcid_record.exists:
                     if mongo_orcid_record.has_employeeId():
                         employee = create_employee(mongo_orcid_record.employeeId)
-                        #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                        #revised_jrc_authors.append(employee.id)
+                        doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, employee), family=last_names_for_orcid_record(author, employee), coll=orcid_collection)
+                        #TODO?revised_jrc_authors.append(employee.id)
                         if arg.VERBOSE:
                             print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
                     else:
@@ -612,33 +602,35 @@ if __name__ == '__main__':
                             proceed = confirm_action(success_message)
                             if proceed:
                                 doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
-                                #TODO: ^ Add names to this
-                                #revised_jrc_authors.append(approved_guess.id)
+                                doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
+                                #TODO?revised_jrc_authors.append(approved_guess.id)
 
                 elif not mongo_orcid_record.exists:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
                     candidates = guess_employee(author)
                     records = [get_mongo_orcid_record(guess.employeeId) for guess in candidates if guess.exists]
-                    # if nothing can be done for all candidates, then proceed no further.
+                    # If nothing can be done for all candidates, then proceed no further.
+                    # It's not exactly true that nothing can be done--I could add names (nicknames, middle initials, etc. from the author name) to the mongo orcid record,
+                    # but I don't want to edit the ORCID record without user confirmation of the match, and it's annoying to prompt the user to evaluate tons of names, for little benefit.
                     if records:
                         if all( [mongo_record.has_orcid() and mongo_record.has_employeeId() for mongo_record in records] ):
                             pass
                         else:
                             approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
                             if approved_guess.exists:
-                                mongo_orcid_record = get_mongo_orcid_record(approved_guess.id) # I know, I'm doing another lookup, which is slow.
+                                mongo_orcid_record = get_mongo_orcid_record(approved_guess.id) # I know, I'm doing another lookup, which is a bit inefficient.
                                 success_message = ''
-                                if mongo_orcid_record:
-                                    if not mongo_orcid_record.has_orcid():
+                                if mongo_orcid_record: 
+                                    if not mongo_orcid_record.has_orcid(): # If the author has a never-before-seen orcid, but their employeeId is already in our collection
                                         print(f"{author.name} is in our collection, with an employee ID only.")
                                         success_message = f"Confirm you wish to add an ORCID id to the existing record for {approved_guess.name}"
                                         proceed = confirm_action(success_message)
                                         if proceed:
                                             doi_common.update_existing_orcid(lookup=approved_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
-                                            #TODO: ^ Add names to this
-                                            #revised_jrc_authors.append(approved_guess.id)
+                                            doi_common.add_orcid_name(lookup=approved_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
+                                            #TODO?revised_jrc_authors.append(approved_guess.id)
                                     elif mongo_orcid_record.has_orcid(): # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
-                                        print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {employeeId_result['orcid']} in our collection. Aborting program.")
+                                        print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {mongo_orcid_record.orcid} in our collection. Aborting program.")
                                         sys.exit(1)
                                 else:
                                     print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
@@ -654,18 +646,16 @@ if __name__ == '__main__':
                 candidates = guess_employee(author)
                 records = [get_mongo_orcid_record(guess.id) for guess in candidates if guess.exists]
                 if records: 
-                    if all( [mongo_record.has_employeeId() for mongo_record in records] ): # if nothing can be done for all candidates, then proceed no further.
+                    if all( [mongo_record.has_employeeId() for mongo_record in records] ): # if nothing can be done for all candidates, then don't bother proceeding.
                         print(f'All matches to {author.name} are in our collection with employeeIds. No action to take.\n')
-                        #print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
-                            #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                            #revised_jrc_authors.append(approved_guess.id)
+                            #TODO?revised_jrc_authors.append(approved_guess.id)
                     else:
                         approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
                         mongo_orcid_record = get_mongo_orcid_record(approved_guess.id)
                         if mongo_orcid_record.has_employeeId():
                             print(f"{author.name} is in our collection with an employee ID. No action to take.\n")
-                            #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                            #revised_jrc_authors.append(approved_guess.id)
+                            doi_common.add_orcid_name(lookup=approved_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
+                            #TODO?revised_jrc_authors.append(approved_guess.id)
                         else:
                             if approved_guess.exists:
                                 print(f"There is no record in our collection for {author.name}.")
