@@ -4,7 +4,6 @@ Update ORCID records as needed.
 """
 
 import sys
-import string
 import argparse
 import re
 import itertools
@@ -22,7 +21,6 @@ import doi_common.doi_common as doi_common
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
 #TODO: Add support for arxiv DOIs
-#TODO: Add an "exists" method to Employee, instead of returning None if no employee is found
 #TODO: Add a little more info to the yellow prompt beyond just job title and supOrg name for ALL instances
 #TODO: If nothing can be done for an employee, don't prompt the user to confirm them.
 #TODO: Problem with 10.1101/2024.05.09.593460. In this case, we essentially have two janelians with the same name, and inquirer doesn't retain info on which option was selected!!
@@ -278,7 +276,7 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
         if ans['decision'] != ['None of the above']:
             return next(g for g in candidates if g.name == ans['decision'][0]) # Some people appear twice in the people system. 
         # inquirer gives us know way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
-        # so this function just chooses the first 'David Clapham'.
+        # For now, this function just chooses the first 'David Clapham'.
         elif ans['decision'] == ['None of the above']:
             print(f"No action will be taken for {author.name}.\n")
             return( Guess(exists=False) )
@@ -322,7 +320,6 @@ def confirm_action(success_message):
     """
     quest = [inquirer.List('confirm',
                 message = success_message,
-                #message = success_message.substitute(name=best_guess.name),
                 choices = ['Yes', 'No'])]
     ans = inquirer.prompt(quest, theme=BlueComposure())
     if ans['confirm'] == 'Yes':
@@ -543,7 +540,7 @@ if __name__ == '__main__':
         doi_record = get_doi_record(doi)
         print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
-        revised_jrc_authors = []
+        #revised_jrc_authors = []
 
         for author in authors_to_check:
 
@@ -552,8 +549,8 @@ if __name__ == '__main__':
                 if mongo_orcid_record:
                     if 'employeeId' in mongo_orcid_record:
                         employee = create_employee(mongo_orcid_record['employeeId'])
-                        #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                        revised_jrc_authors.append(employee.id)
+                        #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                        #revised_jrc_authors.append(employee.id)
                         if arg.VERBOSE:
                             print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
                     elif 'employeeId' not in mongo_orcid_record:
@@ -562,12 +559,11 @@ if __name__ == '__main__':
                         approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE) 
                         if approved_guess.exists:
                             success_message = f"Confirm you wish to add {approved_guess.name}'s employee ID to their existing ORCID record"
-                            #success_message = string.Template("Confirm you wish to add $name's employee ID to their existing ORCID record") #can't use approved_guess.name bc guess may be None (MissingPerson)
-                            confirm_proceed = confirm_action(success_message)
-                            if confirm_proceed:
+                            proceed = confirm_action(success_message)
+                            if proceed:
                                 doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
                                 #TODO: ^ Add names to this
-                                revised_jrc_authors.append(approved_guess.id)
+                                #revised_jrc_authors.append(approved_guess.id)
 
                 elif not mongo_orcid_record:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
@@ -580,23 +576,21 @@ if __name__ == '__main__':
                             if 'orcid' not in employeeId_result:
                                 print(f"{author.name} is in our collection, with an employee ID only.")
                                 success_message = f"Confirm you wish to add an ORCID id to the existing record for {approved_guess.name}"
-                                #success_message = string.Template("Confirm you wish to add an ORCID id to the existing record for $name")
-                                confirm_proceed = confirm_action(success_message)
-                                if confirm_proceed:
+                                proceed = confirm_action(success_message)
+                                if proceed:
                                     doi_common.update_existing_orcid(lookup=approved_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
                                     #TODO: ^ Add names to this
-                                    revised_jrc_authors.append(approved_guess.id)
-                            elif 'orcid' in employeeId_result: # Hopefully this will never get triggered
+                                    #revised_jrc_authors.append(approved_guess.id)
+                            elif 'orcid' in employeeId_result: # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
                                 print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {employeeId_result['orcid']} in our collection. Aborting program.")
                                 sys.exit(1)
                         else:
                             print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
                             success_message = f"Confirm you wish to create an ORCID record for {approved_guess.name}, with both their employee ID and their ORCID"
-                            #success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
-                            confirm_proceed = confirm_action(success_message)
-                            if confirm_proceed:
+                            proceed = confirm_action(success_message)
+                            if proceed:
                                 create_orcid_record(approved_guess, orcid_collection, author)
-                                revised_jrc_authors.append(approved_guess.id)
+                                #revised_jrc_authors.append(approved_guess.id)
 
 
             elif not author.orcid:
@@ -609,73 +603,18 @@ if __name__ == '__main__':
                         if 'orcid' in employeeId_result:
                             print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
                             #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                            revised_jrc_authors.append(approved_guess.id)
+                            #revised_jrc_authors.append(approved_guess.id)
                         else:
                             print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
                             #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                            revised_jrc_authors.append(approved_guess.id)
+                            #revised_jrc_authors.append(approved_guess.id)
                     else:
                         print(f"There is no record in our collection for {author.name}.")
                         success_message = f"Confirm you wish to create an ORCID record for {approved_guess.name} with an employee ID only"
-                        #success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
-                        confirm_proceed = confirm_action(success_message)
-                        if confirm_proceed:
-                            create_orcid_record(best_guess, orcid_collection, author)
-                            revised_jrc_authors.append(best_guess.id)
-
-
-
-
-
-
-
-
-                # if not candidates:
-                #     if arg.VERBOSE == True:
-                #         print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
-                # if len(candidates) > 1:
-                #         best_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
-                #         if best_guess.exists:
-                #             employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
-                #             if employeeId_result:
-                #                 if 'orcid' in employeeId_result:
-                #                     print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
-                #                     #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                #                     revised_jrc_authors.append(best_guess.id)
-                #                 else:
-                #                     print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
-                #                     #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                #                     revised_jrc_authors.append(best_guess.id)
-                #             else:
-                #                 print(f"There is no record in our collection for {author.name}.")
-                #                 success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
-                #                 confirm_proceed = confirm_action(success_message)
-                #                 if confirm_proceed:
-                #                     create_orcid_record(best_guess, orcid_collection, author)
-                #                     revised_jrc_authors.append(best_guess.id)
-                # elif len(candidates) == 1:
-                #     best_guess = candidates[0]
-                #     employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
-                #     if employeeId_result:
-                #         if 'orcid' in employeeId_result:
-                #             if arg.VERBOSE == True:
-                #                 print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
-                #             #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                #             revised_jrc_authors.append(best_guess.id)
-                #         else:
-                #             if arg.VERBOSE == True:
-                #                 print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
-                #             #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                #             revised_jrc_authors.append(best_guess.id)
-                #     else:
-                #         proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
-                #         if proceed:
-                #             print(f"There is no record in our collection for {author.name}.")
-                #             success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
-                #             confirm_proceed = confirm_action(success_message)
-                #             if confirm_proceed:
-                #                 create_orcid_record(best_guess, orcid_collection, author)
-                #                 revised_jrc_authors.append(best_guess.id)
+                        proceed = confirm_action(success_message)
+                        if proceed:
+                            create_orcid_record(approved_guess, orcid_collection, author)
+                            #revised_jrc_authors.append(approved_guess.id)
 
         #jrc_authors = doi_record['jrc_author']
         #print( list(set(revised_jrc_authors).union(set(jrc_authors))) )
