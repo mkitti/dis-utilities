@@ -7,6 +7,7 @@ import sys
 import argparse
 import re
 import itertools
+from collections import Counter
 from collections.abc import Iterable
 from operator import attrgetter
 from nameparser import HumanName
@@ -21,9 +22,8 @@ import doi_common.doi_common as doi_common
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Add new names to an existing record?
 #TODO: Add support for arxiv DOIs
-#TODO: Add a little more info to the yellow prompt beyond just job title and supOrg name for ALL instances
+#TODO: Add a little more info to the yellow prompt beyond just job title and supOrg. Maybe use managerId?
 #TODO: If nothing can be done for an employee, don't prompt the user to confirm them.
-#TODO: Problem with 10.1101/2024.05.09.593460. In this case, we essentially have two janelians with the same name, and inquirer doesn't retain info on which option was selected!!
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
@@ -257,12 +257,30 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
     if len(candidates) > 1:
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
+        # Some people appear twice in the HHMI People system. 
+        # inquirer gives us know way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
+        # We are adding some code to append numbers to the names to make them unique, and then use the index of the selected object to grab the original object.
+        repeat_names = [name for name, count in Counter(guess.name for guess in candidates).items() if count > 1]
+        selection_list = []
+        counter = {}
         for guess in candidates:
-            print(colored(f"{guess.name}, title: {guess.job_title}, CC: {guess.supOrgName}, {guess.email}", 'black', 'on_yellow'))
+            if guess.name in repeat_names:
+                if guess.name in counter:
+                    selection_list.append(Guess(id=guess.id,job_title=guess.job_title,email=guess.email,location=guess.location,supOrgName = guess.supOrgName,first_names=guess.first_names,middle_names=guess.middle_names,last_names=guess.last_names, exists=guess.exists,
+                                                name=guess.name+f'-{counter[guess.name]+1}',score=guess.score))
+                    counter[guess.name] += 1
+                else:
+                    selection_list.append(Guess(id=guess.id,job_title=guess.job_title,email=guess.email,location=guess.location,supOrgName = guess.supOrgName,first_names=guess.first_names,middle_names=guess.middle_names,last_names=guess.last_names, exists=guess.exists,
+                                                name=guess.name+f'-1',score=guess.score))
+                    counter[guess.name] = 1
+            else:
+                selection_list.append(guess)
+        for guess in selection_list:
+            print(colored(f"{guess.name}, ID: {guess.id}, job title: {guess.job_title}, supOrgName: {guess.supOrgName}, email: {guess.email}", 'black', 'on_yellow'))
         quest = [inquirer.Checkbox('decision', 
                                    carousel=True, 
                                    message="Choose a person from the list", 
-                                   choices=[guess.name for guess in candidates] + ['None of the above'], 
+                                   choices=[guess.name for guess in selection_list] + ['None of the above'], 
                                    default=['None of the above'])]
         ans = inquirer.prompt(quest, theme=BlueComposure()) # returns {'decision': a list}, e.g. {'decision': ['Virginia Scarlett']}
         while len(ans['decision']) > 1: 
@@ -270,13 +288,13 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
             quest = [inquirer.Checkbox('decision', 
                             carousel=True, 
                             message="Choose a person from the list", 
-                            choices=[guess.name for guess in candidates] + ['None of the above'], 
+                            choices=[guess.name for guess in selection_list] + ['None of the above'], 
                             default=['None of the above'])]
             ans = inquirer.prompt(quest, theme=BlueComposure()) 
         if ans['decision'] != ['None of the above']:
-            return next(g for g in candidates if g.name == ans['decision'][0]) # Some people appear twice in the people system. 
-        # inquirer gives us know way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
-        # For now, this function just chooses the first 'David Clapham'.
+            i = [guess.name for guess in selection_list].index(ans['decision'][0])
+            return(candidates[i])
+            #return next(g for g in candidates if g.name == ans['decision'][0]) 
         elif ans['decision'] == ['None of the above']:
             print(f"No action will be taken for {author.name}.\n")
             return( Guess(exists=False) )
