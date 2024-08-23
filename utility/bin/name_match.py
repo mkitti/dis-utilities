@@ -23,7 +23,6 @@ import doi_common.doi_common as doi_common
 #TODO: Add new names to an existing record?
 #TODO: Add support for arxiv DOIs
 #TODO: Add an "exists" method to Employee, instead of returning None if no employee is found
-#TODO: 10.7554/eLife.80622 throws an error!
 #TODO: Add a little more info to the yellow prompt beyond just job title and supOrg name for ALL instances
 #TODO: If nothing can be done for an employee, don't prompt the user to confirm them.
 #TODO: Problem with 10.1101/2024.05.09.593460. In this case, we essentially have two janelians with the same name, and inquirer doesn't retain info on which option was selected!!
@@ -529,12 +528,12 @@ if __name__ == '__main__':
     orcid_collection = DB['dis'].orcid
     doi_collection = DB['dis'].dois
 
-    dois = [arg.DOI] if arg.DOI else []
+    dois = [arg.DOI.lower()] if arg.DOI else [] # .lower() because our collection is case-sensitive
     if arg.FILE:
         try:
             with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
-                    dois.append(doi)
+                    dois.append(doi.lower())
         except Exception as err:
             print(f"Could not process {arg.FILE}")
             exit()
@@ -697,4 +696,5 @@ if __name__ == '__main__':
     #doi='10.1101/2024.05.09.593460'
     #doi='10.1021/jacs.4c03092'
     #doi='10.1038/s41556-023-01154-4'
+    #doi='10.7554/eLife.80622'
 
