@@ -1,11 +1,11 @@
-""" pull_biorxiv.py
-    Find DOIs from bioRxiv that can be added to the dois collection.
+""" pull_arxiv.py
+    Find DOIs from aRxiv that can be added to the dois collection.
 """
 
 import argparse
 import collections
-from datetime import date, timedelta
 from operator import attrgetter
+import re
 import sys
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
@@ -67,75 +67,55 @@ def doi_exists(doi):
         row = DB['dis']['dois'].find_one({"doi": doi})
     except Exception as err:
         terminate_program(err)
-    return False #PLUG
     return bool(row)
 
 
-def get_dois_from_biorxiv():
-    ''' Get DOIs from bioRxiv
+def get_dois_from_arxiv():
+    ''' Get DOIs from aRxiv
         Keyword arguments:
           None
         Returns:
           List of DOIs
     '''
-    start = str(date.today() - timedelta(days=ARG.DAYS))
-    stop = str(date.today())
     offset = 0
+    batch_size = 10
     done = False
     check = {}
     parts = 0
-    LOGGER.info("Getting DOIs from bioRxiv")
+    LOGGER.info("Getting DOIs from aRxiv")
     while not done:
-        query = f"{start}/{stop}/{offset}"
-        response = JRC.call_biorxiv(query)
-        if 'messages' in response:
+        post = f"&start={offset}&max_results={batch_size}"
+        query = f"all:janelia{post}"
+        LOGGER.debug(query)
+        response = JRC.call_arxiv(query)
+        if 'feed' in response and 'entry' in response['feed']:
+            entry = response['feed']['entry']
             parts += 1
-            if 'count' in response['messages'][0]:
-                if response['messages'][0]['count'] < 100:
-                    done = True
-                else:
-                    offset += 100
-            else:
+            LOGGER.debug(f"Part {parts:,} with {len(entry):,} entries")
+            if len(entry) < batch_size:
                 done = True
-                continue
-        if 'collection' in response:
-            for item in response['collection']:
+            else:
+                offset += batch_size
+            for item in entry:
                 COUNT['read'] += 1
-                if doi_exists(item['doi'].lower()):
+                doi = item['id'].split('/')[-1]
+                doi = re.sub(r"v\d+$", "", doi)  # Remove version
+                doi = f"10.48550/arxiv.{doi}"
+                if doi_exists(doi.lower()):
                     COUNT['in_dois'] += 1
                     continue
-                check[item['doi'].lower()] = item
-    LOGGER.info(f"Got {len(check):,} DOIs from bioRxiv in {parts} part(s)")
-    return check
-
-
-def check_corresponding_institution(item, resp, ready):
-    ''' Parse an author record to see if there are any Janelia authors
-        Keyword arguments:
-          item: bioRxiv item
-          resp: response from Crossref
-          ready: list of DOIs ready for processing
-        Returns:
-          True or False
-    '''
-
-    if 'author_corresponding_institution' in item \
-        and 'Janelia' in item['author_corresponding_institution']:
-        if resp and 'message' in resp:
-            LOGGER.info(f"Janelia found as corresponding institution for {item['doi']}")
-            ready.append(item['doi'].lower())
-            return True
+                check[doi.lower()] = item
         else:
-            COUNT['asserted_crossref'] += 1
-            LOGGER.error(f"{item['doi']} with Janelia corresponding institution not in Crossref")
-    return False
+            done = True
+    LOGGER.info(f"Got {len(check):,} DOIs from aRxiv in {parts} part(s)")
+    return check
 
 
 def parse_authors(doi, msg, ready, review):
     ''' Parse an author record to see if there are any Janelia authors
         Keyword arguments:
           doi: DOI
-          msg: Crossref message
+          msg: DataCite message
           ready: list of DOIs ready for processing
           review: list of DOIs requiring review
         Returns:
@@ -149,6 +129,7 @@ def parse_authors(doi, msg, ready, review):
             if auth['janelian']:
                 janelians.append(f"{auth['given']} {auth['family']} ({auth['match']})")
                 if auth['match'] in ("ORCID", "asserted"):
+                    COUNT['asserted'] += 1
                     mode = auth['match']
         if janelians:
             print(f"Janelians found for {doi}: {', '.join(janelians)}")
@@ -161,37 +142,35 @@ def parse_authors(doi, msg, ready, review):
 
 
 def run_search():
-    ''' Search for DOIs on bioRxiv that can be added to the dois collection
+    ''' Search for DOIs on aRxiv that can be added to the dois collection
         Keyword arguments:
           None
         Returns:
           None
     '''
-    check = get_dois_from_biorxiv()
+    check = get_dois_from_arxiv()
     ready = []
     review = []
-    for doi, item in tqdm(check.items(), desc='Crossref check'):
-        resp = JRC.call_crossref(doi)
-        if check_corresponding_institution(item, resp, ready):
-            continue
-        if resp and 'message' in resp:
-            janelians = parse_authors(doi, resp['message'], ready, review)
+    for doi, item in tqdm(check.items(), desc='DataCite check'):
+        resp = JRC.call_datacite(doi)
+        if resp and 'data' in resp:
+            janelians = parse_authors(doi, resp['data']['attributes'], ready, review)
             if not janelians:
                 COUNT['no_janelians'] += 1
     if ready:
-        LOGGER.info("Writing DOIs to biorxiv_ready.txt")
-        with open('biorxiv_ready.txt', 'w', encoding='ascii') as outstream:
+        LOGGER.info("Writing DOIs to arxiv_ready.txt")
+        with open('arxiv_ready.txt', 'w', encoding='ascii') as outstream:
             for item in ready:
                 outstream.write(f"{item}\n")
     if review:
-        LOGGER.info("Writing DOIs to biorxiv_review.txt")
-        with open('biorxiv_review.txt', 'w', encoding='ascii') as outstream:
+        LOGGER.info("Writing DOIs to arxiv_review.txt")
+        with open('arxiv_review.txt', 'w', encoding='ascii') as outstream:
             for item in review:
                 outstream.write(f"{item}\n")
-    print(f"DOIs read from bioRxiv:          {COUNT['read']:,}")
+    print(f"DOIs read from aRxiv:            {COUNT['read']:,}")
     print(f"DOIs already in database:        {COUNT['in_dois']:,}")
-    print(f"DOIs not in Crossref (asserted): {COUNT['asserted_crossref']:,}")
-    print(f"DOIs not in Crossref:            {COUNT['no_crossref']:,}")
+    print(f"DOIs in DataCite (asserted):     {COUNT['asserted']:,}")
+    print(f"DOIs not in DataCite:            {COUNT['no_crossref']:,}")
     print(f"DOIs with no Janelian authors:   {COUNT['no_janelians']:,}")
     print(f"DOIs ready for processing:       {len(ready):,}")
     print(f"DOIs requiring review:           {len(review):,}")
@@ -200,10 +179,7 @@ def run_search():
 
 if __name__ == "__main__":
     PARSER = argparse.ArgumentParser(
-        description="Sync DOIs from bioRxiv")
-    PARSER.add_argument('--days', dest='DAYS', action='store',
-                        default=7, type=int,
-                        help='Number of days to go back for DOIs')
+        description="Sync DOIs from aRxiv")
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')

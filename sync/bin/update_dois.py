@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.1.0'
+__version__ = '5.2.0'
 
 import argparse
 import configparser
@@ -642,6 +642,19 @@ def add_tags(persist):
         persist_author(key, authors, tags, persist)
 
 
+def get_field(rec):
+    ''' Get the field name for the authors
+        Keyword arguments:
+          rec: Crossref/DataCite record
+        Returns:
+          Field name and True if DataCite
+    '''
+    if 'jrc_obtained_from' in rec and rec['jrc_obtained_from'] == "DataCite":
+        return 'creators', True
+    else:
+        return 'author', False
+
+
 def add_first_last_authors(rec):
     ''' Add first and last authors to record
         Keyword arguments:
@@ -650,12 +663,7 @@ def add_first_last_authors(rec):
           None
     '''
     first = []
-    if 'jrc_obtained_from' in rec and rec['jrc_obtained_from'] == "DataCite":
-        field = 'creators'
-        datacite = True
-    else:
-        field = 'author'
-        datacite = False
+    field, datacite = get_field(rec)
     if field in rec:
         if not datacite:
             for auth in rec[field]:
@@ -785,6 +793,8 @@ def process_dois():
     specified = {} # Dict of distinct DOIs received as input (value is True)
     persist = {} # DOIs that will be persisted in a database (value is record)
     for odoi in tqdm(rows['dois'], desc='DOIs'):
+        if '//' in odoi:
+            terminate_program(f"Invalid DOI: {odoi}")
         doi = odoi if ARG.TARGET == 'flyboy' else odoi.lower()
         COUNT['found'] += 1
         if doi in specified:

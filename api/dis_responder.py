@@ -12,7 +12,7 @@ import random
 import re
 import string
 import sys
-from time import time
+from time import sleep, time
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.1.0"
+__version__ = "13.4.0"
 # Database
 DB = {}
 # Custom queries
@@ -293,7 +293,6 @@ def receive_payload():
 
 def initialize_result():
     ''' Initialize the result dictionary
-        An auth header with a JWT token is required for all POST and DELETE requests
         Returns:
           decoded partially populated result dictionary
     '''
@@ -458,7 +457,7 @@ def generate_works_table(rows, name=None):
                    "title": title
                   }
         works.append(payload)
-        fileoutput += f"{payload['date']}\t{payload['doi']}\t{payload['title']}\n"
+        fileoutput += f"{payload['date']}\t{row['doi']}\t{payload['title']}\n"
         if name:
             alist = DL.get_author_details(row)
             for auth in alist:
@@ -474,7 +473,7 @@ def generate_works_table(rows, name=None):
     if dois:
         html += "</tbody></table>"
     if authors:
-        html = f"Authors found: {', '.join(sorted(authors.keys()))}<br>" \
+        html = f"<br>Authors found: {', '.join(sorted(authors.keys()))}<br>" \
                + f"This may include non-Janelia authors<br>{html}"
     html = create_downloadable('works', ['Published', 'DOI', 'Title'], fileoutput) + html
     html = f"Publications: {len(works)}<br>" + html
@@ -888,7 +887,7 @@ def get_source_data(year):
     return data, hdict
 
 
-def s2_citation_count(doi):
+def s2_citation_count(doi, format='plain'):
     ''' Get citation count from Semantic Scholar
         Keyword arguments:
           doi: DOI
@@ -896,13 +895,19 @@ def s2_citation_count(doi):
           Citation count
     '''
     url = f"{app.config['S2_GRAPH']}paper/DOI:{doi}?fields=citationCount"
+    headers = {'x-api-key': app.config['S2_API_KEY']}
     try:
-        resp = requests.get(url, timeout=10)
-        if resp.status_code != 200:
+        resp = requests.get(url, headers=headers, timeout=10)
+        if resp.status_code == 429:
+            raise Exception("Rate limit exceeded")
+        elif resp.status_code != 200:
             return 0
         data = resp.json()
-        cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
-              + f"{data['citationCount']}</a>"
+        if format == 'html':
+            cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
+                  + f"{data['citationCount']}</a>"
+        else:
+            cnt = data['citationCount']
         return cnt
     except Exception:
         return 0
@@ -1192,7 +1197,7 @@ def show_doi_authors(doi):
     try:
         orgs = DL.get_supervisory_orgs()
     except Exception as err:
-        raise InvalidUsage(str(err), 500) from err
+        raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     if 'jrc_tag' in row:
         for atag in row['jrc_tag']:
             if atag not in tagname:
@@ -1277,7 +1282,7 @@ def show_doi_migration(doi):
         try:
             orgs = DL.get_supervisory_orgs()
         except Exception as err:
-            raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+            raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
         try:
             rec = get_migration_data(row, orgs)
         except Exception as err:
@@ -1326,7 +1331,7 @@ def show_doi_migrations(idate):
     try:
         orgs = DL.get_supervisory_orgs()
     except Exception as err:
-        raise InvalidUsage("Could not get suporgs: " + str(err), 500) from err
+        raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     for row in rows:
         try:
             doi = row['doi']
@@ -1950,11 +1955,13 @@ def show_doi_ui(doi):
         chead += f" for {data['type'].replace('-', ' ')}"
         if 'subtype' in data:
             chead += f" {data['subtype'].replace('-', ' ')}"
+    elif 'types' in data and 'resourceTypeGeneral' in data['types']:
+        chead += f" for {data['types']['resourceTypeGeneral']}"
     html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}.</span><br><br>"
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
             + "</span><br>"
     if row:
-        citations = s2_citation_count(doi)
+        citations = s2_citation_count(doi, format='html')
         if citations:
             html += f"<span class='paperdata'>Citations: {citations}</span><br>"
     html += "<br>"
@@ -2661,7 +2668,27 @@ def dois_report(year=str(datetime.now().year)):
         stat['Preprints'] = "<span style='font-weight: bold'>0</span> preprints"
     if 'DataCite' not in stat:
         stat['DataCite'] = "<span style='font-weight: bold'>0</span> DataCite entries"
+    # Citations
+    try:
+        rows = DB['dis'].dois.find({"jrc_publishing_date": {"$regex": "^"+ year}})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get journal metrics " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
     html = f"{stat['Journal articles']}<br>{stat['Preprints']}<br>{stat['DataCite']}<br>"
+    #cnt = 0
+    #for row in rows:
+    #    if row['jrc_obtained_from'] != 'Crossref':
+    #        continue
+    #    try:
+    #        cnt += s2_citation_count(row['doi'])
+    #    except Exception as err:
+    #        return render_template('error.html', urlroot=request.url_root,
+    #                               title=render_warning("Could not get citation count"),
+    #                               message=error_message(err))
+    #    sleep(.1)
+    # html += f"Citations: {cnt:,}"
     html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
     html += '<br>' + year_pulldown('dois_report', all_years=False)
     return make_response(render_template('general.html', urlroot=request.url_root,
@@ -2749,7 +2776,7 @@ def show_insert(idate):
         raise InvalidUsage(str(err), 400) from err
     try:
         rows = DB['dis'].dois.find({"jrc_inserted": {"$gte" : isodate}},
-                                   {'_id': 0}).sort("jrc_inserted", 1)
+                                   {'_id': 0}).sort([("jrc_obtained_from", 1), ("jrc_inserted", 1)])
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get DOIs"),
@@ -2764,9 +2791,13 @@ def show_insert(idate):
     fileoutput = ""
     for row in rows:
         source = row['jrc_load_source'] if row['jrc_load_source'] else ""
-        typ = row['type'] if 'type' in row else ""
-        if 'subtype' in row:
-            typ += f" {row['subtype']}"
+        typ = ""
+        if 'type' in row:
+            typ = row['type']
+            if 'subtype' in row:
+                typ += f" {row['subtype']}"
+        elif 'types' in row and 'resourceTypeGeneral' in row['types']:
+            typ = row['types']['resourceTypeGeneral']
         version = []
         if 'relation' in row and 'is-version-of' in row['relation']:
             for ver in row['relation']['is-version-of']:

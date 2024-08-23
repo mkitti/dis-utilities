@@ -51,6 +51,27 @@ def initialize_program():
             terminate_program(err)
 
 
+def add_names(lookup_by, lookup, coll):
+    ''' Update names in the orcid record
+        Keyword arguments:
+          lookup_by: "orcid" or "employeeId"
+          lookup: lookup value
+          coll: orcid collection
+        Returns:
+          None
+    '''
+    family = []
+    given = []
+    if ARG.FAMILY:
+        family = [ARG.FAMILY]
+    if ARG.GIVEN:
+        given = [ARG.GIVEN]
+    resp = DL.add_orcid_name(lookup_by=lookup_by, lookup=lookup, family=family,
+                             given=given, coll=coll)
+    if resp:
+        print(json.dumps(resp, indent=2, default=str))
+
+
 def update_orcid():
     ''' Update the orcid record
         Keyword arguments:
@@ -59,22 +80,37 @@ def update_orcid():
           None
     '''
     coll = DB['dis'].orcid
-    lookup_by = 'orcid' if ARG.UPDATE == 'employeeId' else 'employeeId'
+    if ARG.FAMILY or ARG.GIVEN:
+        lookup_by = 'orcid' if ARG.ORCID else 'employeeId'
+    else:
+        lookup_by = 'orcid' if ARG.UPDATE == 'employeeId' else 'employeeId'
     if not ARG.WRITE:
-        lookup = ARG.ORCID if ARG.UPDATE == 'employeeId' else ARG.EMPLOYEE
+        if ARG.FAMILY or ARG.GIVEN:
+            lookup = ARG.ORCID if ARG.ORCID else ARG.EMPLOYEE
+        else:
+            lookup = ARG.ORCID if ARG.UPDATE == 'employeeId' else ARG.EMPLOYEE
         try:
             row = DL.single_orcid_lookup(lookup, coll, lookup_by)
         except Exception as err:
             raise err
         if not row:
             terminate_program(f"Record not found for {lookup_by} {lookup}")
-        if 'employeeId' in row and 'orcid' in row and row['employeeId'] == ARG.EMPLOYEE \
-           and row['orcid'] == ARG.ORCID:
-            print(json_util.dumps(row, indent=2))
-            terminate_program("Record already has entered values")
-        row[ARG.UPDATE] = ARG.EMPLOYEE if ARG.UPDATE == 'employeeId' else ARG.ORCID
+        if ARG.FAMILY or ARG.GIVEN:
+            if ARG.FAMILY and ARG.FAMILY not in row['family']:
+                row['family'].append(ARG.FAMILY)
+            if ARG.GIVEN and ARG.GIVEN not in row['given']:
+                row['given'].append(ARG.GIVEN)
+        else:
+            if 'employeeId' in row and 'orcid' in row and row['employeeId'] == ARG.EMPLOYEE \
+               and row['orcid'] == ARG.ORCID:
+                print(json_util.dumps(row, indent=2, default=str))
+                terminate_program("Record already has entered values")
+            row[ARG.UPDATE] = ARG.EMPLOYEE if ARG.UPDATE == 'employeeId' else ARG.ORCID
         LOGGER.warning("Would have updated record")
-        print(json_util.dumps(row, indent=2))
+        print(json_util.dumps(row, indent=2, default=str))
+        terminate_program()
+    if ARG.FAMILY or ARG.GIVEN:
+        add_names(lookup_by, ARG.ORCID if ARG.ORCID else ARG.EMPLOYEE, coll)
         terminate_program()
     try:
         if ARG.UPDATE == 'orcid':
@@ -85,7 +121,7 @@ def update_orcid():
     except Exception as err:
         terminate_program(err)
     if resp:
-        print(json.dumps(resp, indent=2))
+        print(json.dumps(resp, indent=2, default=str))
     else:
         terminate_program("Did not update record")
     if not ARG.WRITE:
@@ -97,9 +133,13 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Update orcid record")
     PARSER.add_argument('--orcid', dest='ORCID', action='store',
-                        required=True, help='ORCID')
+                        help='ORCID')
     PARSER.add_argument('--employee', dest='EMPLOYEE', action='store',
-                        required=True, help='Employee ID')
+                        help='Employee ID')
+    PARSER.add_argument('--family', dest='FAMILY', action='store',
+                        help='Family name to add')
+    PARSER.add_argument('--given', dest='GIVEN', action='store',
+                        help='Given name to add')
     PARSER.add_argument('--update', dest='UPDATE', action='store',
                         default='orcid', choices=['orcid','employeeId'], help='Field to update')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
@@ -113,6 +153,14 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
+    if ARG.ORCID:
+        if not ARG.EMPLOYEE and not ARG.FAMILY and not ARG.GIVEN:
+            terminate_program("At least one of --employee, --family, and --given is required")
+    elif ARG.EMPLOYEE:
+        if not ARG.ORCID and not ARG.FAMILY and not ARG.GIVEN:
+            terminate_program("At least one of --orcid, --family, and --given is required")
+    else:
+        terminate_program("At least one of --orcid and  --employee is required")
     initialize_program()
     update_orcid()
     terminate_program()
