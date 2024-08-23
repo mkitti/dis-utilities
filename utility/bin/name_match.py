@@ -20,7 +20,7 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
-#TODO: Add new names to an existing record?
+#TODO: Protect against accidentally creating two orcid records with the same first and last name, e.g. Guoqiang Yu
 #TODO: Add support for arxiv DOIs
 #TODO: Add a little more info to the yellow prompt beyond just job title and supOrg. Maybe use managerId?
 
