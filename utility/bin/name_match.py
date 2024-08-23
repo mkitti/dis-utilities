@@ -23,7 +23,7 @@ import doi_common.doi_common as doi_common
 #TODO: Add new names to an existing record?
 #TODO: Add support for arxiv DOIs
 #TODO: Add a little more info to the yellow prompt beyond just job title and supOrg. Maybe use managerId?
-#TODO: If nothing can be done for an employee, don't prompt the user to confirm them.
+
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
@@ -570,6 +570,7 @@ if __name__ == '__main__':
     arg = parser.parse_args()
     LOGGER = JRC.setup_logging(arg)
 
+    # Connect to the database
     initialize_program()
     orcid_collection = DB['dis'].orcid
     doi_collection = DB['dis'].dois
@@ -696,27 +697,3 @@ if __name__ == '__main__':
     #doi='10.7554/eLife.80622'
 
 
-
-
-            # if author.orcid:
-            #     #mongo_orcid_record = doi_common.single_orcid_lookup(author.orcid, orcid_collection, 'orcid')
-            #     mongo_orcid_record = get_mongo_orcid_record(author.orcid, 'orcid')
-            #     #if mongo_orcid_record:
-            #     if mongo_orcid_record.exists:
-            #         if 'employeeId' in mongo_orcid_record:
-            #             employee = create_employee(mongo_orcid_record['employeeId'])
-            #             #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-            #             #revised_jrc_authors.append(employee.id)
-            #             if arg.VERBOSE:
-            #                 print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
-            #         elif 'employeeId' not in mongo_orcid_record:
-            #             inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
-            #             candidates = guess_employee(author)
-            #             approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE) 
-            #             if approved_guess.exists:
-            #                 success_message = f"Confirm you wish to add {approved_guess.name}'s employee ID to their existing ORCID record"
-            #                 proceed = confirm_action(success_message)
-            #                 if proceed:
-            #                     doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
-            #                     #TODO: ^ Add names to this
-            #                     #revised_jrc_authors.append(approved_guess.id)
