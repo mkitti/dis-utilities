@@ -24,6 +24,9 @@ import doi_common.doi_common as doi_common
 #TODO: Add support for arxiv DOIs
 #TODO: Add an "exists" method to Employee, instead of returning None if no employee is found
 #TODO: 10.7554/eLife.80622 throws an error!
+#TODO: Add a little more info to the yellow prompt beyond just job title and supOrg name for ALL instances
+#TODO: If nothing can be done for an employee, don't prompt the user to confirm them.
+#TODO: Problem with 10.1101/2024.05.09.593460. In this case, we essentially have two janelians with the same name, and inquirer doesn't retain info on which option was selected!!
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
 # revised_jrc_authors = []
@@ -68,7 +71,7 @@ class Author:
 
 class Employee:
     """ Employees are constructed from information found in the HHMI People database. """
-    def __init__(self, id, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None):
+    def __init__(self, id=None, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None, exists=False):
         self.id = id
         self.job_title = job_title
         self.email = email
@@ -77,12 +80,15 @@ class Employee:
         self.first_names = list(set(first_names)) if first_names is not None else [] # Need to avoid the python mutable arguments trap
         self.middle_names = list(set(middle_names)) if middle_names is not None else []
         self.last_names = list(set(last_names)) if last_names is not None else []
+        self.exists = exists
+    def exists(self):
+        return(self.exists)
 
 class Guess(Employee):
     """ A Guess is a subtype of Employee that consists of just ONE name permutation 
     (e.g. Gerald M Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
-    def __init__(self, id, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None, name=None, score=None):
-        super().__init__(id, job_title, email, location, supOrgName, first_names, middle_names, last_names)
+    def __init__(self, id=None, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None, exists=False, name=None, score=None):
+        super().__init__(id, job_title, email, location, supOrgName, first_names, middle_names, last_names, exists)
         self.name = name
         self.score = score
 
@@ -118,17 +124,18 @@ def create_employee(id):
         last_names = [ idsearch_results['nameLastPreferred'], idsearch_results['nameLast'] ]
         return(
             Employee(
-            id,
+            id=id,
             job_title=job_title,
             email=email,
             location=location,
             supOrgName = supOrgName,
             first_names=first_names, 
             middle_names=middle_names,
-            last_names=last_names)
+            last_names=last_names,
+            exists=True)
         )
     else:
-        return(None)
+        return(Employee(exists=False))
         
 
 def create_guess(employee, name=None, score=None):
@@ -140,7 +147,8 @@ def create_guess(employee, name=None, score=None):
         employee.supOrgName, 
         employee.first_names, 
         employee.middle_names, 
-        employee.last_names, 
+        employee.last_names,
+        employee.exists, 
         name, 
         score
         )
@@ -159,38 +167,53 @@ def guess_employee(author):
     Arguments: 
         author: an author object.
     Returns:
-        A list of candidate employee objects OR an empty list.
+        A list of guess objects. This list will never be empty. It may, however, simply contain one 'empty' guess object.
     """
     name = HumanName(author.name)
     basic = name_search(name.first, name.last)
     stripped = name_search(unidecode(name.first), unidecode(name.last)) # decode accents and other special characters
-    hyphen_split1 = name_search(name.first, name.last.split('-')[0]) if '-' in name.last else None
+    hyphen_split1 = name_search(name.first, name.last.split('-')[0]) if '-' in name.last else None # try different parts of a hyphenated last name
     hyphen_split2 = name_search(name.first, name.last.split('-')[1]) if '-' in name.last else None
-    strp_hyph1 = name_search(unidecode(name.first), unidecode(name.last.split('-')[0])) if '-' in name.last else None
+    strp_hyph1 = name_search(unidecode(name.first), unidecode(name.last.split('-')[0])) if '-' in name.last else None # split on hyphen and decoded
     strp_hyph2 = name_search(unidecode(name.first), unidecode(name.last.split('-')[1])) if '-' in name.last else None
-    two_middle_names1 = name_search(name.first, name.middle.split(' ')[0]) if len(name.middle.split())==2 else None
+    two_middle_names1 = name_search(name.first, name.middle.split(' ')[0]) if len(name.middle.split())==2 else None # try different parts of a multi-word middle name, e.g. Virginia Marjorie Tartaglio Scarlett
     two_middle_names2 = name_search(name.first, name.middle.split(' ')[1]) if len(name.middle.split())==2 else None
-    strp_middle1 = name_search(unidecode(name.first), unidecode(name.middle.split()[0])) if len(name.middle.split())==2 else None
+    strp_middle1 = name_search(unidecode(name.first), unidecode(name.middle.split()[0])) if len(name.middle.split())==2 else None # split on middle name space and decoded
     strp_middle2 = name_search(unidecode(name.first), unidecode(name.middle.split()[1])) if len(name.middle.split())==2 else None
 
     all_results = [basic, stripped, hyphen_split1, hyphen_split2, strp_hyph1, strp_hyph2, two_middle_names1, two_middle_names2, strp_middle1, strp_middle2]
     candidate_ids = [id for id in list(set(flatten(all_results))) if id is not None]
     candidate_employees = [create_employee(id) for id in candidate_ids]
     candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
-    if candidate_employees:
-        return(fuzzy_match(author, candidate_employees))
-    else:
-        return(None)
+    return(fuzzy_match(author, candidate_employees))
+
 
 def name_search(first, last):
-    search_results1 = search_people_api(first, mode='name')
+    """ 
+    Arguments: 
+        first: first name, a string.
+        last: last name, a string.
+    Returns:
+        A list of candidate employee ids (strings) OR None.
+    """
+    search_results1 = search_people_api(first, mode='name') # a list of dicts
     search_results2 = search_people_api(last, mode='name')
     if search_results1 and search_results2:
         return( process_search_results(search_results1, search_results2) )
     else:
         return(None)
 
-def process_search_results(list1, list2): # We require that the same employeeId appear in both the first and last name searches
+def process_search_results(list1, list2):
+    """
+    A function to enforce that the same employeeId must appear in both the first and last name searches to return a successful result.
+    Arguments:
+        list1: a list of dicts, where each dict is the metadata for an employee from our People search on the first name. (e.g., [a dict for Virginia Scarlett, a dict for Virginia Ruetten])
+        list2: a list of dicts, where each dict is the metadata for an employee from our People search on the last name. (e.g., [a dict for Virginia Scarlett, a dict for Scarlett Pitts])
+    Returns:
+        A list of employee Ids from dicts that occurred in both lists (e.g., [Virginia Scarlett's employeeId])
+        OR
+        None
+    """
     employee_ids_list1 = {item['employeeId'] for item in list1}
     employee_ids_list2 = {item['employeeId'] for item in list2}
     common_ids = list(employee_ids_list1.intersection(employee_ids_list2))
@@ -200,34 +223,40 @@ def process_search_results(list1, list2): # We require that the same employeeId 
         return(None)
 
 def fuzzy_match(author, candidate_employees):
+    """ 
+    Arguments: 
+        author: an author object.
+        candidate_employees: a list of employee objects, possibly an empty list.
+    Returns:
+        A list of guess objects. This list will never be empty. It may, however, simply contain one 'empty' guess object.
+    """
     guesses = []
-    for employee in candidate_employees:
-        employee_permuted_names = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
-        for name in employee_permuted_names:
-            guesses.append(create_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett
-    for guess in guesses:
-        guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace 
+    if candidate_employees:
+        for employee in candidate_employees:
+            employee_permuted_names = generate_name_permutations(employee.first_names, employee.middle_names, employee.last_names)
+            for name in employee_permuted_names:
+                guesses.append(create_guess(employee, name=name)) # Each employee will generate several guesses, e.g. Virginia T Scarlett, Virginia Scarlett, Ginnie Scarlett
+    if guesses:
+        for guess in guesses:
+            guess.score = fuzz.token_sort_ratio(author.name, guess.name, processor=utils.default_process) #processor will convert the strings to lowercase, remove non-alphanumeric characters, and trim whitespace
         high_score = max( [g.score for g in guesses] )
         winners = [ g for g in guesses if g.score == high_score ]
         return(winners)
+    elif not guesses:
+        return( [ Guess(exists=False) ] )
 
 
 def evaluate_guess(author, candidates, inform_message, verbose=False):
     """ 
     A function that lets the user manually evaluate the best-guess employee for a given author. 
     Arguments:
-        author: an author object
-        candidates: list of guess objects, or an empty list
+        author: an author object.
+        candidates: a non-empty list of guess objects. 
         inform_message: an informational message will be printed to the terminal if verbose==True OR if some action is needed.
-        verbose: boolean, passed from command line.
+        verbose: a boolean, passed from command line.
     Returns:
-        A guess object if the/a guess was approved, otherwise returns False.
-    """
-    if not candidates:
-        if verbose:
-            print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
-        return False
-    
+        A guess object. If this guess.exists == False, this indicates that the guess was rejected, either by the user or automatically due to low score.
+    """    
     if len(candidates) > 1:
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
@@ -238,22 +267,37 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
                                    message="Choose a person from the list", 
                                    choices=[guess.name for guess in candidates] + ['None of the above'], 
                                    default=['None of the above'])]
-        ans = inquirer.prompt(quest, theme=BlueComposure())
+        ans = inquirer.prompt(quest, theme=BlueComposure()) # returns {'decision': a list}, e.g. {'decision': ['Virginia Scarlett']}
+        while len(ans['decision']) > 1: 
+            print('Please choose only one option.')
+            quest = [inquirer.Checkbox('decision', 
+                            carousel=True, 
+                            message="Choose a person from the list", 
+                            choices=[guess.name for guess in candidates] + ['None of the above'], 
+                            default=['None of the above'])]
+            ans = inquirer.prompt(quest, theme=BlueComposure()) 
         if ans['decision'] != ['None of the above']:
-            return next(g for g in candidates if g.name == ans['decision'][0])
+            return next(g for g in candidates if g.name == ans['decision'][0]) # Some people appear twice in the people system. 
+        # inquirer gives us know way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
+        # so this function just chooses the first 'David Clapham'.
         elif ans['decision'] == ['None of the above']:
             print(f"No action will be taken for {author.name}.\n")
-            return False
-    else:
+            return( Guess(exists=False) )
+
+    elif len(candidates) == 1:
         best_guess = candidates[0]
+        if not best_guess.exists:
+            if verbose:
+                print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
+            return(best_guess)
         if float(best_guess.score) < 85.0:
             if verbose:
                 print(inform_message)
                 print(
                     f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, supOrgName: {best_guess.supOrgName}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}\n"
                     )
-            # Do nothing
-        else:
+            return( Guess(exists=False) )
+        elif float(best_guess.score) > 85.0:
             print(inform_message)
             print(colored(
                 f"Employee best guess: {best_guess.name}, ID: {best_guess.id}, job title: {best_guess.job_title}, supOrgName: {best_guess.supOrgName}, email: {best_guess.email}, Confidence: {round(best_guess.score, ndigits = 3)}",
@@ -267,18 +311,19 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
                 return(best_guess)
             else:
                 print(f"No action will be taken for {author.name}.\n")
-                return(False)
+                return( Guess(exists=False) )
 
 def confirm_action(success_message):
     """
     Ask the user to confirm whether they wish to write to the database.
     Arguments:
-        success_message: a string.Template object, a message describing the change to be made
+        success_message: a string, a message describing the change to be made
     Returns:
         True if the user confirms the change, False otherwise
     """
     quest = [inquirer.List('confirm',
-                message = success_message.substitute(name=best_guess.name),
+                message = success_message,
+                #message = success_message.substitute(name=best_guess.name),
                 choices = ['Yes', 'No'])]
     ans = inquirer.prompt(quest, theme=BlueComposure())
     if ans['confirm'] == 'Yes':
@@ -515,95 +560,123 @@ if __name__ == '__main__':
                     elif 'employeeId' not in mongo_orcid_record:
                         inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
                         candidates = guess_employee(author)
-                        proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE) 
-                        if proceed:
-                            best_guess = proceed # if there were multiple best guesses, assign the user-selected one
-                            success_message = string.Template("Confirm you wish to add $name's employee ID to their existing ORCID record") #can't use best_guess.name bc guess may be None (MissingPerson)
+                        approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE) 
+                        if approved_guess.exists:
+                            success_message = f"Confirm you wish to add {approved_guess.name}'s employee ID to their existing ORCID record"
+                            #success_message = string.Template("Confirm you wish to add $name's employee ID to their existing ORCID record") #can't use approved_guess.name bc guess may be None (MissingPerson)
                             confirm_proceed = confirm_action(success_message)
                             if confirm_proceed:
-                                doi_common.update_existing_orcid(lookup=author.orcid, add=best_guess.id, coll=orcid_collection, lookup_by='orcid')
+                                doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
                                 #TODO: ^ Add names to this
-                                revised_jrc_authors.append(best_guess.id)
+                                revised_jrc_authors.append(approved_guess.id)
 
                 elif not mongo_orcid_record:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
                     candidates = guess_employee(author)
-                    proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
-                    if proceed:
-                        best_guess = proceed # if there were multiple best guesses, assign the user-selected one
-                        employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                    approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
+                    if approved_guess.exists:
+                        employeeId_result = doi_common.single_orcid_lookup(approved_guess.id, orcid_collection, lookup_by='employeeId')
                         success_message = ''
                         if employeeId_result:
                             if 'orcid' not in employeeId_result:
                                 print(f"{author.name} is in our collection, with an employee ID only.")
-                                success_message = string.Template("Confirm you wish to add an ORCID id to the existing record for $name")
+                                success_message = f"Confirm you wish to add an ORCID id to the existing record for {approved_guess.name}"
+                                #success_message = string.Template("Confirm you wish to add an ORCID id to the existing record for $name")
                                 confirm_proceed = confirm_action(success_message)
                                 if confirm_proceed:
-                                    doi_common.update_existing_orcid(lookup=best_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
+                                    doi_common.update_existing_orcid(lookup=approved_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
                                     #TODO: ^ Add names to this
-                                    revised_jrc_authors.append(best_guess.id)
+                                    revised_jrc_authors.append(approved_guess.id)
                             elif 'orcid' in employeeId_result: # Hopefully this will never get triggered
                                 print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {employeeId_result['orcid']} in our collection. Aborting program.")
                                 sys.exit(1)
                         else:
                             print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
-                            success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
+                            success_message = f"Confirm you wish to create an ORCID record for {approved_guess.name}, with both their employee ID and their ORCID"
+                            #success_message = string.Template("Confirm you wish to create an ORCID record for $name, with both their employee ID and their ORCID")
                             confirm_proceed = confirm_action(success_message)
                             if confirm_proceed:
-                                create_orcid_record(best_guess, orcid_collection, author)
-                                revised_jrc_authors.append(best_guess.id)
+                                create_orcid_record(approved_guess, orcid_collection, author)
+                                revised_jrc_authors.append(approved_guess.id)
 
 
             elif not author.orcid:
                 inform_message = f"{author.name} does not have an ORCID on this paper."
                 candidates = guess_employee(author)
-                if not candidates:
-                    if arg.VERBOSE == True:
-                        print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
-                elif len(candidates) > 1:
-                        proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
-                        best_guess = proceed # if there were multiple best guesses, assign the user-selected one
-                        if proceed:
-                            employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
-                            if employeeId_result:
-                                if 'orcid' in employeeId_result:
-                                    print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
-                                    #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                                    revised_jrc_authors.append(best_guess.id)
-                                else:
-                                    print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
-                                    #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                                    revised_jrc_authors.append(best_guess.id)
-                            else:
-                                print(f"There is no record in our collection for {author.name}.")
-                                success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
-                                confirm_proceed = confirm_action(success_message)
-                                if confirm_proceed:
-                                    create_orcid_record(best_guess, orcid_collection, author)
-                                    revised_jrc_authors.append(best_guess.id)
-                elif len(candidates) == 1:
-                    best_guess = candidates[0]
-                    employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
+                if approved_guess.exists:
+                    employeeId_result = doi_common.single_orcid_lookup(approved_guess.id, orcid_collection, lookup_by='employeeId')
                     if employeeId_result:
                         if 'orcid' in employeeId_result:
-                            if arg.VERBOSE == True:
-                                print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
-                            #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                            revised_jrc_authors.append(best_guess.id)
+                            print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
+                            #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                            revised_jrc_authors.append(approved_guess.id)
                         else:
-                            if arg.VERBOSE == True:
-                                print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
-                            #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
-                            revised_jrc_authors.append(best_guess.id)
+                            print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
+                            #TODO: update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                            revised_jrc_authors.append(approved_guess.id)
                     else:
-                        proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
-                        if proceed:
-                            print(f"There is no record in our collection for {author.name}.")
-                            success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
-                            confirm_proceed = confirm_action(success_message)
-                            if confirm_proceed:
-                                create_orcid_record(best_guess, orcid_collection, author)
-                                revised_jrc_authors.append(best_guess.id)
+                        print(f"There is no record in our collection for {author.name}.")
+                        success_message = f"Confirm you wish to create an ORCID record for {approved_guess.name} with an employee ID only"
+                        #success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+                        confirm_proceed = confirm_action(success_message)
+                        if confirm_proceed:
+                            create_orcid_record(best_guess, orcid_collection, author)
+                            revised_jrc_authors.append(best_guess.id)
+
+
+
+
+
+
+
+
+                # if not candidates:
+                #     if arg.VERBOSE == True:
+                #         print(f"A Janelian named {author.name} could not be found in the HHMI People API. No action to take.\n")
+                # if len(candidates) > 1:
+                #         best_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
+                #         if best_guess.exists:
+                #             employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                #             if employeeId_result:
+                #                 if 'orcid' in employeeId_result:
+                #                     print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
+                #                     #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                #                     revised_jrc_authors.append(best_guess.id)
+                #                 else:
+                #                     print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
+                #                     #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                #                     revised_jrc_authors.append(best_guess.id)
+                #             else:
+                #                 print(f"There is no record in our collection for {author.name}.")
+                #                 success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+                #                 confirm_proceed = confirm_action(success_message)
+                #                 if confirm_proceed:
+                #                     create_orcid_record(best_guess, orcid_collection, author)
+                #                     revised_jrc_authors.append(best_guess.id)
+                # elif len(candidates) == 1:
+                #     best_guess = candidates[0]
+                #     employeeId_result = doi_common.single_orcid_lookup(best_guess.id, orcid_collection, lookup_by='employeeId')
+                #     if employeeId_result:
+                #         if 'orcid' in employeeId_result:
+                #             if arg.VERBOSE == True:
+                #                 print(f"{author.name} is in our collection with both an ORCID and an employee ID. No action to take.\n")
+                #             #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                #             revised_jrc_authors.append(best_guess.id)
+                #         else:
+                #             if arg.VERBOSE == True:
+                #                 print(f"{author.name} is in our collection with an employee ID only. No action to take.\n")
+                #             #update_orcid_record_names_if_needed(author, employee, mongo_orcid_record)
+                #             revised_jrc_authors.append(best_guess.id)
+                #     else:
+                #         proceed = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
+                #         if proceed:
+                #             print(f"There is no record in our collection for {author.name}.")
+                #             success_message = string.Template("Confirm you wish to create an ORCID record for $name with an employee ID only")
+                #             confirm_proceed = confirm_action(success_message)
+                #             if confirm_proceed:
+                #                 create_orcid_record(best_guess, orcid_collection, author)
+                #                 revised_jrc_authors.append(best_guess.id)
 
         #jrc_authors = doi_record['jrc_author']
         #print( list(set(revised_jrc_authors).union(set(jrc_authors))) )
