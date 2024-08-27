@@ -38,7 +38,7 @@ Most of the command line programs have a set of common parameters:
 - --debug: debug mode for logging - debug messages are printed to STDOUT - this is chatty in the extreme
 
 ### Configuration
-While this system does use some config files, the database credentials are stored in the <a href='https://github.com/JaneliaSciComp/configurator' target='_blank'>Configuration system</a>.
+While this system does use some config files, the database credentials are stored in the <a href="https://github.com/JaneliaSciComp/configurator" target="_blank">Configuration system</a>.
 
 ### Production server
 The current production server is dis.int.janelia.org. If this changes, you'll need to modify nginx.conf.
