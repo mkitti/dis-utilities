@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,too-many-lines
 
-__version__ = "13.4.0"
+__version__ = "13.5.0"
 # Database
 DB = {}
 # Custom queries
@@ -1460,7 +1460,8 @@ def show_citation(doi):
     result['rest']['source'] = 'mongo'
     authors = DL.get_author_list(row)
     title = DL.get_title(row)
-    result['data'] = f"{authors} {title}. https://doi.org/{doi}."
+    journal = DL.get_journal(row)
+    result['data'] = f"{authors} {title}. {journal}. https://doi.org/{doi}."
     if 'jrc_preprint' in row:
         result['jrc_preprint'] = row['jrc_preprint']
     return generate_response(result)
@@ -1511,11 +1512,10 @@ def show_multiple_citations(ctype='dis'):
         result['rest']['row_count'] += 1
         authors = DL.get_author_list(row, style=ctype)
         title = DL.get_title(row)
+        journal = DL.get_journal(row)
+        result['data'][doi] = f"{authors} {title}. {journal}."
         if ctype == 'dis':
-            result['data'][doi] = f"{authors} {title}. https://doi.org/{doi}."
-        else:
-            journal = DL.get_journal(row)
-            result['data'][doi] = f"{authors} {title}. {journal}."
+            result['data'][doi] = f"{result['data'][doi]}. https://doi.org/{doi}."
     return generate_response(result)
 
 
