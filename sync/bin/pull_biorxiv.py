@@ -67,7 +67,6 @@ def doi_exists(doi):
         row = DB['dis']['dois'].find_one({"doi": doi})
     except Exception as err:
         terminate_program(err)
-    return False #PLUG
     return bool(row)
 
 

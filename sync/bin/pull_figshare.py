@@ -97,7 +97,7 @@ def pull_single_group(dois, institution=None, group=None):
                 if doi_exists(art['doi']):
                     COUNT['in_dois'] += 1
                 else:
-                    dois.append(art['doi'])
+                    dois.append(art['doi'].lower())
             offset += 500
         else:
             done = True
