@@ -21,42 +21,42 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Refactor code so that the script doesn't just assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
-# Potential workflow: create a dict where the keys are indices in authors_to_check, each value is a list of candidate employees. 
 #TODO: Add support for arxiv DOIs
-#TODO: BUG: 10.7554/elife.80622 says 'doi' is not a key in the DOI record
+#TODO: BUG: 10.7554/elife.80622 says 'doi' is not a key in the DOI record. Solution: ask Rob for a function, single_doi_lookup, so we get the record in our DB, not the crossref record
+#TODO: add an 'approved' attribute to Guess dynamically, so that we can rename approved_guess.exists to best_guess.approved
 
-
-# authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
+# Pseudocode demonstrating the workflow of this program:
+# authors_to_check: a list of author objects. If the paper has affiliations, then authors_to_check is just those authors with janelia affiliations. Otherwise, authors_to_check is all authors.
 # revised_jrc_authors = []
 # for author in authors_to_check:
 #   if author has an orcid on the paper:
 #       if that orcid has a record in our collection:
 #           if that record has an employeeId:
-#               Add any new names to the existing record
-#               Add employeeId to revised_jrc_authors
+#               Add any new author names/nicknames to the existing record
+#               Add a corresponding employee object to revised_jrc_authors
 #           elif that record does not have an employeeId:
 #               Search the people API. 
 #               If user confirms the match:
-#                   Add employeeId and any new names to the existing record
-#                   Add employeeId to revised_jrc_authors
+#                   TODO: Check that that employeeId does not exist in any record in the collection
+#                   Add employeeId and any new author names/nicknames to the existing record
+#                   Add a corresponding employee object to revised_jrc_authors
 #       elif that orcid does not have a record in our collection:
 #           Search the People API.
 #           If user confirms the match:
+#               TODO: Check that that employeeId does not exist in any record in the collection
 #               Create a record with both orcid and employeeId
-#               Add employeeId to revised_jrc_authors
+#               Add a corresponding employee object to revised_jrc_authors
 #   elif author does not have an orcid on the paper:
 #       Search the People API.
 #       If user confirms the match:
 #           If a record with that employeeId already exists in our collection:
-#               Add any new names to the existing record
-#               Add employeeId to revised_jrc_authors
+#               Add any new author names/nicknames to the existing record
+#               Add a corresponding employee object to revised_jrc_authors
 #           else:
 #               Create a record for that employee with their employeeId and their names.
-#               Add employeeId to revised_jrc_authors
+#               Add a corresponding employee object to revised_jrc_authors
 #               
 # add any employeeIds in revised_jrc_authors to jrc authors if they are not in jrc_authors already
-
-
 
 
 
@@ -214,7 +214,7 @@ def create_guess(employee, name=None, score=None):
 ### Functions for matching authors to employees
 
 
-def guess_employee(author):
+def propose_candidates(author):
     """ 
     Given an author object, search the People API for one or more matches using the People Search. 
     Arguments: 
@@ -299,7 +299,7 @@ def fuzzy_match(author, candidate_employees):
         return( [ Guess(exists=False) ] )
 
 
-def evaluate_guess(author, candidates, inform_message, verbose=False):
+def evaluate_candidates(author, candidates, inform_message, verbose=False):
     """ 
     A function that lets the user manually evaluate the best-guess employee for a given author. 
     Arguments:
@@ -318,8 +318,8 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
         # Some people appear twice in the HHMI People system. 
-        # inquirer gives us know way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
-        # We are adding some code to append numbers to the names to make them unique, and then use the index of the selected object to grab the original object.
+        # inquirer gives us no way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
+        # We are adding appending numbers to the names to make them unique, and then using the index of the selected object to grab the original object.
         repeat_names = [name for name, count in Counter(guess.name for guess in candidates).items() if count > 1]
         selection_list = []
         counter = {}
@@ -354,7 +354,6 @@ def evaluate_guess(author, candidates, inform_message, verbose=False):
         if ans['decision'] != ['None of the above']:
             i = [guess.name for guess in selection_list].index(ans['decision'][0])
             return(candidates[i])
-            #return next(g for g in candidates if g.name == ans['decision'][0]) 
         elif ans['decision'] == ['None of the above']:
             print(f"No action will be taken for {author.name}.\n")
             return( Guess(exists=False) )
@@ -639,24 +638,24 @@ if __name__ == '__main__':
                     if mongo_orcid_record.has_employeeId():
                         employee = create_employee(mongo_orcid_record.employeeId)
                         doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, employee), family=last_names_for_orcid_record(author, employee), coll=orcid_collection)
-                        #revised_jrc_authors.append(employee.id)
+                        #revised_jrc_authors.append(employee)
                         if arg.VERBOSE:
-                            print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
+                            print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID.\n" )
                     else:
                         inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
-                        candidates = guess_employee(author)
-                        approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE) 
+                        candidates = propose_candidates(author)
+                        approved_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE) 
                         if approved_guess.exists:
                             success_message = f"Confirm you wish to add {approved_guess.name}'s employee ID to their existing ORCID record"
                             proceed = confirm_action(success_message)
                             if proceed:
                                 doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
                                 doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                                #revised_jrc_authors.append(approved_guess.id)
+                                #revised_jrc_authors.append(approved_guess)
 
                 elif not mongo_orcid_record.exists:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
-                    candidates = guess_employee(author)
+                    candidates = propose_candidates(author)
                     records = [get_mongo_orcid_record(guess.employeeId) for guess in candidates if guess.exists]
                     # If nothing can be done for all candidates, then proceed no further.
                     # It's not exactly true that nothing can be done--I could add names (nicknames, middle initials, etc. from the author name) to the mongo orcid record,
@@ -665,7 +664,7 @@ if __name__ == '__main__':
                         if all( [mongo_record.has_orcid() and mongo_record.has_employeeId() for mongo_record in records] ):
                             pass
                         else:
-                            approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
+                            approved_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
                             if approved_guess.exists:
                                 mongo_orcid_record = get_mongo_orcid_record(approved_guess.id) # I know, I'm doing another lookup, which is a bit inefficient.
                                 success_message = ''
@@ -692,14 +691,15 @@ if __name__ == '__main__':
 
             elif not author.orcid:
                 inform_message = f"{author.name} does not have an ORCID on this paper."
-                candidates = guess_employee(author)
+                candidates = propose_candidates(author)
                 records = [get_mongo_orcid_record(guess.id) for guess in candidates if guess.exists]
                 if records: 
                     if all( [mongo_record.has_employeeId() for mongo_record in records] ): # if nothing can be done for all candidates, then don't bother proceeding.
                         print(f'All matches to {author.name} are in our collection with employeeIds. No action to take.\n')
+                        # ^ This line is responsible for the mis-handling of guoqiang yu in 10.1101/2024.05.09.593460
                         #revised_jrc_authors.append(approved_guess.id)
                     else:
-                        approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
+                        approved_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
                         mongo_orcid_record = get_mongo_orcid_record(approved_guess.id)
                         if mongo_orcid_record.has_employeeId():
                             print(f"{author.name} is in our collection with an employee ID. No action to take.\n")
@@ -727,8 +727,9 @@ if __name__ == '__main__':
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
 # doi_collection = nm.DB['dis'].dois
-# doi='10.1101/2024.06.30.601394'
-# doi_record = nm.get_doi_record(doi)
+# doi='10.7554/elife.80622'
+# result = nm.JRC.call_crossref(doi)
+# doi_record = result['message']
 
     #doi='10.1038/s41587-022-01524-7'
     #doi='10.7554/elife.80660'
