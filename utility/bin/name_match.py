@@ -20,8 +20,8 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
-#TODO: Refactor code so that instead of simply updating ORCID records, we are recording new jrc_authors. Make sure that the script doesn't just 
-# assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
+#TODO: Refactor code so that the script doesn't just assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
+# Potential workflow: create a dict where the keys are indices in authors_to_check, each value is a list of candidate employees. 
 #TODO: Add support for arxiv DOIs
 
 
@@ -580,7 +580,7 @@ if __name__ == '__main__':
         doi_record = get_doi_record(doi)
         print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
-        revised_jrc_authors = []
+        #revised_jrc_authors = []
 
         for author in authors_to_check:
 
@@ -590,7 +590,7 @@ if __name__ == '__main__':
                     if mongo_orcid_record.has_employeeId():
                         employee = create_employee(mongo_orcid_record.employeeId)
                         doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, employee), family=last_names_for_orcid_record(author, employee), coll=orcid_collection)
-                        revised_jrc_authors.append(employee.id)
+                        #revised_jrc_authors.append(employee.id)
                         if arg.VERBOSE:
                             print( f"{author.name} is in our ORCID collection, with both an ORCID an employee ID. No action to take.\n" )
                     else:
@@ -603,7 +603,7 @@ if __name__ == '__main__':
                             if proceed:
                                 doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
                                 doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                                revised_jrc_authors.append(approved_guess.id)
+                                #revised_jrc_authors.append(approved_guess.id)
 
                 elif not mongo_orcid_record.exists:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
@@ -628,7 +628,7 @@ if __name__ == '__main__':
                                         if proceed:
                                             doi_common.update_existing_orcid(lookup=approved_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
                                             doi_common.add_orcid_name(lookup=approved_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                                            revised_jrc_authors.append(approved_guess.id)
+                                            #revised_jrc_authors.append(approved_guess.id)
                                     elif mongo_orcid_record.has_orcid(): # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
                                         print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {mongo_orcid_record.orcid} in our collection. Aborting program.")
                                         sys.exit(1)
@@ -638,7 +638,7 @@ if __name__ == '__main__':
                                     proceed = confirm_action(success_message)
                                     if proceed:
                                         create_orcid_record(approved_guess, orcid_collection, author)
-                                        revised_jrc_authors.append(approved_guess.id)
+                                        #revised_jrc_authors.append(approved_guess.id)
 
 
             elif not author.orcid:
@@ -655,7 +655,7 @@ if __name__ == '__main__':
                         if mongo_orcid_record.has_employeeId():
                             print(f"{author.name} is in our collection with an employee ID. No action to take.\n")
                             doi_common.add_orcid_name(lookup=approved_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                            revised_jrc_authors.append(approved_guess.id)
+                            #revised_jrc_authors.append(approved_guess.id)
                         else:
                             if approved_guess.exists:
                                 print(f"There is no record in our collection for {author.name}.")
@@ -663,13 +663,13 @@ if __name__ == '__main__':
                                 proceed = confirm_action(success_message)
                                 if proceed:
                                     create_orcid_record(approved_guess, orcid_collection, author)
-                                    revised_jrc_authors.append(approved_guess.id)
+                                    #revised_jrc_authors.append(approved_guess.id)
 
         jrc_authors = doi_record['jrc_author']
-        revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
-        print(revised_jrc_authors)
+        #revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
+        #print(revised_jrc_authors)
         #doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
-        #doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
+        doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
 
 
 
