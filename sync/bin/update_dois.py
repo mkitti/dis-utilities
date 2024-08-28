@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.2.0'
+__version__ = '5.3.0'
 
 import argparse
 import configparser
@@ -589,16 +589,15 @@ def get_tags(authors):
     return new_tags
 
 
-def persist_author(key, authors, tags, persist):
+def persist_author(key, authors, persist):
     ''' Add authors to be persisted
         Keyword arguments:
+          key: DOI
+          authors: list of detailed authors
           persist: dict keyed by DOI with value of the Crossref/DataCite record
         Returns:
           None
     '''
-    if tags:
-        LOGGER.debug(f"Added jrc_tag {tags} to {key}")
-        persist[key]['jrc_tag'] = tags
     # Update jrc_author
     jrc_author = []
     for auth in authors:
@@ -619,6 +618,10 @@ def add_tags(persist):
     coll = DB['dis'].orcid
     for key, val in tqdm(persist.items(), desc='Add jrc_author and jrc_tag'):
         try:
+            rec = DB['dis'].dois.find_one({"doi": key})
+        except Exception as err:
+            terminate_program(err)
+        try:
             authors = DL.get_author_details(val, coll)
         except Exception as err:
             terminate_program(err)
@@ -630,16 +633,18 @@ def add_tags(persist):
         if 'jrc_tag' in persist:
             tags.extend(persist['jrc_tag'])
         else:
-            try:
-                rec = DB['dis'].dois.find_one({"doi": key})
-            except Exception as err:
-                terminate_program(err)
             if rec and 'jrc_tag' in rec:
                 tags.extend(rec['jrc_tag'])
         for tag in new_tags:
             if tag not in tags:
                 tags.append(tag)
-        persist_author(key, authors, tags, persist)
+        if tags:
+            LOGGER.debug(f"Added jrc_tag {tags} to {key}")
+            persist[key]['jrc_tag'] = tags
+        if rec and 'jrc_newsletter' in rec:
+            LOGGER.warning(f"Skipping jrc_author update for {key}")
+        else:
+            persist_author(key, authors, persist)
 
 
 def get_field(rec):
@@ -651,8 +656,7 @@ def get_field(rec):
     '''
     if 'jrc_obtained_from' in rec and rec['jrc_obtained_from'] == "DataCite":
         return 'creators', True
-    else:
-        return 'author', False
+    return 'author', False
 
 
 def add_first_last_authors(rec):
@@ -666,6 +670,7 @@ def add_first_last_authors(rec):
     field, datacite = get_field(rec)
     if field in rec:
         if not datacite:
+            # First author(s)
             for auth in rec[field]:
                 if 'sequence' in auth and auth['sequence'] == 'additional':
                     break
