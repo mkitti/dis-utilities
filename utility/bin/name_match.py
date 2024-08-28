@@ -20,9 +20,9 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
-#TODO: Protect against accidentally creating two orcid records with the same first and last name, e.g. Guoqiang Yu
+#TODO: Refactor code so that instead of simply updating ORCID records, we are recording new jrc_authors. Make sure that the script doesn't just 
+# assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
 #TODO: Add support for arxiv DOIs
-#TODO: Add a little more info to the yellow prompt beyond just job title and supOrg. Maybe use managerId?
 
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
@@ -447,7 +447,7 @@ def get_mongo_orcid_record(search_term):
         return(MongoOrcidRecord(exists=False))
     else:
         result = ''
-        if len(search_term) == 19:
+        if len(search_term) == 19: #ORCIDs are guaranteed to be 16 digits (plus the hyphens)
             result = doi_common.single_orcid_lookup(search_term, orcid_collection, 'orcid')
         else:
             result = doi_common.single_orcid_lookup(search_term, orcid_collection, 'employeeId')
@@ -648,7 +648,7 @@ if __name__ == '__main__':
                 if records: 
                     if all( [mongo_record.has_employeeId() for mongo_record in records] ): # if nothing can be done for all candidates, then don't bother proceeding.
                         print(f'All matches to {author.name} are in our collection with employeeIds. No action to take.\n')
-                        revised_jrc_authors.append(approved_guess.id)
+                        #revised_jrc_authors.append(approved_guess.id)
                     else:
                         approved_guess = evaluate_guess(author, candidates, inform_message, verbose=arg.VERBOSE)
                         mongo_orcid_record = get_mongo_orcid_record(approved_guess.id)
@@ -667,8 +667,9 @@ if __name__ == '__main__':
 
         jrc_authors = doi_record['jrc_author']
         revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
-        doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
-        doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
+        print(revised_jrc_authors)
+        #doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
+        #doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
 
 
 
