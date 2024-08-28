@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "14.0.0"
+__version__ = "14.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -417,13 +417,14 @@ def get_dois_for_orcid(oid, orc, use_eid, both):
           HTML and a list of DOIs
     '''
     try:
-        if both:
+        if use_eid:
+            payload = {"jrc_author": oid}
+        elif both:
             eid = orc['employeeId'] if 'employeeId' in orc else None
-            rows = DB['dis'].dois.find(orcid_payload(oid, orc, eid))
-        elif use_eid:
-            rows = DB['dis'].dois.find(orcid_payload(None, orc, oid))
+            payload = orcid_payload(oid, orc, eid)
         else:
-            rows = DB['dis'].dois.find(orcid_payload(oid, orc))
+            payload = orcid_payload(oid, orc)
+        rows = DB['dis'].dois.find(payload)
     except Exception as err:
         raise CustomException(err, "Could not find in dois collection by name.") from err
     return rows
@@ -1002,6 +1003,8 @@ def add_orcid_badges(orc):
     '''
     badges = []
     badges.append(tiny_badge('success', 'In database'))
+    if 'duplicate_name' in orc:
+        badges.append(tiny_badge('warning', 'Duplicate name'))
     if 'orcid' not in orc or not orc['orcid']:
         badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
     if 'alumni' in orc:
@@ -2061,7 +2064,6 @@ def show_doi_by_type_ui(src, typ, sub, year):
         payload["subtype"] = sub
     if year != 'All':
         payload['jrc_publishing_date'] = {"$regex": "^" + year}
-    print(payload)
     try:
         rows = DB['dis'].dois.find(payload).collation({"locale": "en"}).sort("doi", 1)
     except Exception as err:
@@ -2969,7 +2971,7 @@ def show_oid_ui(oid):
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
     try:
-        orciddata, dois = get_orcid_from_db(oid, both=True)
+        orciddata, dois = get_orcid_from_db(oid, use_eid=bool('employeeId' in oid), both=True)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning(f"Could not find ORCID ID {oid}", 'error'),
