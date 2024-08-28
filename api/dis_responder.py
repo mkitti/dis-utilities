@@ -12,7 +12,7 @@ import random
 import re
 import string
 import sys
-from time import sleep, time
+from time import time
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -22,9 +22,9 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 import dis_plots as DP
 
-# pylint: disable=broad-exception-caught,too-many-lines
+# pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "13.5.0"
+__version__ = "14.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -887,10 +887,11 @@ def get_source_data(year):
     return data, hdict
 
 
-def s2_citation_count(doi, format='plain'):
+def s2_citation_count(doi, fmt='plain'):
     ''' Get citation count from Semantic Scholar
         Keyword arguments:
           doi: DOI
+          fmt: format (plain or html)
         Returns:
           Citation count
     '''
@@ -900,10 +901,10 @@ def s2_citation_count(doi, format='plain'):
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 429:
             raise Exception("Rate limit exceeded")
-        elif resp.status_code != 200:
+        if resp.status_code != 200:
             return 0
         data = resp.json()
-        if format == 'html':
+        if fmt == 'html':
             cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
                   + f"{data['citationCount']}</a>"
         else:
@@ -950,6 +951,8 @@ def get_badges(auth):
             badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
         if auth['asserted']:
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+        if 'duplicate_name' in auth:
+            badges.append(f"{tiny_badge('warning', 'Duplicate name')}")
     else:
         badges.append(f"{tiny_badge('danger', 'Not in database')}")
         if 'asserted' in auth and auth['asserted']:
@@ -1460,8 +1463,7 @@ def show_citation(doi):
     result['rest']['source'] = 'mongo'
     authors = DL.get_author_list(row)
     title = DL.get_title(row)
-    journal = DL.get_journal(row)
-    result['data'] = f"{authors} {title}. {journal}. https://doi.org/{doi}."
+    result['data'] = f"{authors} {title}. https://doi.org/{doi}."
     if 'jrc_preprint' in row:
         result['jrc_preprint'] = row['jrc_preprint']
     return generate_response(result)
@@ -1471,8 +1473,8 @@ def show_citation(doi):
 @app.route('/citations/<string:ctype>', methods=['OPTIONS', 'POST'])
 def show_multiple_citations(ctype='dis'):
     '''
-    Return DIS-style citations
-    Return a dictionary of DIS-style citations for a list of given DOIs.
+    Return citations
+    Return a dictionary of citations for a list of given DOIs.
     ---
     tags:
       - DOI
@@ -1482,7 +1484,7 @@ def show_multiple_citations(ctype='dis'):
         schema:
           type: string
         required: false
-        description: Citation type (dis or flylight)
+        description: Citation type (dis, flylight, or full)
       - in: query
         name: dois
         schema:
@@ -1513,9 +1515,11 @@ def show_multiple_citations(ctype='dis'):
         authors = DL.get_author_list(row, style=ctype)
         title = DL.get_title(row)
         journal = DL.get_journal(row)
-        result['data'][doi] = f"{authors} {title}. {journal}."
+        result['data'][doi] = f"{authors} {title}."
         if ctype == 'dis':
             result['data'][doi] = f"{result['data'][doi]}. https://doi.org/{doi}."
+        else:
+            result['data'][doi] = f"{result['data'][doi]}. {journal}."
     return generate_response(result)
 
 
@@ -1553,6 +1557,48 @@ def show_flylight_citation(doi):
     result['rest']['row_count'] = 1
     result['rest']['source'] = 'mongo'
     authors = DL.get_author_list(row, style='flylight')
+    title = DL.get_title(row)
+    journal = DL.get_journal(row)
+    result['data'] = f"{authors} {title}. {journal}."
+    if 'jrc_preprint' in row:
+        result['jrc_preprint'] = row['jrc_preprint']
+    return generate_response(result)
+
+
+@app.route('/citation/full/<path:doi>')
+def show_full_citation(doi):
+    '''
+    Return a full citation
+    Return a full citation (DIS+journal) for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      404:
+        description: DOI not found
+      500:
+        description: MongoDB or formatting error
+    '''
+    doi = doi.lstrip('/').rstrip('/').lower()
+    result = initialize_result()
+    try:
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        raise InvalidUsage(f"DOI {doi} is not in the database", 404)
+    result['rest']['row_count'] = 1
+    result['rest']['source'] = 'mongo'
+    authors = DL.get_author_list(row)
     title = DL.get_title(row)
     journal = DL.get_journal(row)
     result['data'] = f"{authors} {title}. {journal}."
@@ -1961,7 +2007,7 @@ def show_doi_ui(doi):
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
             + "</span><br>"
     if row:
-        citations = s2_citation_count(doi, format='html')
+        citations = s2_citation_count(doi, fmt='html')
         if citations:
             html += f"<span class='paperdata'>Citations: {citations}</span><br>"
     html += "<br>"
