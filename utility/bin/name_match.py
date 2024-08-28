@@ -23,6 +23,7 @@ import doi_common.doi_common as doi_common
 #TODO: Refactor code so that the script doesn't just assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
 # Potential workflow: create a dict where the keys are indices in authors_to_check, each value is a list of candidate employees. 
 #TODO: Add support for arxiv DOIs
+#TODO: BUG: 10.7554/elife.80622 says 'doi' is not a key in the DOI record
 
 
 # authors_to_check: a list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, the list is all authors.
@@ -102,20 +103,67 @@ class MongoOrcidRecord:
 
 ### Functions for instantiating objects of my custom classes
 
-def create_author_objects(doi_record):
+# def create_author_objects(doi_record):
+#     author_objects = []
+#     for author_record in doi_record['author']:
+#         if 'given' in author_record and 'family' in author_record:
+#             full_name = ' '.join((author_record['given'], author_record['family']))
+#             current_author = Author( full_name )
+#             if 'affiliation' in author_record and author_record['affiliation']:
+#                 for affiliation in author_record['affiliation']:
+#                     if 'name' in affiliation:
+#                         current_author.affiliations.append(affiliation['name'])
+#             if 'ORCID' in author_record:
+#                 current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
+#             author_objects.append(current_author)
+#     return(author_objects)
+
+def create_author_objects(doi_record): # Ingests 'creators' (DataCite) or 'author' (Crossref)
+    authors_list = []
+    if 'author' in doi_record and 'creators' not in doi_record:
+        authors_list = doi_record['author']
+    if 'creators' in doi_record and 'author' not in doi_record:
+        authors_list = doi_record['creators']
+    else:
+        raise ValueError(f"Problem with DOI record for {doi_record['doi']}. Ensure that this DOI record has exactly one of: authors OR creators.")
     author_objects = []
-    for author_record in doi_record['author']:
-        if 'given' in author_record and 'family' in author_record:
+    for author_record in authors_list:
+        current_author = None
+        if 'given' in author_record and 'family' in author_record: # Crossref
             full_name = ' '.join((author_record['given'], author_record['family']))
             current_author = Author( full_name )
-            if 'affiliation' in author_record and author_record['affiliation']:
-                for affiliation in author_record['affiliation']:
-                    if 'name' in affiliation:
-                        current_author.affiliations.append(affiliation['name'])
-            if 'ORCID' in author_record:
-                current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
-            author_objects.append(current_author)
+        if 'givenName' in author_record and 'familyName' in author_record: # DataCite
+            full_name = ' '.join((author_record['givenName'], author_record['familyName']))
+            current_author = Author( full_name )
+        if not current_author:
+            if 'name' in author_record: # Sometimes 'name' is 'Scarlett, Virginia', so I'd rather concatenate first and last names, and only use the 'name' field as a last resort
+                current_author = Author( author_record['name'] )
+        if not current_author:
+            for key in ['given', 'family', 'givenName', 'familyName']:
+                if key in author_record:
+                    current_author = Author( author_record[key] )
+        if not current_author:
+            raise AttributeError(f"Unable to create an author object for the following record: {author_record}")
+        if 'affiliation' in author_record and author_record['affiliation']:
+            for affiliation in author_record['affiliation']:
+                if isinstance(affiliation, str): # DataCite
+                    current_author.affiliations.append(affiliation)
+                elif 'name' in affiliation: # Crossref
+                    current_author.affiliations.append(affiliation['name'])
+        if 'ORCID' in author_record: # Crossref
+            current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
+        if 'nameIdentifiers' in author_record and author_record['nameIdentifiers']: # DataCite
+            for id_info_dic in author_record['nameIdentifiers']:
+                if 'nameIdentifierScheme' in id_info_dic:
+                    if id_info_dic['nameIdentifierScheme'] == 'ORCID': 
+                        current_author.orcid = strip_orcid_if_provided_as_url(id_info_dic['nameIdentifier']) # This should be their ORCID, a string, a URL
+        author_objects.append(current_author)
     return(author_objects)
+
+
+
+
+
 
 def create_employee(id):
     idsearch_results = search_people_api(id, mode='id')
@@ -578,6 +626,7 @@ if __name__ == '__main__':
     for doi in dois:
 
         doi_record = get_doi_record(doi)
+        print(doi_record.keys())
         print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
         #revised_jrc_authors = []
@@ -665,11 +714,11 @@ if __name__ == '__main__':
                                     create_orcid_record(approved_guess, orcid_collection, author)
                                     #revised_jrc_authors.append(approved_guess.id)
 
-        jrc_authors = doi_record['jrc_author']
+        #jrc_authors = doi_record['jrc_author']
         #revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
         #print(revised_jrc_authors)
         #doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
-        doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
+        #doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
 
 
 
