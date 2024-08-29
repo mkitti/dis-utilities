@@ -21,20 +21,10 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Refactor code so that the script doesn't just assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
-#TODO: Add support for arxiv DOIs
-#TODO: BUG: 10.7554/elife.80622 says 'doi' is not a key in the DOI record. Solution: ask Rob for a function, single_doi_lookup, so we get the record in our DB, not the crossref record
-#TODO: add an 'approved' attribute to Guess dynamically, so that we can rename approved_guess.exists to best_guess.approved
-#TODO: use doi_common.get_author_details. 'asserted' always comes from the paper. 'janelian' is Rob's inference. 'match' indicates how he inferred it.
-# If an external person has the same name as a janelian, they will be marked as a janelian.
-# If 'match' is 'name', that means that he found an exact name match in the orcid collection. We should be wary of this, because there could be random
-# authors who just happen to have the same name as Janelians. There could also (once in a while) be two
-# Janelians with the same name. Important: "orcid" may be inferred if an ORCID is not on the paper. 
-# I should still dig into the DOI record to get the ORCID that was on the paper. That way, if there isn't an orcid on the paper, we'll know.
-# Like 'asserted', 'family' and 'given' are also from the paper. 
-# If the author has an orcid, but they're not in the orcid DB, they're not janelian. 
 
 
-# Pseudocode demonstrating the workflow of this program:
+# Pseudocode for the workflow of this program:
+
 # authors_to_check: a list of author objects. If the paper has affiliations, then authors_to_check is just those authors with janelia affiliations. Otherwise, authors_to_check is all authors.
 # revised_jrc_authors = []
 # for author in authors_to_check:
@@ -112,63 +102,6 @@ class MongoOrcidRecord:
 
 
 ### Functions for instantiating objects of my custom classes
-
-# def create_author_objects(doi_record):
-#     author_objects = []
-#     for author_record in doi_record['author']:
-#         if 'given' in author_record and 'family' in author_record:
-#             full_name = ' '.join((author_record['given'], author_record['family']))
-#             current_author = Author( full_name )
-#             if 'affiliation' in author_record and author_record['affiliation']:
-#                 for affiliation in author_record['affiliation']:
-#                     if 'name' in affiliation:
-#                         current_author.affiliations.append(affiliation['name'])
-#             if 'ORCID' in author_record:
-#                 current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
-#             author_objects.append(current_author)
-#     return(author_objects)
-
-# def create_author_objects(doi_record): # Ingests 'creators' (DataCite) or 'author' (Crossref)
-#     authors_list = []
-#     if 'author' in doi_record and 'creators' not in doi_record:
-#         authors_list = doi_record['author']
-#     if 'creators' in doi_record and 'author' not in doi_record:
-#         authors_list = doi_record['creators']
-#     else:
-#         raise ValueError(f"Problem with DOI record for {doi_record['doi']}. Ensure that this DOI record has exactly one of: authors OR creators.")
-#     author_objects = []
-#     for author_record in authors_list:
-#         current_author = None
-#         if 'given' in author_record and 'family' in author_record: # Crossref
-#             full_name = ' '.join((author_record['given'], author_record['family']))
-#             current_author = Author( full_name )
-#         if 'givenName' in author_record and 'familyName' in author_record: # DataCite
-#             full_name = ' '.join((author_record['givenName'], author_record['familyName']))
-#             current_author = Author( full_name )
-#         if not current_author:
-#             if 'name' in author_record: # Sometimes 'name' is 'Scarlett, Virginia', so I'd rather concatenate first and last names, and only use the 'name' field as a last resort
-#                 current_author = Author( author_record['name'] )
-#         if not current_author:
-#             for key in ['given', 'family', 'givenName', 'familyName']:
-#                 if key in author_record:
-#                     current_author = Author( author_record[key] )
-#         if not current_author:
-#             raise AttributeError(f"Unable to create an author object for the following record: {author_record}")
-#         if 'affiliation' in author_record and author_record['affiliation']:
-#             for affiliation in author_record['affiliation']:
-#                 if isinstance(affiliation, str): # DataCite
-#                     current_author.affiliations.append(affiliation)
-#                 elif 'name' in affiliation: # Crossref
-#                     current_author.affiliations.append(affiliation['name'])
-#         if 'ORCID' in author_record: # Crossref
-#             current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
-#         if 'nameIdentifiers' in author_record and author_record['nameIdentifiers']: # DataCite
-#             for id_info_dic in author_record['nameIdentifiers']:
-#                 if 'nameIdentifierScheme' in id_info_dic:
-#                     if id_info_dic['nameIdentifierScheme'] == 'ORCID': 
-#                         current_author.orcid = strip_orcid_if_provided_as_url(id_info_dic['nameIdentifier']) # This should be their ORCID, a string, a URL
-#         author_objects.append(current_author)
-#     return(author_objects)
 
 
 def create_author(author_info):
@@ -535,9 +468,6 @@ def search_people_api(query, mode):
         response = JRC.call_people_by_id(query)
     return(response)
 
-# def get_doi_record(doi):
-#     result = JRC.call_crossref(doi)
-#     return( result['message'] )
 
 def strip_orcid_if_provided_as_url(orcid):
     prefixes = ["http://orcid.org/", "https://orcid.org/"]
@@ -643,7 +573,10 @@ if __name__ == '__main__':
 
         #doi_record = get_doi_record(doi)
         doi_record = doi_common.get_doi_record(doi, doi_collection)
-        print(f"{doi}: {doi_record['title'][0]}")
+        if 'titles' in doi_record: # DataCite
+            print(f"{doi}: {doi_record['titles'][0]['title']}")
+        else: # Crossref
+            print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
         print(", ".join([a.name for a in authors_to_check]))
         #revised_jrc_authors = []
