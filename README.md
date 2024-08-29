@@ -8,7 +8,6 @@
 [![Bootstrap](https://img.shields.io/badge/Bootstrap-563D7C?style=for-the-badge&logo=bootstrap&logoColor=white)](https://getbootstrap.com/)
 [![jQuery](https://img.shields.io/badge/jQuery-0769AD?style=for-the-badge&logo=jquery&logoColor=white)](https://jquery.com/)
 [![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
-[![MySQL](https://img.shields.io/badge/MySQL-73618F?style=for-the-badge&logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
 ## Utilities for Data and Information Services
@@ -36,3 +35,9 @@ Most of the command line programs have a set of common parameters:
 - --write: actually write to the database. If not specified, no rows will be updated in the MongoDB database
 - --verbose: verbose mode for logging - status messages are printed to STDOUT - this is chatty
 - --debug: debug mode for logging - debug messages are printed to STDOUT - this is chatty in the extreme
+
+### Configuration
+While this system does use some config files, the database credentials are stored in the <a href="https://github.com/JaneliaSciComp/configurator" target="_blank">Configuration system</a>.
+
+### Production server
+The current production server is dis.int.janelia.org. If this changes, you'll need to modify nginx.conf.

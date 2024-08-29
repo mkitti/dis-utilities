@@ -14,6 +14,12 @@ Enter the virtual environment and install necessary libraries:
     source my_venv/bin/activate
     venv/bin/pip install -r requirements.txt
 
+If it doesn't already exist, create the configuration file:
+
+    cp config_template.cfg config.cfg
+
+Change values in config.cfg for this specific installation.
+
 Start the development server:
 
     venv/bin/python3 dis_responder.py
@@ -28,6 +34,12 @@ Go to the run directory (be sure to get any changes from the repo):
 
     cd /opt/flask/dis-utilities
     git pull
+
+If it doesn't already exist, create the configuration file:
+
+    cp config_template.cfg config.cfg
+
+Change values in config.cfg for this specific installation.
 
 Start the server:
 

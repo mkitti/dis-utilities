@@ -12,7 +12,7 @@ import random
 import re
 import string
 import sys
-from time import sleep, time
+from time import time
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -22,9 +22,9 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 import dis_plots as DP
 
-# pylint: disable=broad-exception-caught,too-many-lines
+# pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "13.4.0"
+__version__ = "14.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -49,7 +49,8 @@ NAV = {"Home": "",
                      "DOIs by preprint status by year": "dois_preprint_year"},
        "ORCID": {"Groups": "groups",
                  "Affiliations": "orcid_tag",
-                 "Entries": "orcid_entry"
+                 "Entries": "orcid_entry",
+                 "Duplicates": "orcid_duplicates",
                 },
        "Stats" : {"Database": "stats_database"
                  },
@@ -417,13 +418,14 @@ def get_dois_for_orcid(oid, orc, use_eid, both):
           HTML and a list of DOIs
     '''
     try:
-        if both:
+        if use_eid:
+            payload = {"jrc_author": oid}
+        elif both:
             eid = orc['employeeId'] if 'employeeId' in orc else None
-            rows = DB['dis'].dois.find(orcid_payload(oid, orc, eid))
-        elif use_eid:
-            rows = DB['dis'].dois.find(orcid_payload(None, orc, oid))
+            payload = orcid_payload(oid, orc, eid)
         else:
-            rows = DB['dis'].dois.find(orcid_payload(oid, orc))
+            payload = orcid_payload(oid, orc)
+        rows = DB['dis'].dois.find(payload)
     except Exception as err:
         raise CustomException(err, "Could not find in dois collection by name.") from err
     return rows
@@ -887,10 +889,11 @@ def get_source_data(year):
     return data, hdict
 
 
-def s2_citation_count(doi, format='plain'):
+def s2_citation_count(doi, fmt='plain'):
     ''' Get citation count from Semantic Scholar
         Keyword arguments:
           doi: DOI
+          fmt: format (plain or html)
         Returns:
           Citation count
     '''
@@ -900,10 +903,10 @@ def s2_citation_count(doi, format='plain'):
         resp = requests.get(url, headers=headers, timeout=10)
         if resp.status_code == 429:
             raise Exception("Rate limit exceeded")
-        elif resp.status_code != 200:
+        if resp.status_code != 200:
             return 0
         data = resp.json()
-        if format == 'html':
+        if fmt == 'html':
             cnt = f"<a href='{app.config['S2']}{data['paperId']}' target='_blank'>" \
                   + f"{data['citationCount']}</a>"
         else:
@@ -950,6 +953,8 @@ def get_badges(auth):
             badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
         if auth['asserted']:
             badges.append(f"{tiny_badge('info', 'Janelia affiliation')}")
+        if 'duplicate_name' in auth:
+            badges.append(f"{tiny_badge('warning', 'Duplicate name')}")
     else:
         badges.append(f"{tiny_badge('danger', 'Not in database')}")
         if 'asserted' in auth and auth['asserted']:
@@ -999,6 +1004,8 @@ def add_orcid_badges(orc):
     '''
     badges = []
     badges.append(tiny_badge('success', 'In database'))
+    if 'duplicate_name' in orc:
+        badges.append(tiny_badge('warning', 'Duplicate name'))
     if 'orcid' not in orc or not orc['orcid']:
         badges.append(f"{tiny_badge('urgent', 'No ORCID')}")
     if 'alumni' in orc:
@@ -1470,8 +1477,8 @@ def show_citation(doi):
 @app.route('/citations/<string:ctype>', methods=['OPTIONS', 'POST'])
 def show_multiple_citations(ctype='dis'):
     '''
-    Return DIS-style citations
-    Return a dictionary of DIS-style citations for a list of given DOIs.
+    Return citations
+    Return a dictionary of citations for a list of given DOIs.
     ---
     tags:
       - DOI
@@ -1481,7 +1488,7 @@ def show_multiple_citations(ctype='dis'):
         schema:
           type: string
         required: false
-        description: Citation type (dis or flylight)
+        description: Citation type (dis, flylight, or full)
       - in: query
         name: dois
         schema:
@@ -1511,11 +1518,12 @@ def show_multiple_citations(ctype='dis'):
         result['rest']['row_count'] += 1
         authors = DL.get_author_list(row, style=ctype)
         title = DL.get_title(row)
+        journal = DL.get_journal(row)
+        result['data'][doi] = f"{authors} {title}."
         if ctype == 'dis':
-            result['data'][doi] = f"{authors} {title}. https://doi.org/{doi}."
+            result['data'][doi] = f"{result['data'][doi]}. https://doi.org/{doi}."
         else:
-            journal = DL.get_journal(row)
-            result['data'][doi] = f"{authors} {title}. {journal}."
+            result['data'][doi] = f"{result['data'][doi]}. {journal}."
     return generate_response(result)
 
 
@@ -1553,6 +1561,48 @@ def show_flylight_citation(doi):
     result['rest']['row_count'] = 1
     result['rest']['source'] = 'mongo'
     authors = DL.get_author_list(row, style='flylight')
+    title = DL.get_title(row)
+    journal = DL.get_journal(row)
+    result['data'] = f"{authors} {title}. {journal}."
+    if 'jrc_preprint' in row:
+        result['jrc_preprint'] = row['jrc_preprint']
+    return generate_response(result)
+
+
+@app.route('/citation/full/<path:doi>')
+def show_full_citation(doi):
+    '''
+    Return a full citation
+    Return a full citation (DIS+journal) for a given DOI.
+    ---
+    tags:
+      - DOI
+    parameters:
+      - in: path
+        name: doi
+        schema:
+          type: path
+        required: true
+        description: DOI
+    responses:
+      200:
+        description: DOI data
+      404:
+        description: DOI not found
+      500:
+        description: MongoDB or formatting error
+    '''
+    doi = doi.lstrip('/').rstrip('/').lower()
+    result = initialize_result()
+    try:
+        row = DB['dis'].dois.find_one({"doi": doi}, {'_id': 0})
+    except Exception as err:
+        raise InvalidUsage(str(err), 500) from err
+    if not row:
+        raise InvalidUsage(f"DOI {doi} is not in the database", 404)
+    result['rest']['row_count'] = 1
+    result['rest']['source'] = 'mongo'
+    authors = DL.get_author_list(row)
     title = DL.get_title(row)
     journal = DL.get_journal(row)
     result['data'] = f"{authors} {title}. {journal}."
@@ -1961,7 +2011,7 @@ def show_doi_ui(doi):
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
             + "</span><br>"
     if row:
-        citations = s2_citation_count(doi, format='html')
+        citations = s2_citation_count(doi, fmt='html')
         if citations:
             html += f"<span class='paperdata'>Citations: {citations}</span><br>"
     html += "<br>"
@@ -2015,7 +2065,6 @@ def show_doi_by_type_ui(src, typ, sub, year):
         payload["subtype"] = sub
     if year != 'All':
         payload['jrc_publishing_date'] = {"$regex": "^" + year}
-    print(payload)
     try:
         rows = DB['dis'].dois.find(payload).collation({"locale": "en"}).sort("doi", 1)
     except Exception as err:
@@ -2923,7 +2972,7 @@ def show_oid_ui(oid):
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
     try:
-        orciddata, dois = get_orcid_from_db(oid, both=True)
+        orciddata, dois = get_orcid_from_db(oid, use_eid=bool('employeeId' in oid), both=True)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning(f"Could not find ORCID ID {oid}", 'error'),
@@ -3111,6 +3160,36 @@ def orcid_affiliation(aff):
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"{aff} affiliation ({count:,})",
                                          html=html + additional,
+                                         navbar=generate_navbar('ORCID')))
+
+
+@app.route('/orcid_duplicates')
+def orcid_duplicates():
+    ''' Show ORCID duplicate records
+    '''
+    html = ""
+    for check in ("employeeId", "orcid"):
+        payload = [{"$sortByCount": f"${check}"},
+                   {"$match": {"_id": {"$ne": None}, "count": {"$gt": 1}}}
+                 ]
+        try:
+            rows = DB['dis'].orcid.aggregate(payload)
+        except Exception as err:
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning(f"Could not get duplicate {check}s " \
+                                                        + "from orcid collection"),
+                                   message=error_message(err))
+        if rows:
+            arr = []
+            for row in rows:
+                arr.append(row['_id'])
+            print(arr)
+            if arr:
+                html += f"<h3>{check} duplicates</h3>{', '.join(arr)}"
+        if not html:
+            html = "<p>No duplicates found</p>"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title="ORCID duplicates", html=html,
                                          navbar=generate_navbar('ORCID')))
 
 # ******************************************************************************
