@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "14.1.0"
+__version__ = "14.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -49,7 +49,8 @@ NAV = {"Home": "",
                      "DOIs by preprint status by year": "dois_preprint_year"},
        "ORCID": {"Groups": "groups",
                  "Affiliations": "orcid_tag",
-                 "Entries": "orcid_entry"
+                 "Entries": "orcid_entry",
+                 "Duplicates": "orcid_duplicates",
                 },
        "Stats" : {"Database": "stats_database"
                  },
@@ -3159,6 +3160,36 @@ def orcid_affiliation(aff):
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"{aff} affiliation ({count:,})",
                                          html=html + additional,
+                                         navbar=generate_navbar('ORCID')))
+
+
+@app.route('/orcid_duplicates')
+def orcid_duplicates():
+    ''' Show ORCID duplicate records
+    '''
+    html = ""
+    for check in ("employeeId", "orcid"):
+        payload = [{"$sortByCount": f"${check}"},
+                   {"$match": {"_id": {"$ne": None}, "count": {"$gt": 1}}}
+                 ]
+        try:
+            rows = DB['dis'].orcid.aggregate(payload)
+        except Exception as err:
+            return render_template('error.html', urlroot=request.url_root,
+                                   title=render_warning(f"Could not get duplicate {check}s " \
+                                                        + "from orcid collection"),
+                                   message=error_message(err))
+        if rows:
+            arr = []
+            for row in rows:
+                arr.append(row['_id'])
+            print(arr)
+            if arr:
+                html += f"<h3>{check} duplicates</h3>{', '.join(arr)}"
+        if not html:
+            html = "<p>No duplicates found</p>"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title="ORCID duplicates", html=html,
                                          navbar=generate_navbar('ORCID')))
 
 # ******************************************************************************
