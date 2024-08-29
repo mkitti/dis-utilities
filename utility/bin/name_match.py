@@ -24,6 +24,15 @@ import doi_common.doi_common as doi_common
 #TODO: Add support for arxiv DOIs
 #TODO: BUG: 10.7554/elife.80622 says 'doi' is not a key in the DOI record. Solution: ask Rob for a function, single_doi_lookup, so we get the record in our DB, not the crossref record
 #TODO: add an 'approved' attribute to Guess dynamically, so that we can rename approved_guess.exists to best_guess.approved
+#TODO: use doi_common.get_author_details. 'asserted' always comes from the paper. 'janelian' is Rob's inference. 'match' indicates how he inferred it.
+# If an external person has the same name as a janelian, they will be marked as a janelian.
+# If 'match' is 'name', that means that he found an exact name match in the orcid collection. We should be wary of this, because there could be random
+# authors who just happen to have the same name as Janelians. There could also (once in a while) be two
+# Janelians with the same name. Important: "orcid" may be inferred if an ORCID is not on the paper. 
+# I should still dig into the DOI record to get the ORCID that was on the paper. That way, if there isn't an orcid on the paper, we'll know.
+# Like 'asserted', 'family' and 'given' are also from the paper. 
+# If the author has an orcid, but they're not in the orcid DB, they're not janelian. 
+
 
 # Pseudocode demonstrating the workflow of this program:
 # authors_to_check: a list of author objects. If the paper has affiliations, then authors_to_check is just those authors with janelia affiliations. Otherwise, authors_to_check is all authors.
