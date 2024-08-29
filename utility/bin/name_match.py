@@ -535,9 +535,9 @@ def search_people_api(query, mode):
         response = JRC.call_people_by_id(query)
     return(response)
 
-def get_doi_record(doi):
-    result = JRC.call_crossref(doi)
-    return( result['message'] )
+# def get_doi_record(doi):
+#     result = JRC.call_crossref(doi)
+#     return( result['message'] )
 
 def strip_orcid_if_provided_as_url(orcid):
     prefixes = ["http://orcid.org/", "https://orcid.org/"]
@@ -641,7 +641,8 @@ if __name__ == '__main__':
 
     for doi in dois:
 
-        doi_record = get_doi_record(doi)
+        #doi_record = get_doi_record(doi)
+        doi_record = doi_common.get_doi_record(doi, doi_collection)
         print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
         print(", ".join([a.name for a in authors_to_check]))
