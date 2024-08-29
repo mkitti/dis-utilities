@@ -94,10 +94,11 @@ class Employee:
 class Guess(Employee):
     """ A Guess is a subtype of Employee that consists of just ONE name permutation 
     (e.g. Gerald M Rubin) and a fuzzy match score (calculated before the guess object is instantiated). """
-    def __init__(self, id=None, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None, exists=False, name=None, score=None):
+    def __init__(self, id=None, job_title=None, email=None, location=None, supOrgName=None, first_names=None, middle_names=None, last_names=None, exists=False, name=None, score=None, approved=False):
         super().__init__(id, job_title, email, location, supOrgName, first_names, middle_names, last_names, exists)
         self.name = name
         self.score = score
+        self.approved = approved
 
 class MongoOrcidRecord:
     def __init__(self, orcid=None, employeeId=None, exists=False):
@@ -127,50 +128,54 @@ class MongoOrcidRecord:
 #             author_objects.append(current_author)
 #     return(author_objects)
 
-def create_author_objects(doi_record): # Ingests 'creators' (DataCite) or 'author' (Crossref)
-    authors_list = []
-    if 'author' in doi_record and 'creators' not in doi_record:
-        authors_list = doi_record['author']
-    if 'creators' in doi_record and 'author' not in doi_record:
-        authors_list = doi_record['creators']
-    else:
-        raise ValueError(f"Problem with DOI record for {doi_record['doi']}. Ensure that this DOI record has exactly one of: authors OR creators.")
-    author_objects = []
-    for author_record in authors_list:
-        current_author = None
-        if 'given' in author_record and 'family' in author_record: # Crossref
-            full_name = ' '.join((author_record['given'], author_record['family']))
-            current_author = Author( full_name )
-        if 'givenName' in author_record and 'familyName' in author_record: # DataCite
-            full_name = ' '.join((author_record['givenName'], author_record['familyName']))
-            current_author = Author( full_name )
-        if not current_author:
-            if 'name' in author_record: # Sometimes 'name' is 'Scarlett, Virginia', so I'd rather concatenate first and last names, and only use the 'name' field as a last resort
-                current_author = Author( author_record['name'] )
-        if not current_author:
-            for key in ['given', 'family', 'givenName', 'familyName']:
-                if key in author_record:
-                    current_author = Author( author_record[key] )
-        if not current_author:
-            raise AttributeError(f"Unable to create an author object for the following record: {author_record}")
-        if 'affiliation' in author_record and author_record['affiliation']:
-            for affiliation in author_record['affiliation']:
-                if isinstance(affiliation, str): # DataCite
-                    current_author.affiliations.append(affiliation)
-                elif 'name' in affiliation: # Crossref
-                    current_author.affiliations.append(affiliation['name'])
-        if 'ORCID' in author_record: # Crossref
-            current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
-        if 'nameIdentifiers' in author_record and author_record['nameIdentifiers']: # DataCite
-            for id_info_dic in author_record['nameIdentifiers']:
-                if 'nameIdentifierScheme' in id_info_dic:
-                    if id_info_dic['nameIdentifierScheme'] == 'ORCID': 
-                        current_author.orcid = strip_orcid_if_provided_as_url(id_info_dic['nameIdentifier']) # This should be their ORCID, a string, a URL
-        author_objects.append(current_author)
-    return(author_objects)
+# def create_author_objects(doi_record): # Ingests 'creators' (DataCite) or 'author' (Crossref)
+#     authors_list = []
+#     if 'author' in doi_record and 'creators' not in doi_record:
+#         authors_list = doi_record['author']
+#     if 'creators' in doi_record and 'author' not in doi_record:
+#         authors_list = doi_record['creators']
+#     else:
+#         raise ValueError(f"Problem with DOI record for {doi_record['doi']}. Ensure that this DOI record has exactly one of: authors OR creators.")
+#     author_objects = []
+#     for author_record in authors_list:
+#         current_author = None
+#         if 'given' in author_record and 'family' in author_record: # Crossref
+#             full_name = ' '.join((author_record['given'], author_record['family']))
+#             current_author = Author( full_name )
+#         if 'givenName' in author_record and 'familyName' in author_record: # DataCite
+#             full_name = ' '.join((author_record['givenName'], author_record['familyName']))
+#             current_author = Author( full_name )
+#         if not current_author:
+#             if 'name' in author_record: # Sometimes 'name' is 'Scarlett, Virginia', so I'd rather concatenate first and last names, and only use the 'name' field as a last resort
+#                 current_author = Author( author_record['name'] )
+#         if not current_author:
+#             for key in ['given', 'family', 'givenName', 'familyName']:
+#                 if key in author_record:
+#                     current_author = Author( author_record[key] )
+#         if not current_author:
+#             raise AttributeError(f"Unable to create an author object for the following record: {author_record}")
+#         if 'affiliation' in author_record and author_record['affiliation']:
+#             for affiliation in author_record['affiliation']:
+#                 if isinstance(affiliation, str): # DataCite
+#                     current_author.affiliations.append(affiliation)
+#                 elif 'name' in affiliation: # Crossref
+#                     current_author.affiliations.append(affiliation['name'])
+#         if 'ORCID' in author_record: # Crossref
+#             current_author.orcid = strip_orcid_if_provided_as_url(author_record['ORCID'])
+#         if 'nameIdentifiers' in author_record and author_record['nameIdentifiers']: # DataCite
+#             for id_info_dic in author_record['nameIdentifiers']:
+#                 if 'nameIdentifierScheme' in id_info_dic:
+#                     if id_info_dic['nameIdentifierScheme'] == 'ORCID': 
+#                         current_author.orcid = strip_orcid_if_provided_as_url(id_info_dic['nameIdentifier']) # This should be their ORCID, a string, a URL
+#         author_objects.append(current_author)
+#     return(author_objects)
 
 
-
+def create_author(author_info):
+    name = ' '.join((author_info['given'], author_info['family']))
+    orcid = author_info['paper_orcid'] if 'paper_orcid' in author_info else None
+    affiliations = author_info['affiliations'] if author_info['asserted'] == True else None
+    return(Author(name, orcid, affiliations))
 
 
 
@@ -361,8 +366,10 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
                             default=['None of the above'])]
             ans = inquirer.prompt(quest, theme=BlueComposure()) 
         if ans['decision'] != ['None of the above']:
-            i = [guess.name for guess in selection_list].index(ans['decision'][0])
-            return(candidates[i])
+            index = [guess.name for guess in selection_list].index(ans['decision'][0])
+            winner = candidates[index]
+            winner.approved = True
+            return(winner)
         elif ans['decision'] == ['None of the above']:
             print(f"No action will be taken for {author.name}.\n")
             return( Guess(exists=False) )
@@ -391,6 +398,7 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
                                    choices=['Yes', 'No'])]
             ans = inquirer.prompt(quest, theme=BlueComposure())
             if ans['decision'] == 'Yes':
+                best_guess.approved = True
                 return(best_guess)
             else:
                 print(f"No action will be taken for {author.name}.\n")
@@ -418,7 +426,7 @@ def confirm_action(success_message):
 ### Miscellaneous low-level functions and variables
 
 def determine_authors_to_check(doi_record):
-    all_authors = create_author_objects(doi_record)
+    all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection) ]
     if not any([a.affiliations for a in all_authors]):
         return(all_authors)
     else:
@@ -634,9 +642,9 @@ if __name__ == '__main__':
     for doi in dois:
 
         doi_record = get_doi_record(doi)
-        print(doi_record.keys())
         print(f"{doi}: {doi_record['title'][0]}")
         authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
+        print(", ".join([a.name for a in authors_to_check]))
         #revised_jrc_authors = []
 
         for author in authors_to_check:
@@ -653,14 +661,14 @@ if __name__ == '__main__':
                     else:
                         inform_message = f"{author.name} is in our ORCID collection, but without an employee ID."
                         candidates = propose_candidates(author)
-                        approved_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE) 
-                        if approved_guess.exists:
-                            success_message = f"Confirm you wish to add {approved_guess.name}'s employee ID to their existing ORCID record"
+                        best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE) 
+                        if best_guess.approved:
+                            success_message = f"Confirm you wish to add {best_guess.name}'s employee ID to their existing ORCID record"
                             proceed = confirm_action(success_message)
                             if proceed:
-                                doi_common.update_existing_orcid(lookup=author.orcid, add=approved_guess.id, coll=orcid_collection, lookup_by='orcid')
-                                doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                                #revised_jrc_authors.append(approved_guess)
+                                doi_common.update_existing_orcid(lookup=author.orcid, add=best_guess.id, coll=orcid_collection, lookup_by='orcid')
+                                doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
+                                #revised_jrc_authors.append(best_guess)
 
                 elif not mongo_orcid_record.exists:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
@@ -673,29 +681,29 @@ if __name__ == '__main__':
                         if all( [mongo_record.has_orcid() and mongo_record.has_employeeId() for mongo_record in records] ):
                             pass
                         else:
-                            approved_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
-                            if approved_guess.exists:
-                                mongo_orcid_record = get_mongo_orcid_record(approved_guess.id) # I know, I'm doing another lookup, which is a bit inefficient.
+                            best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
+                            if best_guess.approved:
+                                mongo_orcid_record = get_mongo_orcid_record(best_guess.id) # I know, I'm doing another lookup, which is a bit inefficient.
                                 success_message = ''
                                 if mongo_orcid_record: 
                                     if not mongo_orcid_record.has_orcid(): # If the author has a never-before-seen orcid, but their employeeId is already in our collection
                                         print(f"{author.name} is in our collection, with an employee ID only.")
-                                        success_message = f"Confirm you wish to add an ORCID id to the existing record for {approved_guess.name}"
+                                        success_message = f"Confirm you wish to add an ORCID id to the existing record for {best_guess.name}"
                                         proceed = confirm_action(success_message)
                                         if proceed:
-                                            doi_common.update_existing_orcid(lookup=approved_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
-                                            doi_common.add_orcid_name(lookup=approved_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                                            #revised_jrc_authors.append(approved_guess.id)
+                                            doi_common.update_existing_orcid(lookup=best_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
+                                            doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
+                                            #revised_jrc_authors.append(best_guess.id)
                                     elif mongo_orcid_record.has_orcid(): # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
                                         print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {mongo_orcid_record.orcid} in our collection. Aborting program.")
                                         sys.exit(1)
                                 else:
                                     print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
-                                    success_message = f"Confirm you wish to create an ORCID record for {approved_guess.name}, with both their employee ID and their ORCID"
+                                    success_message = f"Confirm you wish to create an ORCID record for {best_guess.name}, with both their employee ID and their ORCID"
                                     proceed = confirm_action(success_message)
                                     if proceed:
-                                        create_orcid_record(approved_guess, orcid_collection, author)
-                                        #revised_jrc_authors.append(approved_guess.id)
+                                        create_orcid_record(best_guess, orcid_collection, author)
+                                        #revised_jrc_authors.append(best_guess.id)
 
 
             elif not author.orcid:
@@ -704,23 +712,24 @@ if __name__ == '__main__':
                 records = [get_mongo_orcid_record(guess.id) for guess in candidates if guess.exists]
                 if records: 
                     if all( [mongo_record.has_employeeId() for mongo_record in records] ): # if nothing can be done for all candidates, then don't bother proceeding.
-                        print(f'All matches to {author.name} are in our collection with employeeIds. No action to take.\n')
+                        if arg.VERBOSE:
+                            print(f'All matches to {author.name} are in our collection with employeeIds. No action to take.\n')
                         # ^ This line is responsible for the mis-handling of guoqiang yu in 10.1101/2024.05.09.593460
-                        #revised_jrc_authors.append(approved_guess.id)
+                        #revised_jrc_authors.append(best_guess.id)
                     else:
-                        approved_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
-                        mongo_orcid_record = get_mongo_orcid_record(approved_guess.id)
+                        best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
+                        mongo_orcid_record = get_mongo_orcid_record(best_guess.id)
                         if mongo_orcid_record.has_employeeId():
                             print(f"{author.name} is in our collection with an employee ID. No action to take.\n")
-                            doi_common.add_orcid_name(lookup=approved_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, approved_guess), family=last_names_for_orcid_record(author, approved_guess), coll=orcid_collection)
-                            #revised_jrc_authors.append(approved_guess.id)
+                            doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
+                            #revised_jrc_authors.append(best_guess.id)
                         else:
-                            if approved_guess.exists:
+                            if best_guess.approved:
                                 print(f"There is no record in our collection for {author.name}.")
-                                success_message = f"Confirm you wish to create an ORCID record for {approved_guess.name} with an employee ID only"
+                                success_message = f"Confirm you wish to create an ORCID record for {best_guess.name} with an employee ID only"
                                 proceed = confirm_action(success_message)
                                 if proceed:
-                                    create_orcid_record(approved_guess, orcid_collection, author)
+                                    create_orcid_record(best_guess, orcid_collection, author)
                                     #revised_jrc_authors.append(approved_guess.id)
 
         #jrc_authors = doi_record['jrc_author']
@@ -741,8 +750,18 @@ if __name__ == '__main__':
 # doi_record = result['message']
 # res = nm.doi_common.get_author_details(doi_record, doi_collection)
 
-# def create_author2(author_info):
-#     name = ' '.join((author_info['given'], author_info['family']))
+
+
+
+
+
+
+
+
+    
+    
+
+
 
 
     #doi='10.1038/s41587-022-01524-7'
