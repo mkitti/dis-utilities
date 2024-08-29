@@ -6,6 +6,9 @@
 import requests
 import argparse
 import sys
+import jrc_common.jrc_common as JRC
+from operator import attrgetter
+
 
 class Citation:
     def __init__(self, citation=None, preprint=None):
@@ -25,7 +28,9 @@ def create_simple_item(doi_record):
     return(item)
 
 def create_citation(doi):
-    response = get_request(f"https://dis.int.janelia.org/citation/dis/{replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))}")
+    rest = JRC.get_config("rest_services")
+    url_base = attrgetter("dis.url")(rest)
+    response = get_request(f"{url_base}citation/dis/{replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))}")
     if 'jrc_preprint' in response:
         doi_record = get_doi_record(doi)
         item = create_simple_item(doi_record)
@@ -34,7 +39,9 @@ def create_citation(doi):
     return(Citation(citation=response['data']))
 
 def get_doi_record(doi):
-    url = f'https://dis.int.janelia.org/doi/{replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))}'
+    rest = JRC.get_config("rest_services")
+    url_base = attrgetter("dis.url")(rest)
+    url = f'{url_base}doi/{replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))}'
     response = get_request(url)
     return( response['data'] ) 
 
@@ -102,10 +109,17 @@ if __name__ == '__main__':
     for citation in sorted(citations, key=lambda c: c.citation):        
         if citation.preprint:
             print(f"{citation.citation}")
-            for pp in citation.preprint:
-                print(f"Preprint: {pp}")
-            print("\n")
+            for n in range(len(citation.preprint)):
+                if n == len(citation.preprint)-1:
+                    print(f"Preprint: {citation.preprint[n]}\n")
+                else:
+                    print(f"Preprint: {citation.preprint[n]}")
+
+            # print(f"{citation.citation}")
+            # for pp in citation.preprint:
+            #     print(f"Preprint: {pp}")
+            # print("\n")
         else:
-            print(f"{citation.citation}")
+            print(f"{citation.citation}\n")
 
 # debugging: 10.7554/elife.90523 is a journal article with multiple preprints
