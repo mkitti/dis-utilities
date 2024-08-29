@@ -21,6 +21,12 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Refactor code so that the script doesn't just assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
+#TODO: Could I update jrc_authors with a POST request?
+# This doesn't work:
+# import requests
+# url = 'https://dis.int.janelia.org/doi/jrc_author/10.3389%2Ffninf.2022.896292'
+# data = ['50328', 'J0273', 'J0388', 'J0018']
+# response = requests.post(url, json=data)
 
 
 # Pseudocode for the workflow of this program:
@@ -571,7 +577,6 @@ if __name__ == '__main__':
 
     for doi in dois:
 
-        #doi_record = get_doi_record(doi)
         doi_record = doi_common.get_doi_record(doi, doi_collection)
         if 'titles' in doi_record: # DataCite
             print(f"{doi}: {doi_record['titles'][0]['title']}")
@@ -670,7 +675,7 @@ if __name__ == '__main__':
         #revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
         #print(revised_jrc_authors)
         #doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
-        #doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
+        doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
 
 
 
@@ -685,24 +690,12 @@ if __name__ == '__main__':
 # res = nm.doi_common.get_author_details(doi_record, doi_collection)
 
 
-
-
-
-
-
-
-
-    
-    
-
-
-
-
-    #doi='10.1038/s41587-022-01524-7'
-    #doi='10.7554/elife.80660'
-    #doi='10.1101/2024.05.09.593460'
-    #doi='10.1021/jacs.4c03092'
-    #doi='10.1038/s41556-023-01154-4'
-    #doi='10.7554/eLife.80622'
+#doi='10.3389/fninf.2022.896292'
+#doi='10.1038/s41587-022-01524-7'
+#doi='10.7554/elife.80660'
+#doi='10.1101/2024.05.09.593460'
+#doi='10.1021/jacs.4c03092'
+#doi='10.1038/s41556-023-01154-4'
+#doi='10.7554/eLife.80622'
 
 
