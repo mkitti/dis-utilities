@@ -739,6 +739,11 @@ if __name__ == '__main__':
 # doi='10.7554/elife.80622'
 # result = nm.JRC.call_crossref(doi)
 # doi_record = result['message']
+# res = nm.doi_common.get_author_details(doi_record, doi_collection)
+
+# def create_author2(author_info):
+#     name = ' '.join((author_info['given'], author_info['family']))
+
 
     #doi='10.1038/s41587-022-01524-7'
     #doi='10.7554/elife.80660'
