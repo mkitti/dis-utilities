@@ -24,7 +24,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "14.2.0"
+__version__ = "14.3.0"
 # Database
 DB = {}
 # Custom queries
@@ -3182,8 +3182,7 @@ def orcid_duplicates():
         if rows:
             arr = []
             for row in rows:
-                arr.append(row['_id'])
-            print(arr)
+                arr.append(f"<a href='userui/{row['_id']}'>{row['_id']}</a>")
             if arr:
                 html += f"<h3>{check} duplicates</h3>{', '.join(arr)}"
         if not html:
