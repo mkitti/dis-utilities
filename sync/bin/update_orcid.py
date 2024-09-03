@@ -2,7 +2,7 @@
     Update the MongoDB orcid collection with ORCIDs and names for Janelia authors
 '''
 
-__version__ = '2.4.0'
+__version__ = '2.5.0'
 
 import argparse
 import collections
@@ -101,6 +101,7 @@ def add_name(oid, oids, family, given):
         else:
             if not ARG.WRITE:
                 COUNT['insert'] += 1
+                print(oid, json.dumps(oids[oid], indent=2))
             NEW_ORCID[oid] = {"family": [family], "given": [given]}
 
 
