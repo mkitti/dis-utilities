@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "14.4.0"
+__version__ = "15.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -53,6 +53,7 @@ NAV = {"Home": "",
                  "Affiliations": "orcid_tag",
                  "Entries": "orcid_entry",
                  "Duplicates": "orcid_duplicates",
+                 "Search People system": "people",
                 },
        "Stats" : {"Database": "stats_database"
                  },
@@ -3243,6 +3244,64 @@ def orcid_duplicates():
             html = "<p>No duplicates found</p>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title="ORCID duplicates", html=html,
+                                         navbar=generate_navbar('ORCID')))
+
+# ******************************************************************************
+# * UI endpoints (People)                                                      *
+# ******************************************************************************
+@app.route('/people/<string:name>')
+@app.route('/people')
+def people(name=None):
+    ''' Show information from the People system
+    '''
+    if not name:
+        return make_response(render_template('people.html', urlroot=request.url_root,
+                                             title="Search People system", content="",
+                                             navbar=generate_navbar('ORCID')))
+    try:
+        response = JRC.call_people_by_name(name)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not get People data for {name}"),
+                               message=error_message(err))
+    html = "<br><br><h3>Select a name for details:</h3>"
+    html += "<table id='people' class='tablesorter standard'><thead><tr><th>Name</th>" \
+            + "<th>Title</th><th>Employee ID</th><th>Location</th></tr></thead><tbody>"
+    for rec in response:
+        pname = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
+        link = f"<a href='/peoplerec/{rec['employeeId']}'>{pname}</a>"
+        loc = rec['locationName'] if 'locationName' in rec else ""
+        if "Janelia" in loc:
+            loc = f"<span style='color:lime'>{loc}</span>"
+        html += f"<tr><td>{link}</td><td>{rec['businessTitle']}</td><td>{rec['employeeId']}</td>" \
+                + "<td>{loc}</td></tr>"
+    html += "</tbody></table>"
+    return make_response(render_template('people.html', urlroot=request.url_root,
+                                         title="Search People system", content=html,
+                                         navbar=generate_navbar('ORCID')))
+
+
+@app.route('/peoplerec/<string:eid>')
+def peoplerec(eid):
+    ''' Show a single People record
+    '''
+    try:
+        rec = JRC.call_people_by_id(eid)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not get People data for {eid}"),
+                               message=error_message(err))
+    if not rec:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find People record for {eid}"),
+                               message="No record found")
+    title = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
+    if 'photoURL' in rec:
+        title += f"&nbsp;<img src='{rec['photoURL']}' width=100 height=100 " \
+                 + f"alt='Photo of {rec['nameFirstPreferred']}'>"
+    html = f"<div class='scroll' style='height:750px'><pre>{json.dumps(rec, indent=2)}</pre></div>"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title=title, html=html,
                                          navbar=generate_navbar('ORCID')))
 
 # ******************************************************************************
