@@ -675,7 +675,8 @@ if __name__ == '__main__':
         #revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
         #print(revised_jrc_authors)
         #doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
-        doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
+        doi_common.update_jrc_author_from_doi(doi, doi_collection, orcid_collection)
+
 
 
 
