@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "15.0.0"
+__version__ = "15.0.1"
 # Database
 DB = {}
 # Custom queries
@@ -3274,7 +3274,7 @@ def people(name=None):
         if "Janelia" in loc:
             loc = f"<span style='color:lime'>{loc}</span>"
         html += f"<tr><td>{link}</td><td>{rec['businessTitle']}</td><td>{rec['employeeId']}</td>" \
-                + "<td>{loc}</td></tr>"
+                + f"<td>{loc}</td></tr>"
     html += "</tbody></table>"
     return make_response(render_template('people.html', urlroot=request.url_root,
                                          title="Search People system", content=html,
