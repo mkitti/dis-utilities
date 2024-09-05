@@ -5,6 +5,7 @@
 from datetime import date, datetime, timedelta
 from html import escape
 import inspect
+import json
 from json import JSONEncoder
 from operator import attrgetter, itemgetter
 import os
@@ -24,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "14.3.0"
+__version__ = "14.4.0"
 # Database
 DB = {}
 # Custom queries
@@ -40,6 +41,7 @@ NAV = {"Home": "",
                 "DOIs by source": "dois_source",
                 "DOIs by tag": "dois_tag",
                 "DOIs by year": "dois_year",
+                "DOIs by month": "dois_month",
                 "Top tags by year": "dois_top",
                 "DOI yearly report": "dois_report"
             },
@@ -128,7 +130,6 @@ app = Flask(__name__, template_folder="templates")
 app.json_encoder = CustomJSONEncoder
 app.config.from_pyfile("config.cfg")
 CORS(app, supports_credentials=True)
-app.json_encoder = CustomJSONEncoder
 app.config["STARTDT"] = datetime.now()
 app.config["LAST_TRANSACTION"] = time()
 
@@ -328,7 +329,7 @@ def get_custom_payload(ipd, display_value):
           display_value: display value
         Returns:
           payload: payload for MongoDB find
-          ptitle: page titleq
+          ptitle: page title
     '''
     if ipd['field'] in CUSTOM_REGEX:
         rex = CUSTOM_REGEX[ipd['field']]['value']
@@ -629,7 +630,10 @@ def add_jrc_fields(row):
         if not re.match(prog, key):
             continue
         if isinstance(val, list):
-            val = ", ".join(sorted(val))
+            try:
+                val = ", ".join(sorted(val))
+            except TypeError:
+                val = json.dumps(val)
         jrc[key] = val
     if not jrc:
         return ""
@@ -2481,7 +2485,7 @@ def dois_preprint_year():
                                                     + "from dois collection"),
                                message=error_message(err))
     stat = get_preprint_stats(rows)
-    data = {'years': [], 'Journal article': [], 'Preprint': []}
+    data = {'years': [], 'Crossref': [], 'DataCite': []}
     for key, val in stat.items():
         if key < '2006':
             continue
@@ -2504,6 +2508,56 @@ def dois_preprint_year():
                                                  colors=DP.SOURCE_PALETTE)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOIs preprint status by year", html="",
+                                         chartscript=chartscript, chartdiv=chartdiv,
+                                         navbar=generate_navbar('DOIs')))
+
+@app.route('/dois_month/<string:year>')
+@app.route('/dois_month')
+def dois_month(year=str(datetime.now().year)):
+    ''' Show DOIs by month
+    '''
+    payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$group": {"_id": {"month": {"$substrBytes": ["$jrc_publishing_date", 0, 7]},
+                                   "obtained": "$jrc_obtained_from"
+                                  },
+                           "count": {"$sum": 1}}},
+               {"$sort": {"_id.month": 1}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get month counts " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    data = {'months': [f"{mon:02}" for mon in range(1, 13)], 'Crossref': [0] * 12,
+            'DataCite': [0] * 12}
+    for row in rows:
+        month = row['_id']['month'][-2:]
+        data[row['_id']['obtained']][int(month)-1] = row['count']
+    title = f"DOIs published by month for {year}"
+    html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Month</th><th>Crossref</th><th>DataCite</th>' \
+           + '</tr></thead><tbody>'
+    for mon in data['months']:
+        mname = date(1900, int(mon), 1).strftime('%B')
+        html += f"<tr><td>{mname}</td>"
+        for source in SOURCES:
+            if data[source][int(mon)-1]:
+                onclick = "onclick='nav_post(\"publishing_year\",\"" \
+                          + f"{year}-{mon}" + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{data[source][int(mon)-1]:,}</a>"
+                html += f"<td>{link}</td>"
+            else:
+                html += "<td></td>"
+        html += "</tr>"
+    html += '</tbody></table><br>' + year_pulldown('dois_month', all_years=False)
+    chartscript, chartdiv = DP.stacked_bar_chart(data, title,
+                                                 xaxis="months",
+                                                 yaxis=('Crossref', 'DataCite'),
+                                                 colors=DP.SOURCE_PALETTE)
+    return make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                         title=title, html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
                                          navbar=generate_navbar('DOIs')))
 
