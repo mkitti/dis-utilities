@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "15.1.0"
+__version__ = "16.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -447,10 +447,7 @@ def generate_works_table(rows, name=None):
     html = ""
     fileoutput = ""
     for row in rows:
-        if row['doi']:
-            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
-        else:
-            doi = "&nbsp;"
+        doi = doi_link(row['doi']) if row['doi'] else "&nbsp;"
         if 'title' in row and isinstance(row['title'], str):
             title = row['title']
         else:
@@ -555,7 +552,7 @@ def add_orcid_works(data, dois):
                        + work['external-ids']['external-id'][0]['external-id-url']['value'] \
                        + f"' target='_blank'>{doi}</a>"
         else:
-            link = f"<a href='/doiui/{doi}'>{doi}</a>"
+            link = doi_link(doi)
         inner += f"<tr><td>{pdate}</td><td>{link}</td>" \
                  + f"<td>{wsumm['title']['title']['value']}</td></tr>"
     if inner:
@@ -599,6 +596,26 @@ def generate_user_table(rows):
 # * DOI utility functions                                                      *
 # ******************************************************************************
 
+def doi_link(doi):
+    ''' Return a link to a DOI or DOIs
+        Keyword arguments:
+          doi: DOI
+        Returns:
+          newdoi: HTML link(s) to DOI(s) as a string
+    '''
+    if not doi:
+        return ""
+    doilist = [doi] if isinstance(doi, str) else doi
+    newdoi = []
+    for item in doilist:
+        newdoi.append(f"<a href='/doiui/{item}'>{item}</a>")
+    if isinstance(doi, str):
+        newdoi = newdoi[0]
+    else:
+        newdoi = ", ".join(newdoi)
+    return newdoi
+
+
 def get_doi(doi):
     ''' Get a single DOI record
         Keyword arguments:
@@ -630,7 +647,7 @@ def add_jrc_fields(row):
     for key, val in row.items():
         if not re.match(prog, key):
             continue
-        if isinstance(val, list):
+        if isinstance(val, list) and key not in ('jrc_preprint'):
             try:
                 val = ", ".join(sorted(val))
             except TypeError:
@@ -647,10 +664,7 @@ def add_jrc_fields(row):
                 link.append(f"<a href='/userui/{auth}'>{auth}</a>")
             val = ", ".join(link)
         if key == 'jrc_preprint':
-            link = []
-            for auth in val.split(", "):
-                link.append(f"<a href='/doiui/{auth}'>{auth}</a>")
-            val = ", ".join(link)
+            val = doi_link(val)
         elif key == 'jrc_tag':
             link = []
             for aff in val.split(", "):
@@ -676,8 +690,7 @@ def add_relations(row):
         for itm in row['relation'][rel]:
             if itm['id'] in used:
                 continue
-            link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
-            html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
+            html += f"This DOI {rel.replace('-', ' ')} {doi_link(itm['id'])}<br>"
             used.append(itm['id'])
     return html
 
@@ -2048,7 +2061,7 @@ def show_doi_ui(doi):
 
 @app.route('/doisui_name/<string:name>')
 def show_doi_by_name_ui(name):
-    ''' Show DOIs for a name
+    ''' Show DOIs for a family name
     '''
     payload = {'$or': [{"author.family": {"$regex": f"^{name}$", "$options" : "i"}},
                        {"creators.familyName": {"$regex": f"^{name}$", "$options" : "i"}},
@@ -2497,7 +2510,7 @@ def dois_preprint_year():
                                                     + "from dois collection"),
                                message=error_message(err))
     stat = get_preprint_stats(rows)
-    data = {'years': [], 'Crossref': [], 'DataCite': []}
+    data = {'years': [], 'Journal article': [], 'Preprint': []}
     for key, val in stat.items():
         if key < '2006':
             continue
@@ -2522,6 +2535,7 @@ def dois_preprint_year():
                                          title="DOIs preprint status by year", html="",
                                          chartscript=chartscript, chartdiv=chartdiv,
                                          navbar=generate_navbar('DOIs')))
+
 
 @app.route('/dois_month/<string:year>')
 @app.route('/dois_month')
@@ -2704,8 +2718,11 @@ def dois_top(num):
                 data[tag].append(ytags[year][tag])
             else:
                 data[tag].append(0)
+    height = 600
+    if num > 23:
+        height += 22 * (num - 23)
     chartscript, chartdiv = DP.stacked_bar_chart(data, f"DOIs published by year for top {num} tags",
-                                                 xaxis="years", yaxis=top)
+                                                 xaxis="years", yaxis=top, width=900, height=height)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOI tags by year/tag", html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
@@ -2919,8 +2936,7 @@ def show_insert(idate):
             for ver in row['relation']['is-version-of']:
                 if ver['id-type'] == 'doi':
                     version.append(ver['id'])
-        version = ", ".join(version) if version else ""
-        link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
+        version = doi_link(version) if version else ""
         news = row['jrc_newsletter'] if 'jrc_newsletter' in row else ""
         if (not news) and (row['jrc_obtained_from'] == 'Crossref') and \
            (row['jrc_publishing_date'] >= str(limit)):
@@ -2928,7 +2944,7 @@ def show_insert(idate):
         else:
             rclass = 'other'
         html += f"<tr class='{rclass}'><td>" \
-                + "</td><td>".join([link, row['jrc_obtained_from'], typ,
+                + "</td><td>".join([doi_link(row['doi']), row['jrc_obtained_from'], typ,
                                     row['jrc_publishing_date'], source,
                                     str(row['jrc_inserted']), version,
                                     news]) + "</td></tr>"
@@ -3005,8 +3021,7 @@ def show_doiui_custom():
         title = DL.get_title(row)
         if not title:
             title = ""
-        link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
-        works.append({"published": published, "link": link, "title": title, "doi": row['doi']})
+        works.append({"published": published, "link": doi_link(row['doi']), "title": title, "doi": row['doi']})
     fileoutput = ""
     for row in sorted(works, key=lambda row: row['published'], reverse=True):
         html += "<tr><td>" + dloop(row, ['published', 'link', 'title'], "</td><td>") + "</td></tr>"
