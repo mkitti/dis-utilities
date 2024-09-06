@@ -22,7 +22,7 @@ import doi_common.doi_common as doi_common
 #TODO: Handle duplicate names, e.g. guoqiang yu in 10.1101/2024.05.09.593460
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Don't create records with employeeIds only. Just add orcids to existing employeeId recs, or create recs with ORCIDs.
-#TODO: At the end, instead of showing two lists, just show one list and put asterisks next to the Janelia authors
+#TODO: At the end, instead of showing two lists, just show one list and highlight the Janelia authors
 
 # Pseudocode for the workflow of this program:
 
@@ -365,8 +365,7 @@ def confirm_action(confirm_message):
 
 ### Miscellaneous low-level functions and variables
 
-def determine_authors_to_check(doi_record, doi_collection):
-    all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection) ]
+def determine_authors_to_check(all_authors):
     if not any([a.affiliations for a in all_authors]):
         return(all_authors)
     else:
@@ -600,7 +599,8 @@ if __name__ == '__main__':
             print(f"{doi}: {doi_record['titles'][0]['title']}")
         else: # Crossref
             print(f"{doi}: {doi_record['title'][0]}")
-        authors_to_check = determine_authors_to_check(doi_record, doi_collection) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
+        all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]
+        authors_to_check = determine_authors_to_check(all_authors) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
         print(", ".join([a.name for a in authors_to_check]))
         revised_jrc_authors = []
 
@@ -683,7 +683,7 @@ if __name__ == '__main__':
         #jrc_authors = doi_record['jrc_author']
         #revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
         print("Here's the COMPLETE author list:")
-        print( ", ".join( [a.name for a in [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]] ) )
+        print( ", ".join( [a.name for a in all_authors] ) )
         print()
         print("And here's your new Janelia authors list: (Names/nicknames don't matter, they will be stored as employeeIds.)")
         print([(' '.join((e.first_names[0], e.last_names[0])), e.id) for e in revised_jrc_authors])
