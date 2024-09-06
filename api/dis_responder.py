@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "15.0.1"
+__version__ = "15.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -1089,6 +1089,17 @@ def last_thursday():
     if offset:
         offset = 7
     return today - timedelta(days=offset)
+
+
+def weeks_ago(weeks):
+    ''' Calculate the date of a number of weeks ago
+        Keyword arguments:
+          weeks: number of weeks
+        Returns:
+          Date of a number of weeks ago
+    '''
+    today = date.today()
+    return today - timedelta(weeks=weeks)
 
 
 def year_pulldown(prefix, all_years=True):
@@ -2893,6 +2904,7 @@ def show_insert(idate):
            + '<th>DOI</th><th>Source</th><th>Type</th><th>Published</th><th>Load source</th>' \
            + '<th>Inserted</th><th>Is version of</th><th>Newsletter</th></tr></thead><tbody>'
     fileoutput = ""
+    limit = weeks_ago(2)
     for row in rows:
         source = row['jrc_load_source'] if row['jrc_load_source'] else ""
         typ = ""
@@ -2910,15 +2922,24 @@ def show_insert(idate):
         version = ", ".join(version) if version else ""
         link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
         news = row['jrc_newsletter'] if 'jrc_newsletter' in row else ""
-        html += "<tr><td>" + "</td><td>".join([link, row['jrc_obtained_from'], typ,
-                                              row['jrc_publishing_date'], source,
-                                              str(row['jrc_inserted']), version,
-                                              news]) + "</td></tr>"
+        if (not news) and (row['jrc_obtained_from'] == 'Crossref') and \
+           (row['jrc_publishing_date'] >= str(limit)):
+            rclass = 'candidate'
+        else:
+            rclass = 'other'
+        html += f"<tr class='{rclass}'><td>" \
+                + "</td><td>".join([link, row['jrc_obtained_from'], typ,
+                                    row['jrc_publishing_date'], source,
+                                    str(row['jrc_inserted']), version,
+                                    news]) + "</td></tr>"
         frow = "\t".join([row['doi'], row['jrc_obtained_from'], typ, row['jrc_publishing_date'],
                           source, str(row['jrc_inserted']), version, news])
         fileoutput += f"{frow}\n"
     html += '</tbody></table>'
-    html = create_downloadable("jrc_inserted", None, fileoutput) + html
+    cbutton = "<button class=\"btn btn-outline-warning\" " \
+              + "onclick=\"$('.other').toggle();\">Filter for candidate DOIs</button>"
+
+    html = create_downloadable("jrc_inserted", None, fileoutput) + f" &nbsp;{cbutton}{html}"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"DOIs inserted on or after {idate}", html=html,
                                          navbar=generate_navbar('DOIs')))
