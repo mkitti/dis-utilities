@@ -1,6 +1,13 @@
 """
 Given a DOI, try to identify Janelia authors who don't have ORCIDs and correlate them with employees.
-Update ORCID records as needed.
+
+This script ignores the existing jrc_author metadata. It generates a new list of employee IDs,
+and finally overwrites the previous list of jrc_author.
+
+If the author has an ORCID on the paper that isn't in our collection, this script will
+create an ORCID record for that person.
+
+This script will not include anyone in jrc_author if they're not in the People system, period.
 """
 
 import sys
@@ -20,46 +27,10 @@ import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
 #TODO: Handle duplicate names, e.g. guoqiang yu in 10.1101/2024.05.09.593460
+#TODO: Handle people with two ORCIDs, e.g. chris knecht in 10.7554/elife.97769
 #TODO: Add some of these imports to requirements.txt?
-#TODO: Don't create records with employeeIds only. Just add orcids to existing employeeId recs, or create recs with ORCIDs.
 #TODO: At the end, instead of showing two lists, just show one list and highlight the Janelia authors
 
-# Pseudocode for the workflow of this program:
-
-# authors_to_check: a list of author objects. If the paper has affiliations, then authors_to_check is just those authors with janelia affiliations. Otherwise, authors_to_check is all authors.
-# revised_jrc_authors = []
-# for author in authors_to_check:
-#   if author has an orcid on the paper:
-#       if that orcid has a record in our collection:
-#           if that record has an employeeId:
-#               Add any new author names/nicknames to the existing record
-#               Add a corresponding employee object to revised_jrc_authors
-#           elif that record does not have an employeeId:
-#               Search the people API. 
-#               If user confirms the match:
-#                   Check that that employeeId does not exist in any record in the collection
-#                   Add employeeId and any new author names/nicknames to the existing record
-#                   Add a corresponding employee object to revised_jrc_authors
-#       elif that orcid does not have a record in our collection:
-#           Search the People API.
-#           If user confirms the match:
-#               Check that that employeeId does not exist in any record in the collection
-#               Create a record with both orcid and employeeId
-#               Add a corresponding employee object to revised_jrc_authors
-#   elif author does not have an orcid on the paper:
-#       Search the People API.
-#       If user confirms the match:
-#           If a record with that employeeId already exists in our collection:
-#               Add any new author names/nicknames to the existing record
-#               Add a corresponding employee object to revised_jrc_authors
-#           else:
-#               Create a record for that employee with their employeeId and their names.
-#               Add a corresponding employee object to revised_jrc_authors
-#               
-# add any employeeIds in revised_jrc_authors to jrc authors if they are not in jrc_authors already
-
-# Note that this script will not include anyone in jrc_author if they're not in the People system.
-# EVEN if they are in our ORCID collection. They have to be in the People system, period.
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
@@ -271,9 +242,10 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
     if len(candidates) > 1:
         print(inform_message)
         print(f"Multiple high scoring matches found for {author.name}:")
-        # Some people appear twice in the HHMI People system. 
+        # Some people appear twice in the HHMI People system. Sometimes this is just bad bookkeeping, 
+        # and sometimes it's because two employees have the same exact name.
         # inquirer gives us no way of knowing whether the user selected the first instance of 'David Clapham' or the second instance of 'David Clapham'.
-        # We are adding appending numbers to the names to make them unique, and then using the index of the selected object to grab the original object.
+        # We are appending numbers to the names to make them unique, and then using the index of the selected object to grab the original object.
         repeat_names = [name for name, count in Counter(guess.name for guess in candidates).items() if count > 1]
         selection_list = []
         counter = {}
@@ -668,20 +640,21 @@ if __name__ == '__main__':
                 best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
                 if best_guess.approved:
                     revised_jrc_authors.append(best_guess)
-                    mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection)
-                    if mongo_orcid_record.exists:
-                        if mongo_orcid_record.has_employeeId():
-                            doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
-                    else:
-                        print(f"There is no record in our collection for {author.name}.")
-                        confirm_message = f"Would you like to create an ORCID record for {best_guess.name} with an employee ID only?"
-                        proceed = confirm_action(confirm_message)
-                        if proceed:
-                            create_orcid_record(best_guess, orcid_collection, author)
+                    #DON'T DELETE YET:
+                    #experimental: don't create new records without ORCIDs.
+                    # mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection)
+                    # if mongo_orcid_record.exists:
+                    #     if mongo_orcid_record.has_employeeId():
+                    #         doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
+                    # else:
+                    #     print(f"There is no record in our collection for {author.name}.")
+                    #     confirm_message = f"Would you like to create an ORCID record for {best_guess.name} with an employee ID only?"
+                    #     proceed = confirm_action(confirm_message)
+                    #     if proceed:
+                    #         create_orcid_record(best_guess, orcid_collection, author)
                             
 
-        #jrc_authors = doi_record['jrc_author']
-        #revised_jrc_authors = ( list(set(revised_jrc_authors).union(set(jrc_authors))) )
+        revised_jrc_authors = list(set(revised_jrc_authors)) # there shouldn't be any duplicates, but just to be sure...
         print("Here's the COMPLETE author list:")
         print( ", ".join( [a.name for a in all_authors] ) )
         print()
@@ -693,8 +666,7 @@ if __name__ == '__main__':
             doi_common.update_dois(doi, doi_collection, payload)
 
 
-        #doi_collection.update_dois_field(doi, doi_collection, 'jrc_author', revised_jrc_authors)
-        #doi_common.update_jrc_author_from_doi(doi, doi_collection, orcid_collection)
+
 
 
 
