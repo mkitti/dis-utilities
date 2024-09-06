@@ -21,12 +21,7 @@ import doi_common.doi_common as doi_common
 
 #TODO: Add some of these imports to requirements.txt?
 #TODO: Refactor code so that the script doesn't just assume that if an exact first and last name match exists in the database, then everything's hunky dory. There may be two employees with the same name. 
-#TODO: Could I update jrc_authors with a POST request?
-# This doesn't work:
-# import requests
-# url = 'https://dis.int.janelia.org/doi/jrc_author/10.3389%2Ffninf.2022.896292'
-# data = ['50328', 'J0273', 'J0388', 'J0018']
-# response = requests.post(url, json=data)
+
 
 
 # Pseudocode for the workflow of this program:
@@ -364,7 +359,7 @@ def confirm_action(success_message):
 
 ### Miscellaneous low-level functions and variables
 
-def determine_authors_to_check(doi_record):
+def determine_authors_to_check(doi_record, doi_collection):
     all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection) ]
     if not any([a.affiliations for a in all_authors]):
         return(all_authors)
@@ -445,7 +440,7 @@ def last_names_for_orcid_record(author, employee):
 
 
 
-def get_mongo_orcid_record(search_term):
+def get_mongo_orcid_record(search_term, orcid_collection):
     if not search_term:
         return(MongoOrcidRecord(exists=False))
     else:
@@ -582,14 +577,14 @@ if __name__ == '__main__':
             print(f"{doi}: {doi_record['titles'][0]['title']}")
         else: # Crossref
             print(f"{doi}: {doi_record['title'][0]}")
-        authors_to_check = determine_authors_to_check(doi_record) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
+        authors_to_check = determine_authors_to_check(doi_record, doi_collection) # A list. If the paper has affiliations, the list is just those with janelia affiliations. Otherwise, all authors.
         print(", ".join([a.name for a in authors_to_check]))
         #revised_jrc_authors = []
 
         for author in authors_to_check:
 
             if author.orcid:
-                mongo_orcid_record = get_mongo_orcid_record(author.orcid)
+                mongo_orcid_record = get_mongo_orcid_record(author.orcid, orcid_collection)
                 if mongo_orcid_record.exists:
                     if mongo_orcid_record.has_employeeId():
                         employee = create_employee(mongo_orcid_record.employeeId)
@@ -612,7 +607,7 @@ if __name__ == '__main__':
                 elif not mongo_orcid_record.exists:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
                     candidates = propose_candidates(author)
-                    records = [get_mongo_orcid_record(guess.employeeId) for guess in candidates if guess.exists]
+                    records = [get_mongo_orcid_record(guess.id, orcid_collection) for guess in candidates if guess.exists]
                     # If nothing can be done for all candidates, then proceed no further.
                     # It's not exactly true that nothing can be done--I could add names (nicknames, middle initials, etc. from the author name) to the mongo orcid record,
                     # but I don't want to edit the ORCID record without user confirmation of the match, and it's annoying to prompt the user to evaluate tons of names, for little benefit.
@@ -622,9 +617,9 @@ if __name__ == '__main__':
                         else:
                             best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
                             if best_guess.approved:
-                                mongo_orcid_record = get_mongo_orcid_record(best_guess.id) # I know, I'm doing another lookup, which is a bit inefficient.
+                                mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection) # I know, I'm doing another lookup, which is a bit inefficient.
                                 success_message = ''
-                                if mongo_orcid_record: 
+                                if mongo_orcid_record.exists: 
                                     if not mongo_orcid_record.has_orcid(): # If the author has a never-before-seen orcid, but their employeeId is already in our collection
                                         print(f"{author.name} is in our collection, with an employee ID only.")
                                         success_message = f"Confirm you wish to add an ORCID id to the existing record for {best_guess.name}"
@@ -648,7 +643,7 @@ if __name__ == '__main__':
             elif not author.orcid:
                 inform_message = f"{author.name} does not have an ORCID on this paper."
                 candidates = propose_candidates(author)
-                records = [get_mongo_orcid_record(guess.id) for guess in candidates if guess.exists]
+                records = [get_mongo_orcid_record(guess.id, orcid_collection) for guess in candidates if guess.exists]
                 if records: 
                     if all( [mongo_record.has_employeeId() for mongo_record in records] ): # if nothing can be done for all candidates, then don't bother proceeding.
                         if arg.VERBOSE:
@@ -657,7 +652,7 @@ if __name__ == '__main__':
                         #revised_jrc_authors.append(best_guess.id)
                     else:
                         best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
-                        mongo_orcid_record = get_mongo_orcid_record(best_guess.id)
+                        mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection)
                         if mongo_orcid_record.has_employeeId():
                             print(f"{author.name} is in our collection with an employee ID. No action to take.\n")
                             doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
@@ -685,13 +680,15 @@ if __name__ == '__main__':
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
 # doi_collection = nm.DB['dis'].dois
-# doi='10.7554/elife.80622'
-# result = nm.JRC.call_crossref(doi)
-# doi_record = result['message']
-# res = nm.doi_common.get_author_details(doi_record, doi_collection)
+# doi = '10.1038/s41593-024-01738-9'
+# doi_record = nm.doi_common.get_doi_record(doi, doi_collection)
+# authors_to_check = nm.determine_authors_to_check(doi_record, doi_collection)
 
+# candidates = nm.propose_candidates(authors_to_check[0])
+# records = [nm.get_mongo_orcid_record(guess.id, orcid_collection) for guess in candidates if guess.exists]
+# best_guess = nm.evaluate_candidates(authors_to_check[0], candidates, 'hello', verbose=True)
+# mongo_orcid_record = nm.get_mongo_orcid_record(best_guess.id, orcid_collection)
 
-#doi='10.3389/fninf.2022.896292'
 #doi='10.1038/s41587-022-01524-7'
 #doi='10.7554/elife.80660'
 #doi='10.1101/2024.05.09.593460'
@@ -699,4 +696,6 @@ if __name__ == '__main__':
 #doi='10.1038/s41556-023-01154-4'
 #doi='10.7554/eLife.80622'
 
-
+# doi='10.3389/fninf.2022.896292'
+# payload = {'jrc_author':['50328', 'J0273', 'J0388', 'J0018']}
+# nm.doi_common.update_dois(doi, doi_collection, payload)
