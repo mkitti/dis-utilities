@@ -19,11 +19,10 @@ from inquirer.themes import BlueComposure
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
-#TODO: Handle alumni, e.g. Tanya Dilan in 10.1021/jacs.4c03092
 #TODO: Handle duplicate names, e.g. guoqiang yu in 10.1101/2024.05.09.593460
 #TODO: Add some of these imports to requirements.txt?
-#TODO: Add an "easy" mode that doesn't ask you about updating collections? And/or just make easy mode the default, and the way I'm doing it now is, like full control mode
-
+#TODO: Don't create records with employeeIds only. Just add orcids to existing employeeId recs, or create recs with ORCIDs.
+#TODO: At the end, instead of showing two lists, just show one list and put asterisks next to the Janelia authors
 
 # Pseudocode for the workflow of this program:
 
@@ -38,13 +37,13 @@ import doi_common.doi_common as doi_common
 #           elif that record does not have an employeeId:
 #               Search the people API. 
 #               If user confirms the match:
-#                   TODO: Check that that employeeId does not exist in any record in the collection
+#                   Check that that employeeId does not exist in any record in the collection
 #                   Add employeeId and any new author names/nicknames to the existing record
 #                   Add a corresponding employee object to revised_jrc_authors
 #       elif that orcid does not have a record in our collection:
 #           Search the People API.
 #           If user confirms the match:
-#               TODO: Check that that employeeId does not exist in any record in the collection
+#               Check that that employeeId does not exist in any record in the collection
 #               Create a record with both orcid and employeeId
 #               Add a corresponding employee object to revised_jrc_authors
 #   elif author does not have an orcid on the paper:
@@ -59,7 +58,8 @@ import doi_common.doi_common as doi_common
 #               
 # add any employeeIds in revised_jrc_authors to jrc authors if they are not in jrc_authors already
 
-
+# Note that this script will not include anyone in jrc_author if they're not in the People system.
+# EVEN if they are in our ORCID collection. They have to be in the People system, period.
 
 class Author:
     """ Author objects are constructed solely from the Crossref-provided author information. """
@@ -401,8 +401,24 @@ def choose_authors_manually(author_list, pre_selected_authors=None):
 
 def create_orcid_record(best_guess, orcid_collection, author):
     doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
-    #doi_common.update_jrc_author(doi, doi_collection, orcid_collection)
     print(f"Record created for {author.name} in orcid collection.")
+
+def add_info_to_orcid_record(employee, author, to_add, orcid_collection):
+    if to_add not in {'id', 'orcid'}:
+        raise ValueError("to_add argument to add_info_to_orcid_record() must be either 'orcid' or 'id'.")
+    if to_add == 'id':
+        if not doi_common.single_orcid_lookup(employee.id, orcid_collection, 'employeeId'):
+            doi_common.update_existing_orcid(lookup=author.orcid, lookup_by='orcid', coll=orcid_collection, add=employee.id)
+            doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', coll=orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess))
+        else:
+            print(f'ERROR: {author.name} has at least two records in our orcid collection. Aborting attempt to add employeeId {employee.id} to existing record for this ORCID: {author.orcid}')
+    if to_add == 'orcid':
+        if not doi_common.single_orcid_lookup(author.orcid, orcid_collection, 'orcid'):
+            doi_common.update_existing_orcid(lookup=employee.id, lookup_by='employeeId', add=author.orcid)
+            doi_common.add_orcid_name(lookup=employee.id, lookup_by='employeeId', coll=orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess))
+        else:
+            print(f'ERROR: {author.name} has two records in our orcid collection. Aborting attempt to add orcid {author.orcid} to existing record for this employeeId: {employee.id}')
+
 
 def generate_name_permutations(first_names, middle_names, last_names):
         middle_names = [n for n in middle_names if n not in ('', None)] # some example middle_names, from HHMI People system: [None], ['D.', ''], ['Marie Sophie'], ['', '']
@@ -534,6 +550,7 @@ def terminate_program(msg=None):
             LOGGER.critical(msg)
             sys.exit(-1 if msg else 0)
 
+
 # Old code that should really be added to our documentation instead of lingering here
 # api_key = os.environ.get('PEOPLE_API_KEY')
 # if not api_key:
@@ -591,6 +608,7 @@ if __name__ == '__main__':
 
             if author.orcid:
                 mongo_orcid_record = get_mongo_orcid_record(author.orcid, orcid_collection)
+
                 if mongo_orcid_record.exists:
                     if mongo_orcid_record.has_employeeId():
                         employee = create_employee(mongo_orcid_record.employeeId)
@@ -603,47 +621,35 @@ if __name__ == '__main__':
                         candidates = propose_candidates(author)
                         best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE) 
                         if best_guess.approved:
+                            revised_jrc_authors.append(best_guess)
                             confirm_message = f"Confirm you wish to add {best_guess.name}'s employee ID to their existing ORCID record"
                             proceed = confirm_action(confirm_message)
                             if proceed:
-                                doi_common.update_existing_orcid(lookup=author.orcid, add=best_guess.id, coll=orcid_collection, lookup_by='orcid')
-                                doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
-                                revised_jrc_authors.append(best_guess)
+                                add_info_to_orcid_record(best_guess, author, 'id', orcid_collection)
 
                 elif not mongo_orcid_record.exists:
                     inform_message = f"{author.name} has an ORCID on this paper, but this ORCID is not in our collection."
                     candidates = propose_candidates(author)
-                    records = [get_mongo_orcid_record(guess.id, orcid_collection) for guess in candidates if guess.exists]
-                    # If nothing can be done for all candidates, then proceed no further.
-                    # It's not exactly true that nothing can be done--I could add names (nicknames, middle initials, etc. from the author name) to the mongo orcid record,
-                    # but I don't want to edit the ORCID record without user confirmation of the match, and it's annoying to prompt the user to evaluate tons of names, for little benefit.
-                    if records:
-                        if all( [mongo_record.has_orcid() and mongo_record.has_employeeId() for mongo_record in records] ):
-                            pass
+                    best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
+                    if best_guess.approved:
+                        revised_jrc_authors.append(best_guess)
+                        mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection)
+                        confirm_message = ''
+                        if mongo_orcid_record.exists: 
+                            if not mongo_orcid_record.has_orcid(): # If the author has a never-before-seen orcid, but their employeeId is already in our collection
+                                print(f"{author.name} is in our collection, with an employee ID only.")
+                                confirm_message = f"Confirm you wish to add an ORCID id to the existing record for {best_guess.name}"
+                                proceed = confirm_action(confirm_message)
+                                if proceed:
+                                    add_info_to_orcid_record(best_guess, author, 'orcid', orcid_collection)
+                            elif mongo_orcid_record.has_orcid(): # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
+                                print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {mongo_orcid_record.orcid} in our collection. Aborting attempt to edit their records in our collection.")
                         else:
-                            best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
-                            if best_guess.approved:
-                                mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection) # I know, I'm doing another lookup, which is a bit inefficient.
-                                confirm_message = ''
-                                if mongo_orcid_record.exists: 
-                                    if not mongo_orcid_record.has_orcid(): # If the author has a never-before-seen orcid, but their employeeId is already in our collection
-                                        print(f"{author.name} is in our collection, with an employee ID only.")
-                                        confirm_message = f"Confirm you wish to add an ORCID id to the existing record for {best_guess.name}"
-                                        proceed = confirm_action(confirm_message)
-                                        if proceed:
-                                            doi_common.update_existing_orcid(lookup=best_guess.id, add=author.orcid, coll=orcid_collection, lookup_by='employeeId')
-                                            doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
-                                            revised_jrc_authors.append(best_guess)
-                                    elif mongo_orcid_record.has_orcid(): # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
-                                        print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {mongo_orcid_record.orcid} in our collection. Aborting program.")
-                                        sys.exit(1)
-                                else:
-                                    print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
-                                    confirm_message = f"Confirm you wish to create an ORCID record for {best_guess.name}, with both their employee ID and their ORCID"
-                                    proceed = confirm_action(confirm_message)
-                                    if proceed:
-                                        create_orcid_record(best_guess, orcid_collection, author)
-                                        revised_jrc_authors.append(best_guess)
+                            print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
+                            confirm_message = f"Confirm you wish to create an ORCID record for {best_guess.name}, with both their employee ID and their ORCID"
+                            proceed = confirm_action(confirm_message)
+                            if proceed:
+                                create_orcid_record(best_guess, orcid_collection, author)
 
 
             elif not author.orcid:
@@ -661,16 +667,12 @@ if __name__ == '__main__':
                 #     else:
                 best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
                 if best_guess.approved:
+                    revised_jrc_authors.append(best_guess)
                     mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection)
                     if mongo_orcid_record.exists:
                         if mongo_orcid_record.has_employeeId():
-                            if arg.VERBOSE:
-                                print(f"{author.name} will be added to the list of Janelia authors for this DOI. {author.name} is our collection with an employee ID.\n")
                             doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
-                            revised_jrc_authors.append(best_guess)
                     else:
-                        print(f"{author.name} will be added to the list of Janelia authors for this DOI.")
-                        revised_jrc_authors.append(best_guess)
                         print(f"There is no record in our collection for {author.name}.")
                         confirm_message = f"Would you like to create an ORCID record for {best_guess.name} with an employee ID only?"
                         proceed = confirm_action(confirm_message)
