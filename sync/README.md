@@ -12,7 +12,7 @@
 | update_dois.py   | Synchronize DOI information from Crossref/DataCite     |
 | update_orcid.py  | Synchronize ORCID names and IDs                        |
 
-### Setup
+### Development setup
 
 First, create a Python virtual environment:
 
@@ -28,7 +28,25 @@ Programs can now be run in the virtual environment:
 
     venv/bin/python3 update_dois.py --verbose
 
+
+### Dependencies
+
+1. The libraries specified in requirements.txt need to be installed.
+2. The [Configuration system](https://github.com/JaneliaSciComp/configurator) must be accessible. The following configurations are used.
+    - databases
+    - dis
+    - dois
+    - em_dois
+    - releases
+    - rest_services
+3. The following keys must be present in the run environment:
+    - CONFIG_SERVER_URL: abase URL for Configuration system
+    - PEOPLE_API_KEY: API key for HHMI People system
+4. The config.ini fiile must have the latest URL bases and suffixes for Crossref, DataCite, FigShare, and ORCID.
+
 ## ORCID
+
+### Processing
 
 Data from ORCID is synchronized to the orcid collection in the dis MongoDB database. Names from ORCID entries that have one of the following affiliations are eligible for inclusion:
 
@@ -44,4 +62,12 @@ Author names are also pulled from author records in the dois collection in the d
 
 Processed records will be inserted/updated. Janelia employees from the orcid collection are then backchecked against the HHMI People database. If the user is no longer in the People database, their orcid record is then ginev alumni status.
 
+### Running in production
+
 The update_orcid.py program is run every night on Jenkins.
+
+## DOIs
+
+### Processing 
+DOIs are synchronized from Crossref and DataCite to the dois collection in the
+dis MongoDB database.
