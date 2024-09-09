@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "16.0.0"
+__version__ = "16.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -2308,11 +2308,14 @@ def doiui_group(year='All'):
                                          navbar=generate_navbar('DOIs')))
 
 
+@app.route('/dois_journal/<string:year>/<int:top>')
 @app.route('/dois_journal/<string:year>')
 @app.route('/dois_journal')
-def dois_journal(year='All'):
+def dois_journal(year='All', top=10):
     ''' Show journals
     '''
+    if top > 20:
+        top = 20
     match = {"container-title": {"$exists": True, "$ne" : ""}}
     if year != 'All':
         match["jrc_publishing_date"] = {"$regex": "^"+ year}
@@ -2346,7 +2349,7 @@ def dois_journal(year='All'):
     data = {}
     for key in sorted(journal, key=journal.get, reverse=True):
         val = journal[key]
-        if len(data) >= 10:
+        if len(data) >= top:
             continue
         data[key] = val
         html += f"<tr><td>{key}</td><td>{val:,}</td></tr>"
@@ -2354,8 +2357,8 @@ def dois_journal(year='All'):
     title = "DOIs by journal"
     if year != 'All':
         title += f" ({year})"
-    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550)
-    title = "Top 10 DOI journals"
+    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550, colors='Category20')
+    title = f"Top {top} DOI journals"
     if year != 'All':
         title += f" ({year})"
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
@@ -2527,12 +2530,19 @@ def dois_preprint_year():
     for row in rows:
         year = row['jrc_publishing_date'][:4]
         data['Preprint'][data['years'].index(year)] += 1
+    print(data)
+    html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Year</th><th>Journal articles</th><th>Preprints</th></thead><tbody>'
+    for idx in range(len(data['years'])):
+        html += f"<tr><td>{data['years'][idx]}</td><td>{data['Journal article'][idx]:,}</td>" \
+                + f"<td>{data['Preprint'][idx]:,}</td></tr>"
+    html += '</tbody></table>'
     chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/preprint status",
                                                  xaxis="years",
                                                  yaxis=('Journal article', 'Preprint'),
                                                  colors=DP.SOURCE_PALETTE)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
-                                         title="DOIs preprint status by year", html="",
+                                         title="DOIs preprint status by year", html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
                                          navbar=generate_navbar('DOIs')))
 
