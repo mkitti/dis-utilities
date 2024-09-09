@@ -32,7 +32,7 @@ Programs can now be run in the virtual environment:
 ### Dependencies
 
 1. The libraries specified in requirements.txt need to be installed.
-2. The [Configuration system](https://github.com/JaneliaSciComp/configurator) must be accessible. The following configurations are used.
+2. The [Configuration system](https://github.com/JaneliaSciComp/configurator) must be accessible. The following configurations are used:
     - databases
     - dis
     - dois
