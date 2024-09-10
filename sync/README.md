@@ -64,6 +64,7 @@ Processed records will be inserted/updated. Janelia employees from the orcid
 collection are then backchecked against the HHMI People database. If the user
 is no longer in the People database, their orcid record is then given alumni
 status. Results of a typical run are below:
+
     Records read from MongoDB:dois: 753
     Records read from ORCID:        561
     ORCIDs inserted:                0
@@ -76,7 +77,7 @@ The update_orcid.py program is run every night on [Jenkins](https://jenkins.int.
 
 ## DOIs
 
-### Processing 
+### Crossref/DataCite processing 
 DOIs are synchronized from Crossref and DataCite to the dois collection in the
 dis MongoDB database. DOIs are also drawn from the following sources (in the
 event than an update is needed):
@@ -91,6 +92,7 @@ a", and DOIs starting with 10.25378
 New DOIs are inserted, and DOIs that heve been updated (according to the
 record from Crossref or DataCite) after the stored update data (in the dois
 collection) are reprocessed. Results of a typical run are below:
+
     DOIs fetched from Crossref:      1,278
     DOIs fetched from DataCite:      3,231
     DOIs specified:                  6,725
@@ -110,3 +112,29 @@ Any newly-inserted DOIs are email to Virginia and Rob.
 ### Running in production
 
 The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/).
+
+### FlyCore processing 
+A list of DOIs is retrieved from the FLYF2 database using the
+[FlyCore responder](https://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?request=doilist).
+These are then added to the doi_data table in the FlyBoy database. Results of
+a typical run are below:
+
+    DOIs specified:                  110
+    DOIs found in Crossref:          105
+    DOIs found in DataCite:          1
+    DOIs with no author:             0
+    DOIs not found:                  4
+    Duplicate DOIs:                  0
+    DOIs not needing updates:        106
+    DOIs found in FlyBoy:            105
+    DOIs inserted/updated in FlyBoy: 0
+    DOIs deleted from FlyBoy:        0
+    DOIs inserted:                   0
+    DOIs updated:                    0
+    Elapsed time: 0:00:21.078572
+    DOI calls to Crossref: 105
+    DOI calls to DataCite: 1
+
+### Running in production
+
+The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).
