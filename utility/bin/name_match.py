@@ -27,10 +27,10 @@ from inquirer.themes import BlueComposure
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
-#TODO: Handle duplicate names, e.g. guoqiang yu in 10.1101/2024.05.09.593460
+#TODO: Add a --write flag
 #TODO: Handle people with two ORCIDs, e.g. chris knecht in 10.7554/elife.97769
 #TODO: Add some of these imports to requirements.txt?
-#TODO: At the end, instead of showing two lists, just show one list and highlight the Janelia authors
+
 
 
 class Author:
@@ -52,8 +52,6 @@ class Employee:
         self.middle_names = list(set(middle_names)) if middle_names is not None else []
         self.last_names = list(set(last_names)) if last_names is not None else []
         self.exists = exists
-   # def exists(self):
-    #    return(self.exists)
 
 class Guess(Employee):
     """ A Guess is a subtype of Employee that consists of just ONE name permutation 
@@ -75,8 +73,8 @@ class MongoOrcidRecord:
         return(True if self.employeeId else False)
 
 
-### Functions for instantiating objects of my custom classes
 
+### Functions for instantiating objects of my custom classes
 
 def create_author(author_info):
     if 'given' in author_info and 'family' in author_info:
@@ -88,7 +86,6 @@ def create_author(author_info):
     orcid = author_info['paper_orcid'] if 'paper_orcid' in author_info else None
     affiliations = author_info['affiliations'] if author_info['asserted'] == True else None
     return(Author(name, orcid, affiliations))
-
 
 
 def create_employee(id):
@@ -115,7 +112,7 @@ def create_employee(id):
         )
     else:
         return(Employee(exists=False))
-        
+
 
 def create_guess(employee, name=None, score=None):
     return(Guess(
@@ -132,7 +129,6 @@ def create_guess(employee, name=None, score=None):
         score
         )
     )
-
 
 
 
@@ -578,7 +574,7 @@ if __name__ == '__main__':
         print(", ".join( [a.name for booln, a in zip(authors_to_check, all_authors) if booln] ))
         revised_jrc_authors = []
 
-        for i in range(len(all_authors)):
+        for i in range(len(all_authors)): # iterate through Janelian authors, or all authors if there are no affiliations for this DOI.
             if authors_to_check[i] == True:
                 author = all_authors[i]
                 final_choice = None
