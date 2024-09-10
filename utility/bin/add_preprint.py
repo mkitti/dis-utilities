@@ -97,14 +97,22 @@ def add_jrc_preprint():
         journal = DL.get_doi_record(ARG.JOURNAL, coll)
     except Exception as err:
         terminate_program(err)
-    if DL.is_preprint(journal):
-        terminate_program(f"Primary DOI {ARG.JOURNAL} is a preprint")
+    try:
+        if DL.is_preprint(journal):
+            terminate_program(f"Primary DOI {ARG.JOURNAL} is a preprint")
+    except Exception as err:
+        LOGGER.error(f"Could not check preprint status for journal {ARG.JOURNAL}")
+        terminate_program(err)
     try:
         preprint = DL.get_doi_record(ARG.PREPRINT, coll)
     except Exception as err:
         terminate_program(err)
-    if not DL.is_preprint(preprint):
-        terminate_program(f"Preprint {ARG.PREPRINT} is not a preprint")
+    try:
+        if not DL.is_preprint(preprint):
+            terminate_program(f"Preprint {ARG.PREPRINT} is not a preprint")
+    except Exception as err:
+        LOGGER.error(f"Could not check preprint status for preprint {ARG.PREPRINT}")
+        terminate_program(err)
     # Associate DOIs
     payloadj, payloadp = associate_dois(journal, preprint)
     if ARG.WRITE:
@@ -128,9 +136,9 @@ if __name__ == '__main__':
     PARSER = argparse.ArgumentParser(
         description="Associate two DOIs with a preprint relationship")
     PARSER.add_argument('--journal', dest='JOURNAL', action='store',
-                        required=True, help='Primary (non-preprint) DOI')
+                        type=str.lower, required=True, help='Primary (non-preprint) DOI')
     PARSER.add_argument('--preprint', dest='PREPRINT', action='store',
-                        required=True, help='Preprint DOI')
+                        type=str.lower, required=True, help='Preprint DOI')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
