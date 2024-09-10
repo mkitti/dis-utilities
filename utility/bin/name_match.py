@@ -94,7 +94,7 @@ def create_employee(id):
         job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
         email = idsearch_results['email'] if 'email' in idsearch_results else None
         location = idsearch_results['locationName'] if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
-        supOrgName = idsearch_results['supOrgName'] if 'supOrgName' in idsearch_results and any(idsearch_results['supOrgName']) else None
+        supOrgName = idsearch_results['supOrgName'] if 'supOrgName' in idsearch_results and idsearch_results['supOrgName'] else None
         first_names = [ idsearch_results['nameFirstPreferred'], idsearch_results['nameFirst'] ]
         middle_names = [ idsearch_results['nameMiddlePreferred'], idsearch_results['nameMiddle'] ]
         last_names = [ idsearch_results['nameLastPreferred'], idsearch_results['nameLast'] ]
@@ -332,7 +332,29 @@ def confirm_action(confirm_message):
         return False
 
 
-### Miscellaneous low-level functions and variables
+
+
+# def choose_authors_manually(author_list, pre_selected_authors=None):
+#     if pre_selected_authors is None:
+#         pre_selected_authors = []
+#     else:
+#         pre_selected_authors = [a.name for a in pre_selected_authors]
+#     print("Crossref has no author affiliations for this paper.")
+#     author_names = [a.name for a in author_list]
+#     default_selections = [n for n in author_names if n in pre_selected_authors]
+#     quest = [inquirer.Checkbox('decision', carousel=True, message="Choose Janelia authors", choices=author_names, default=default_selections)]
+#     ans1 = inquirer.prompt(quest, theme=BlueComposure())
+#     quest = [inquirer.List('confirm', message = f"Confirm Janelia authors:\n{ans1['decision']}", choices=['Yes', 'No']) ]
+#     ans2 = inquirer.prompt(quest, theme=BlueComposure())
+#     if ans2['confirm'] == 'Yes':
+#         return ans1['decision']
+#     else:
+#         print('Exiting program.')
+#         sys.exit(0)
+
+
+
+### Functions to search and write to databases 
 
 def determine_authors_to_check(all_authors):
     if not any([a.affiliations for a in all_authors]):
@@ -348,24 +370,6 @@ def is_janelian(author, orcid_collection):
     if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
         result = True
     return(result)
-
-def choose_authors_manually(author_list, pre_selected_authors=None):
-    if pre_selected_authors is None:
-        pre_selected_authors = []
-    else:
-        pre_selected_authors = [a.name for a in pre_selected_authors]
-    print("Crossref has no author affiliations for this paper.")
-    author_names = [a.name for a in author_list]
-    default_selections = [n for n in author_names if n in pre_selected_authors]
-    quest = [inquirer.Checkbox('decision', carousel=True, message="Choose Janelia authors", choices=author_names, default=default_selections)]
-    ans1 = inquirer.prompt(quest, theme=BlueComposure())
-    quest = [inquirer.List('confirm', message = f"Confirm Janelia authors:\n{ans1['decision']}", choices=['Yes', 'No']) ]
-    ans2 = inquirer.prompt(quest, theme=BlueComposure())
-    if ans2['confirm'] == 'Yes':
-        return ans1['decision']
-    else:
-        print('Exiting program.')
-        sys.exit(0)
 
 def create_orcid_record(best_guess, orcid_collection, author):
     doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
@@ -429,7 +433,6 @@ def last_names_for_orcid_record(author, employee):
     return(list(set([n.last for n in h_result])))
 
 
-
 def get_mongo_orcid_record(search_term, orcid_collection):
     if not search_term:
         return(MongoOrcidRecord(exists=False))
@@ -468,12 +471,18 @@ def strip_orcid_if_provided_as_url(orcid):
     return(orcid)
 
 
+
+
+### Miscellaneous low-level functions and variables
+
+
 def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists
     for x in xs:
         if isinstance(x, Iterable) and not isinstance(x, (str, bytes)):
             yield from flatten(x)
         else:
             yield x
+
 
 DB = {}
 PROJECT = {}
@@ -543,8 +552,11 @@ if __name__ == '__main__':
                         default=False, help='Flag, Chatty')
     parser.add_argument('--debug', dest='DEBUG', action='store_true',
                         default=False, help='Flag, Very chatty')
+    parser.add_argument('--write', dest='WRITE', action='store_true',
+                        default=False, help='Flag, Very chatty')
+    
     arg = parser.parse_args()
-    LOGGER = JRC.setup_logging(arg)
+    LOGGER = JRC.setup_logging(arg) 
 
     # Connect to the database
     initialize_program()
@@ -595,9 +607,10 @@ if __name__ == '__main__':
                             best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE) 
                             if best_guess.approved:
                                 final_choice = best_guess
-                                confirm_message = f"Confirm you wish to add {best_guess.name}'s employee ID to their existing ORCID record"
-                                proceed = confirm_action(confirm_message)
-                                if proceed:
+                                #confirm_message = f"Confirm you wish to add {best_guess.name}'s employee ID to their existing ORCID record"
+                                #proceed = confirm_action(confirm_message)
+                                #if proceed:
+                                if arg.WRITE:
                                     add_info_to_orcid_record(best_guess, author, 'id', orcid_collection)
 
                     elif not mongo_orcid_record.exists:
@@ -611,17 +624,19 @@ if __name__ == '__main__':
                             if mongo_orcid_record.exists: 
                                 if not mongo_orcid_record.has_orcid(): # If the author has a never-before-seen orcid, but their employeeId is already in our collection
                                     print(f"{author.name} is in our collection, with an employee ID only.")
-                                    confirm_message = f"Confirm you wish to add an ORCID id to the existing record for {best_guess.name}"
-                                    proceed = confirm_action(confirm_message)
-                                    if proceed:
+                                    #confirm_message = f"Confirm you wish to add an ORCID id to the existing record for {best_guess.name}"
+                                    #proceed = confirm_action(confirm_message)
+                                    #if proceed:
+                                    if arg.WRITE:
                                         add_info_to_orcid_record(best_guess, author, 'orcid', orcid_collection)
                                 elif mongo_orcid_record.has_orcid(): # Hopefully this will never get triggered, i.e., if one person has two ORCIDs
                                     print(f"{author.name}'s ORCID is {author.orcid} on the paper, but it's {mongo_orcid_record.orcid} in our collection. Aborting attempt to edit their records in our collection.")
                             else:
                                 print(f"{author.name} has an ORCID on this paper, and they are not in our collection.")
-                                confirm_message = f"Confirm you wish to create an ORCID record for {best_guess.name}, with both their employee ID and their ORCID"
-                                proceed = confirm_action(confirm_message)
-                                if proceed:
+                                #confirm_message = f"Confirm you wish to create an ORCID record for {best_guess.name}, with both their employee ID and their ORCID"
+                                #proceed = confirm_action(confirm_message)
+                                #if proceed:
+                                if arg.WRITE:
                                     create_orcid_record(best_guess, orcid_collection, author)
 
 
@@ -673,10 +688,18 @@ if __name__ == '__main__':
             else:
                 print(all_authors[i].name)
 
-        proceed = confirm_action("Update DOI record to reflect Janelia authors printed above?")
-        if proceed:
-            payload = [e.id for e in revised_jrc_authors]
-            doi_common.update_dois(doi, doi_collection, payload)
+        #proceed = confirm_action("Update DOI record to reflect Janelia authors printed above?")
+        #if proceed:
+        if arg.WRITE:
+            revised_jrc_authors = [e.id for e in revised_jrc_authors]
+            revised_jrc_authors = [id for id in revised_jrc_authors if id]
+            payload = {'jrc_author': revised_jrc_authors}
+            #print(payload)
+            doi_common.update_jrc_fields(doi, doi_collection, payload)
+        else:
+            print(colored(
+                ("Dry run complete, no changes were made"), "yellow"
+            ))
 
 
 
@@ -697,11 +720,11 @@ if __name__ == '__main__':
 #doi='10.1038/s41587-022-01524-7'
 #doi='10.7554/elife.80660'
 #doi='10.1101/2024.05.09.593460'
+#doi = '10.1101/2023.10.16.562634'
+# Has David Clapham, who has 2 records:
 #doi='10.1021/jacs.4c03092'
+
 #doi='10.1038/s41556-023-01154-4'
 #doi='10.7554/eLife.80622'
 #doi = '10.1038/s41593-024-01738-9'
 
-# doi='10.3389/fninf.2022.896292'
-# payload = {'jrc_author':['50328', 'J0273', 'J0388', 'J0018']}
-# nm.doi_common.update_dois(doi, doi_collection, payload)
