@@ -60,14 +60,53 @@ Author names are also pulled from author records in the dois collection in the d
 - Group membership (HHMI affiliations)
 - Name combinations (with/without middle name, punctuation, and/or accents)
 
-Processed records will be inserted/updated. Janelia employees from the orcid collection are then backchecked against the HHMI People database. If the user is no longer in the People database, their orcid record is then ginev alumni status.
+Processed records will be inserted/updated. Janelia employees from the orcid
+collection are then backchecked against the HHMI People database. If the user
+is no longer in the People database, their orcid record is then given alumni
+status. Results of a typical run are below:
+    Records read from MongoDB:dois: 753
+    Records read from ORCID:        561
+    ORCIDs inserted:                0
+    ORCIDs updated:                 657
+    ORCIDs set to alumni:           0
 
 ### Running in production
 
-The update_orcid.py program is run every night on Jenkins.
+The update_orcid.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/).
 
 ## DOIs
 
 ### Processing 
 DOIs are synchronized from Crossref and DataCite to the dois collection in the
-dis MongoDB database.
+dis MongoDB database. DOIs are also drawn from the following sources (in the
+event than an update is needed):
+- FLYF2 database
+- ALPS releases
+- EM datasets
+- MongoDB dois collection
+As noted above, DOIs are also from from Crossref and DataCite:
+- Crossref: DOIs where at least one author has an affiliation containing "Janelia"
+- DataCite: DOIs where at least one author has an affiliation containing "Janeli
+a", and DOIs starting with 10.25378
+New DOIs are inserted, and DOIs that heve been updated (according to the
+record from Crossref or DataCite) after the stored update data (in the dois
+collection) are reprocessed. Results of a typical run are below:
+    DOIs fetched from Crossref:      1,278
+    DOIs fetched from DataCite:      3,231
+    DOIs specified:                  6,725
+    DOIs found in Crossref:          3,416
+    DOIs found in DataCite:          3,282
+    DOIs with no author:             0
+    DOIs not found:                  0
+    Duplicate DOIs:                  29
+    DOIs not needing updates:        6,693
+    DOIs inserted:                   3
+    DOIs updated:                    2
+    Elapsed time: 0:05:51.688400
+    DOI calls to Crossref: 2,140
+    DOI calls to DataCite: 51
+Any newly-inserted DOIs are email to Virginia and Rob.
+
+### Running in production
+
+The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/).
