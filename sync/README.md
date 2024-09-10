@@ -2,15 +2,15 @@
 
 ## Programs for automated synchronization of dis database from external sources
 
-| Name             | Description                                            |
-| ---------------- | ------------------------------------------------------ |
-| add_preprint.py  | Update preprint relations                              |
-| group_search.py  | Find resources authored by group (lab) heads           |
-| pull_arxiv.py    | Produce a list of aRxiv DOIs eligible for insertion    |
-| pull_bioRxiv.py  | Produce a list of bioRxiv DOIs eligible for insertion  |
-| pull_figshare.py | Produce a list of figshare DOIs eligible for insertion |
-| update_dois.py   | Synchronize DOI information from Crossref/DataCite     |
-| update_orcid.py  | Synchronize ORCID names and IDs                        |
+| Name                 | Description                                            |
+| -------------------- | ------------------------------------------------------ |
+| update_preprints.py  | Update preprint relations                              |
+| group_search.py      | Find resources authored by group (lab) heads           |
+| pull_arxiv.py        | Produce a list of aRxiv DOIs eligible for insertion    |
+| pull_bioRxiv.py      | Produce a list of bioRxiv DOIs eligible for insertion  |
+| pull_figshare.py     | Produce a list of figshare DOIs eligible for insertion |
+| update_dois.py       | Synchronize DOI information from Crossref/DataCite     |
+| update_orcid.py      | Synchronize ORCID names and IDs                        |
 
 ### Development setup
 
@@ -27,6 +27,11 @@ Enter the virtual environment and install necessary libraries:
 Programs can now be run in the virtual environment:
 
     venv/bin/python3 update_dois.py --verbose
+
+### Making latest codebase available to Jenkins
+
+Simply update the VERSION in update_gcr.sh then run it. This requires access to gcloud and
+the "sandbox-220614" project space.
 
 
 ### Dependencies
