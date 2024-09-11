@@ -24,8 +24,8 @@ First, create a Python virtual environment:
 Enter the virtual environment and install necessary libraries:
 
     source my_venv/bin/activate
-    venv/bin/pip install -r requirements.txt
+    my_venv/bin/pip install -r requirements.txt
 
 Programs can now be run in the virtual environment:
 
-    venv/bin/python3 add_newsletter.py --verbose
+    my_venv/bin/python3 add_newsletter.py --verbose
