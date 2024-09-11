@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.4.0'
+__version__ = '5.4.1'
 
 import argparse
 import configparser
@@ -837,7 +837,7 @@ def generate_email():
     '''
     msg = JRC.get_run_data(__file__, __version__)
     if ARG.SOURCE:
-        msg += f"DOIs passed in from {ARG.SOURCE}"
+        msg += f"DOIs passed in from {ARG.SOURCE}\n"
     msg += f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for doi in INSERTED:
         msg += f"\n{doi}"
