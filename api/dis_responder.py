@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "16.1.0"
+__version__ = "17.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -990,7 +990,7 @@ def show_tagged_authors(authors):
     alist = []
     count = 0
     for auth in authors:
-        if (not auth['janelian']) and (not auth['asserted']):
+        if (not auth['janelian']) and (not auth['asserted']) and (not auth['alumni']):
             continue
         if auth['janelian'] or auth['asserted']:
             count += 1
@@ -2029,6 +2029,11 @@ def show_doi_ui(doi):
                                 message=f"Could not find journal for {doi}")
     link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
     rlink = f"/doi/{doi}"
+    oresp = JRC.call_oa(doi)
+    obutton = ""
+    if oresp:
+        olink = f"{app.config['OA']}{doi}"
+        obutton = f" {tiny_badge('primary', 'OA data', olink)}"
     chead = 'Citation'
     if 'type' in data:
         chead += f" for {data['type'].replace('-', ' ')}"
@@ -2038,7 +2043,7 @@ def show_doi_ui(doi):
         chead += f" for {data['types']['resourceTypeGeneral']}"
     html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}.</span><br><br>"
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
-            + "</span><br>"
+            + f"{obutton}</span><br>"
     if row:
         citations = s2_citation_count(doi, fmt='html')
         if citations:
@@ -2314,8 +2319,7 @@ def doiui_group(year='All'):
 def dois_journal(year='All', top=10):
     ''' Show journals
     '''
-    if top > 20:
-        top = 20
+    top = min(top, 20)
     match = {"container-title": {"$exists": True, "$ne" : ""}}
     if year != 'All':
         match["jrc_publishing_date"] = {"$regex": "^"+ year}
@@ -2357,7 +2361,8 @@ def dois_journal(year='All', top=10):
     title = "DOIs by journal"
     if year != 'All':
         title += f" ({year})"
-    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550, colors='Category20')
+    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550,
+                                         colors='Category20')
     title = f"Top {top} DOI journals"
     if year != 'All':
         title += f" ({year})"
@@ -3031,7 +3036,8 @@ def show_doiui_custom():
         title = DL.get_title(row)
         if not title:
             title = ""
-        works.append({"published": published, "link": doi_link(row['doi']), "title": title, "doi": row['doi']})
+        works.append({"published": published, "link": doi_link(row['doi']), "title": title,
+                      "doi": row['doi']})
     fileoutput = ""
     for row in sorted(works, key=lambda row: row['published'], reverse=True):
         html += "<tr><td>" + dloop(row, ['published', 'link', 'title'], "</td><td>") + "</td></tr>"
