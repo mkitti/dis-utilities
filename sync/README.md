@@ -9,6 +9,7 @@
 | pull_arxiv.py        | Produce a list of aRxiv DOIs eligible for insertion    |
 | pull_bioRxiv.py      | Produce a list of bioRxiv DOIs eligible for insertion  |
 | pull_figshare.py     | Produce a list of figshare DOIs eligible for insertion |
+| pull_oa.py           | Produce a list of OA DOIs eligible for insertion       |
 | update_dois.py       | Synchronize DOI information from Crossref/DataCite     |
 | update_orcid.py      | Synchronize ORCID names and IDs                        |
 
@@ -94,8 +95,8 @@ As noted above, DOIs are also from from Crossref and DataCite:
 - Crossref: DOIs where at least one author has an affiliation containing "Janelia"
 - DataCite: DOIs where at least one author has an affiliation containing "Janeli
 a", and DOIs starting with 10.25378
-New DOIs are inserted, and DOIs that heve been updated (according to the
-record from Crossref or DataCite) after the stored update data (in the dois
+New DOIs are inserted, and DOIs that have been updated (according to the
+record from Crossref or DataCite) after the stored update date (in the dois
 collection) are reprocessed. Results of a typical run are below:
 
     DOIs fetched from Crossref:      1,278
@@ -112,7 +113,7 @@ collection) are reprocessed. Results of a typical run are below:
     Elapsed time: 0:05:51.688400
     DOI calls to Crossref: 2,140
     DOI calls to DataCite: 51
-Any newly-inserted DOIs are email to Virginia and Rob.
+Any newly-inserted DOIs are emaild to Virginia and Rob.
 
 ### Running in production
 
@@ -143,3 +144,21 @@ a typical run are below:
 ### Running in production
 
 The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).
+
+### arXiv
+Potentially relevant DOIs are found in the arXiv repository:
+- At least one author has an affiliation containing "Janelia" or an ORCID in the orcid collection
+New DOIs are inserted. Results of a typical run are below:
+
+    DOIs read from arXiv:            10
+    DOIs already in database:        4
+    DOIs in DataCite (asserted):     0
+    DOIs not in DataCite:            0
+    DOIs with no Janelian authors:   5
+    DOIs ready for processing:       0
+    DOIs requiring review:           1
+Any newly-inserted DOIs are emaild to Virginia and Rob.
+
+### Running in production
+
+The pull_arxiv.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/).
