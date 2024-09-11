@@ -157,6 +157,7 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs with no Janelian authors:   5
     DOIs ready for processing:       0
     DOIs requiring review:           1
+
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
@@ -175,6 +176,7 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs with no Janelian authors:   1,037
     DOIs ready for processing:       0
     DOIs requiring review:           4
+
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
