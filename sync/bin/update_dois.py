@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.3.0'
+__version__ = '5.4.0'
 
 import argparse
 import configparser
@@ -836,6 +836,8 @@ def generate_email():
           None
     '''
     msg = JRC.get_run_data(__file__, __version__)
+    if ARG.SOURCE:
+        msg += f"DOIs passed in from {ARG.SOURCE}"
     msg += f"The following DOIs were inserted into the {ARG.MANIFOLD} MongoDB DIS database:"
     for doi in INSERTED:
         msg += f"\n{doi}"
@@ -869,6 +871,8 @@ def post_activities():
                     else:
                         outstream.write(f"{key}\n")
     # Report
+    if ARG.SOURCE:
+        print(f"Source:                          {ARG.SOURCE}")
     if ARG.TARGET == 'dis' and (not ARG.DOI and not ARG.FILE):
         print(f"DOIs fetched from Crossref:      {COUNT['crossref']:,}")
         print(f"DOIs fetched from DataCite:      {COUNT['datacite']:,}")
@@ -901,6 +905,8 @@ if __name__ == '__main__':
         description="Sync DOIs")
     PARSER.add_argument('--doi', dest='DOI', action='store',
                         help='Single DOI to process')
+    PARSER.add_argument('--source', dest='SOURCE', action='store',
+                        help='Source of DOIs (arXiv, figshae, etc.)')
     PARSER.add_argument('--target', dest='TARGET', action='store',
                         default='dis', choices=['flyboy', 'dis'],
                         help='Target system (flyboy or dis)')
