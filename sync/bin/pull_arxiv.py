@@ -1,5 +1,5 @@
 """ pull_arxiv.py
-    Find DOIs from aRxiv that can be added to the dois collection.
+    Find DOIs from arXiv that can be added to the dois collection.
 """
 
 import argparse
@@ -71,7 +71,7 @@ def doi_exists(doi):
 
 
 def get_dois_from_arxiv():
-    ''' Get DOIs from aRxiv
+    ''' Get DOIs from arXiv
         Keyword arguments:
           None
         Returns:
@@ -82,7 +82,7 @@ def get_dois_from_arxiv():
     done = False
     check = {}
     parts = 0
-    LOGGER.info("Getting DOIs from aRxiv")
+    LOGGER.info("Getting DOIs from arXiv")
     while not done:
         post = f"&start={offset}&max_results={batch_size}"
         query = f"all:janelia{post}"
@@ -107,7 +107,7 @@ def get_dois_from_arxiv():
                 check[doi.lower()] = item
         else:
             done = True
-    LOGGER.info(f"Got {len(check):,} DOIs from aRxiv in {parts} part(s)")
+    LOGGER.info(f"Got {len(check):,} DOIs from arXiv in {parts} part(s)")
     return check
 
 
@@ -142,7 +142,7 @@ def parse_authors(doi, msg, ready, review):
 
 
 def run_search():
-    ''' Search for DOIs on aRxiv that can be added to the dois collection
+    ''' Search for DOIs on arXiv that can be added to the dois collection
         Keyword arguments:
           None
         Returns:
@@ -167,7 +167,7 @@ def run_search():
         with open('arxiv_review.txt', 'w', encoding='ascii') as outstream:
             for item in review:
                 outstream.write(f"{item}\n")
-    print(f"DOIs read from aRxiv:            {COUNT['read']:,}")
+    print(f"DOIs read from arXiv:            {COUNT['read']:,}")
     print(f"DOIs already in database:        {COUNT['in_dois']:,}")
     print(f"DOIs in DataCite (asserted):     {COUNT['asserted']:,}")
     print(f"DOIs not in DataCite:            {COUNT['no_crossref']:,}")
@@ -179,7 +179,7 @@ def run_search():
 
 if __name__ == "__main__":
     PARSER = argparse.ArgumentParser(
-        description="Sync DOIs from aRxiv")
+        description="Sync DOIs from arXiv")
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
