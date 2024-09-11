@@ -23,11 +23,11 @@ First, create a Python virtual environment:
 Enter the virtual environment and install necessary libraries:
 
     source my_venv/bin/activate
-    venv/bin/pip install -r requirements.txt
+    my_venv/bin/pip install -r requirements.txt
 
 Programs can now be run in the virtual environment:
 
-    venv/bin/python3 update_dois.py --verbose
+    my_venv/bin/python3 update_dois.py --verbose
 
 ### Making latest codebase available to Jenkins
 
@@ -113,7 +113,7 @@ collection) are reprocessed. Results of a typical run are below:
     Elapsed time: 0:05:51.688400
     DOI calls to Crossref: 2,140
     DOI calls to DataCite: 51
-Any newly-inserted DOIs are emaild to Virginia and Rob.
+Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
 
@@ -157,8 +157,26 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs with no Janelian authors:   5
     DOIs ready for processing:       0
     DOIs requiring review:           1
-Any newly-inserted DOIs are emaild to Virginia and Rob.
+Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
 
 The pull_arxiv.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/).
+
+### bioRxiv
+Potentially relevant DOIs are found in the bioRxiv repository:
+- At least one author has an affiliation containing "Janelia" or an ORCID in the orcid collection
+New DOIs are inserted. Results of a typical run are below:
+
+    DOIs read from bioRxiv:          1,189
+    DOIs already in database:        1
+    DOIs not in Crossref (asserted): 0
+    DOIs not in Crossref:            0
+    DOIs with no Janelian authors:   1,037
+    DOIs ready for processing:       0
+    DOIs requiring review:           4
+Any newly-inserted DOIs are emailed to Virginia and Rob.
+
+### Running in production
+
+The pull_biorxiv.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_biorxiv/).
