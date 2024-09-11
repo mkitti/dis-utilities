@@ -1,3 +1,7 @@
+nameparser
+rapidfuzz
+unidecode
+termcolor
 inquirer
 openpyxl
 pandas
