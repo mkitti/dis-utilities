@@ -113,6 +113,7 @@ collection) are reprocessed. Results of a typical run are below:
     Elapsed time: 0:05:51.688400
     DOI calls to Crossref: 2,140
     DOI calls to DataCite: 51
+
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
