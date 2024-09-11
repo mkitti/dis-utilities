@@ -1,4 +1,4 @@
-""" add_preprint.py
+""" update_preprints.py
     Update the jrc_preprint field in the dois collection for all locally-stored DOIs.
     Every preprint (from DataCite and Crossref) will be compared to every "primary" DOI
     (from Crossref) to determine if each pair is the same publication. The publication

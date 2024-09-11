@@ -2,17 +2,17 @@
 
 ## Programs for automated synchronization of dis database from external sources
 
-| Name             | Description                                            |
-| ---------------- | ------------------------------------------------------ |
-| add_preprint.py  | Update preprint relations                              |
-| group_search.py  | Find resources authored by group (lab) heads           |
-| pull_arxiv.py    | Produce a list of aRxiv DOIs eligible for insertion    |
-| pull_bioRxiv.py  | Produce a list of bioRxiv DOIs eligible for insertion  |
-| pull_figshare.py | Produce a list of figshare DOIs eligible for insertion |
-| update_dois.py   | Synchronize DOI information from Crossref/DataCite     |
-| update_orcid.py  | Synchronize ORCID names and IDs                        |
+| Name                 | Description                                            |
+| -------------------- | ------------------------------------------------------ |
+| update_preprints.py  | Update preprint relations                              |
+| group_search.py      | Find resources authored by group (lab) heads           |
+| pull_arxiv.py        | Produce a list of aRxiv DOIs eligible for insertion    |
+| pull_bioRxiv.py      | Produce a list of bioRxiv DOIs eligible for insertion  |
+| pull_figshare.py     | Produce a list of figshare DOIs eligible for insertion |
+| update_dois.py       | Synchronize DOI information from Crossref/DataCite     |
+| update_orcid.py      | Synchronize ORCID names and IDs                        |
 
-### Setup
+### Development setup
 
 First, create a Python virtual environment:
 
@@ -28,7 +28,30 @@ Programs can now be run in the virtual environment:
 
     venv/bin/python3 update_dois.py --verbose
 
+### Making latest codebase available to Jenkins
+
+Simply update the VERSION in update_gcr.sh then run it. This requires access to gcloud and
+the "sandbox-220614" project space.
+
+
+### Dependencies
+
+1. The libraries specified in requirements.txt need to be installed.
+2. The [Configuration system](https://github.com/JaneliaSciComp/configurator) must be accessible. The following configurations are used:
+    - databases
+    - dis
+    - dois
+    - em_dois
+    - releases
+    - rest_services
+3. The following keys must be present in the run environment:
+    - CONFIG_SERVER_URL: abase URL for Configuration system
+    - PEOPLE_API_KEY: API key for HHMI People system
+4. The config.ini fiile must have the latest URL bases and suffixes for Crossref, DataCite, FigShare, and ORCID.
+
 ## ORCID
+
+### Processing
 
 Data from ORCID is synchronized to the orcid collection in the dis MongoDB database. Names from ORCID entries that have one of the following affiliations are eligible for inclusion:
 
@@ -42,6 +65,81 @@ Author names are also pulled from author records in the dois collection in the d
 - Group membership (HHMI affiliations)
 - Name combinations (with/without middle name, punctuation, and/or accents)
 
-Processed records will be inserted/updated. Janelia employees from the orcid collection are then backchecked against the HHMI People database. If the user is no longer in the People database, their orcid record is then ginev alumni status.
+Processed records will be inserted/updated. Janelia employees from the orcid
+collection are then backchecked against the HHMI People database. If the user
+is no longer in the People database, their orcid record is then given alumni
+status. Results of a typical run are below:
 
-The update_orcid.py program is run every night on Jenkins.
+    Records read from MongoDB:dois: 753
+    Records read from ORCID:        561
+    ORCIDs inserted:                0
+    ORCIDs updated:                 657
+    ORCIDs set to alumni:           0
+
+### Running in production
+
+The update_orcid.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/).
+
+## DOIs
+
+### Crossref/DataCite processing 
+DOIs are synchronized from Crossref and DataCite to the dois collection in the
+dis MongoDB database. DOIs are also drawn from the following sources (in the
+event than an update is needed):
+- FLYF2 database
+- ALPS releases
+- EM datasets
+- MongoDB dois collection
+As noted above, DOIs are also from from Crossref and DataCite:
+- Crossref: DOIs where at least one author has an affiliation containing "Janelia"
+- DataCite: DOIs where at least one author has an affiliation containing "Janeli
+a", and DOIs starting with 10.25378
+New DOIs are inserted, and DOIs that heve been updated (according to the
+record from Crossref or DataCite) after the stored update data (in the dois
+collection) are reprocessed. Results of a typical run are below:
+
+    DOIs fetched from Crossref:      1,278
+    DOIs fetched from DataCite:      3,231
+    DOIs specified:                  6,725
+    DOIs found in Crossref:          3,416
+    DOIs found in DataCite:          3,282
+    DOIs with no author:             0
+    DOIs not found:                  0
+    Duplicate DOIs:                  29
+    DOIs not needing updates:        6,693
+    DOIs inserted:                   3
+    DOIs updated:                    2
+    Elapsed time: 0:05:51.688400
+    DOI calls to Crossref: 2,140
+    DOI calls to DataCite: 51
+Any newly-inserted DOIs are email to Virginia and Rob.
+
+### Running in production
+
+The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/).
+
+### FlyCore processing 
+A list of DOIs is retrieved from the FLYF2 database using the
+[FlyCore responder](https://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?request=doilist).
+These are then added to the doi_data table in the FlyBoy database. Results of
+a typical run are below:
+
+    DOIs specified:                  110
+    DOIs found in Crossref:          105
+    DOIs found in DataCite:          1
+    DOIs with no author:             0
+    DOIs not found:                  4
+    Duplicate DOIs:                  0
+    DOIs not needing updates:        106
+    DOIs found in FlyBoy:            105
+    DOIs inserted/updated in FlyBoy: 0
+    DOIs deleted from FlyBoy:        0
+    DOIs inserted:                   0
+    DOIs updated:                    0
+    Elapsed time: 0:00:21.078572
+    DOI calls to Crossref: 105
+    DOI calls to DataCite: 1
+
+### Running in production
+
+The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).

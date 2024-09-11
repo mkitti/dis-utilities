@@ -154,7 +154,7 @@ def pie_chart(data, title, legend, height=300, width=400, location="right", colo
     return components(plt)
 
 
-def stacked_bar_chart(data, title, xaxis, yaxis, colors=None):
+def stacked_bar_chart(data, title, xaxis, yaxis, colors=None, width=None, height=None):
     ''' Create a stacked bar chart
         Keyword arguments:
           data: dictionary of data
@@ -162,6 +162,8 @@ def stacked_bar_chart(data, title, xaxis, yaxis, colors=None):
           xaxis: x-axis column name
           yaxis: list of y-axis column names
           colors: list of colors (optional)
+          width: width of chart (optional)
+          height: height of chart (optional)
         Returns:
           Figure components
     '''
@@ -170,11 +172,16 @@ def stacked_bar_chart(data, title, xaxis, yaxis, colors=None):
     plt = figure(x_range=data[xaxis], title=title,
                  toolbar_location=None, tools="hover",
                  tooltips=f"$name @{xaxis}: @$name")
+    if width and height:
+        plt.width = width
+        plt.height = height
     plt.vbar_stack(yaxis, x=xaxis, width=0.9,
                    color=colors, source=data,
                    legend_label=yaxis
                    )
     plt.legend.location = 'top_left'
+    if width and height:
+        plt.add_layout(plt.legend[0], 'right')
     plt.xgrid.grid_line_color = None
     plt.y_range.start = 0
     plt.background_fill_color = "ghostwhite"

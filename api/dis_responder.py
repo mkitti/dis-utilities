@@ -5,6 +5,7 @@
 from datetime import date, datetime, timedelta
 from html import escape
 import inspect
+import json
 from json import JSONEncoder
 from operator import attrgetter, itemgetter
 import os
@@ -24,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "14.3.0"
+__version__ = "16.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -40,6 +41,7 @@ NAV = {"Home": "",
                 "DOIs by source": "dois_source",
                 "DOIs by tag": "dois_tag",
                 "DOIs by year": "dois_year",
+                "DOIs by month": "dois_month",
                 "Top tags by year": "dois_top",
                 "DOI yearly report": "dois_report"
             },
@@ -51,6 +53,7 @@ NAV = {"Home": "",
                  "Affiliations": "orcid_tag",
                  "Entries": "orcid_entry",
                  "Duplicates": "orcid_duplicates",
+                 "Search People system": "people",
                 },
        "Stats" : {"Database": "stats_database"
                  },
@@ -128,7 +131,6 @@ app = Flask(__name__, template_folder="templates")
 app.json_encoder = CustomJSONEncoder
 app.config.from_pyfile("config.cfg")
 CORS(app, supports_credentials=True)
-app.json_encoder = CustomJSONEncoder
 app.config["STARTDT"] = datetime.now()
 app.config["LAST_TRANSACTION"] = time()
 
@@ -328,7 +330,7 @@ def get_custom_payload(ipd, display_value):
           display_value: display value
         Returns:
           payload: payload for MongoDB find
-          ptitle: page titleq
+          ptitle: page title
     '''
     if ipd['field'] in CUSTOM_REGEX:
         rex = CUSTOM_REGEX[ipd['field']]['value']
@@ -445,10 +447,7 @@ def generate_works_table(rows, name=None):
     html = ""
     fileoutput = ""
     for row in rows:
-        if row['doi']:
-            doi = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
-        else:
-            doi = "&nbsp;"
+        doi = doi_link(row['doi']) if row['doi'] else "&nbsp;"
         if 'title' in row and isinstance(row['title'], str):
             title = row['title']
         else:
@@ -553,7 +552,7 @@ def add_orcid_works(data, dois):
                        + work['external-ids']['external-id'][0]['external-id-url']['value'] \
                        + f"' target='_blank'>{doi}</a>"
         else:
-            link = f"<a href='/doiui/{doi}'>{doi}</a>"
+            link = doi_link(doi)
         inner += f"<tr><td>{pdate}</td><td>{link}</td>" \
                  + f"<td>{wsumm['title']['title']['value']}</td></tr>"
     if inner:
@@ -597,6 +596,26 @@ def generate_user_table(rows):
 # * DOI utility functions                                                      *
 # ******************************************************************************
 
+def doi_link(doi):
+    ''' Return a link to a DOI or DOIs
+        Keyword arguments:
+          doi: DOI
+        Returns:
+          newdoi: HTML link(s) to DOI(s) as a string
+    '''
+    if not doi:
+        return ""
+    doilist = [doi] if isinstance(doi, str) else doi
+    newdoi = []
+    for item in doilist:
+        newdoi.append(f"<a href='/doiui/{item}'>{item}</a>")
+    if isinstance(doi, str):
+        newdoi = newdoi[0]
+    else:
+        newdoi = ", ".join(newdoi)
+    return newdoi
+
+
 def get_doi(doi):
     ''' Get a single DOI record
         Keyword arguments:
@@ -628,8 +647,11 @@ def add_jrc_fields(row):
     for key, val in row.items():
         if not re.match(prog, key):
             continue
-        if isinstance(val, list):
-            val = ", ".join(sorted(val))
+        if isinstance(val, list) and key not in ('jrc_preprint'):
+            try:
+                val = ", ".join(sorted(val))
+            except TypeError:
+                val = json.dumps(val)
         jrc[key] = val
     if not jrc:
         return ""
@@ -642,10 +664,7 @@ def add_jrc_fields(row):
                 link.append(f"<a href='/userui/{auth}'>{auth}</a>")
             val = ", ".join(link)
         if key == 'jrc_preprint':
-            link = []
-            for auth in val.split(", "):
-                link.append(f"<a href='/doiui/{auth}'>{auth}</a>")
-            val = ", ".join(link)
+            val = doi_link(val)
         elif key == 'jrc_tag':
             link = []
             for aff in val.split(", "):
@@ -671,8 +690,7 @@ def add_relations(row):
         for itm in row['relation'][rel]:
             if itm['id'] in used:
                 continue
-            link = f"<a href='/doiui/{itm['id']}'>{itm['id']}</a>"
-            html += f"This DOI {rel.replace('-', ' ')} {link}<br>"
+            html += f"This DOI {rel.replace('-', ' ')} {doi_link(itm['id'])}<br>"
             used.append(itm['id'])
     return html
 
@@ -1084,6 +1102,17 @@ def last_thursday():
     if offset:
         offset = 7
     return today - timedelta(days=offset)
+
+
+def weeks_ago(weeks):
+    ''' Calculate the date of a number of weeks ago
+        Keyword arguments:
+          weeks: number of weeks
+        Returns:
+          Date of a number of weeks ago
+    '''
+    today = date.today()
+    return today - timedelta(weeks=weeks)
 
 
 def year_pulldown(prefix, all_years=True):
@@ -2032,7 +2061,7 @@ def show_doi_ui(doi):
 
 @app.route('/doisui_name/<string:name>')
 def show_doi_by_name_ui(name):
-    ''' Show DOIs for a name
+    ''' Show DOIs for a family name
     '''
     payload = {'$or': [{"author.family": {"$regex": f"^{name}$", "$options" : "i"}},
                        {"creators.familyName": {"$regex": f"^{name}$", "$options" : "i"}},
@@ -2279,11 +2308,14 @@ def doiui_group(year='All'):
                                          navbar=generate_navbar('DOIs')))
 
 
+@app.route('/dois_journal/<string:year>/<int:top>')
 @app.route('/dois_journal/<string:year>')
 @app.route('/dois_journal')
-def dois_journal(year='All'):
+def dois_journal(year='All', top=10):
     ''' Show journals
     '''
+    if top > 20:
+        top = 20
     match = {"container-title": {"$exists": True, "$ne" : ""}}
     if year != 'All':
         match["jrc_publishing_date"] = {"$regex": "^"+ year}
@@ -2317,7 +2349,7 @@ def dois_journal(year='All'):
     data = {}
     for key in sorted(journal, key=journal.get, reverse=True):
         val = journal[key]
-        if len(data) >= 10:
+        if len(data) >= top:
             continue
         data[key] = val
         html += f"<tr><td>{key}</td><td>{val:,}</td></tr>"
@@ -2325,8 +2357,8 @@ def dois_journal(year='All'):
     title = "DOIs by journal"
     if year != 'All':
         title += f" ({year})"
-    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550)
-    title = "Top 10 DOI journals"
+    chartscript, chartdiv = DP.pie_chart(data, title, "source", width=875, height=550, colors='Category20')
+    title = f"Top {top} DOI journals"
     if year != 'All':
         title += f" ({year})"
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
@@ -2498,12 +2530,70 @@ def dois_preprint_year():
     for row in rows:
         year = row['jrc_publishing_date'][:4]
         data['Preprint'][data['years'].index(year)] += 1
+    print(data)
+    html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Year</th><th>Journal articles</th><th>Preprints</th></thead><tbody>'
+    for idx in range(len(data['years'])):
+        html += f"<tr><td>{data['years'][idx]}</td><td>{data['Journal article'][idx]:,}</td>" \
+                + f"<td>{data['Preprint'][idx]:,}</td></tr>"
+    html += '</tbody></table>'
     chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/preprint status",
                                                  xaxis="years",
                                                  yaxis=('Journal article', 'Preprint'),
                                                  colors=DP.SOURCE_PALETTE)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
-                                         title="DOIs preprint status by year", html="",
+                                         title="DOIs preprint status by year", html=html,
+                                         chartscript=chartscript, chartdiv=chartdiv,
+                                         navbar=generate_navbar('DOIs')))
+
+
+@app.route('/dois_month/<string:year>')
+@app.route('/dois_month')
+def dois_month(year=str(datetime.now().year)):
+    ''' Show DOIs by month
+    '''
+    payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$group": {"_id": {"month": {"$substrBytes": ["$jrc_publishing_date", 0, 7]},
+                                   "obtained": "$jrc_obtained_from"
+                                  },
+                           "count": {"$sum": 1}}},
+               {"$sort": {"_id.month": 1}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get month counts " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    data = {'months': [f"{mon:02}" for mon in range(1, 13)], 'Crossref': [0] * 12,
+            'DataCite': [0] * 12}
+    for row in rows:
+        month = row['_id']['month'][-2:]
+        data[row['_id']['obtained']][int(month)-1] = row['count']
+    title = f"DOIs published by month for {year}"
+    html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Month</th><th>Crossref</th><th>DataCite</th>' \
+           + '</tr></thead><tbody>'
+    for mon in data['months']:
+        mname = date(1900, int(mon), 1).strftime('%B')
+        html += f"<tr><td>{mname}</td>"
+        for source in SOURCES:
+            if data[source][int(mon)-1]:
+                onclick = "onclick='nav_post(\"publishing_year\",\"" \
+                          + f"{year}-{mon}" + "\",\"" + source + "\")'"
+                link = f"<a href='#' {onclick}>{data[source][int(mon)-1]:,}</a>"
+                html += f"<td>{link}</td>"
+            else:
+                html += "<td></td>"
+        html += "</tr>"
+    html += '</tbody></table><br>' + year_pulldown('dois_month', all_years=False)
+    chartscript, chartdiv = DP.stacked_bar_chart(data, title,
+                                                 xaxis="months",
+                                                 yaxis=('Crossref', 'DataCite'),
+                                                 colors=DP.SOURCE_PALETTE)
+    return make_response(render_template('bokeh.html', urlroot=request.url_root,
+                                         title=title, html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
                                          navbar=generate_navbar('DOIs')))
 
@@ -2638,8 +2728,11 @@ def dois_top(num):
                 data[tag].append(ytags[year][tag])
             else:
                 data[tag].append(0)
+    height = 600
+    if num > 23:
+        height += 22 * (num - 23)
     chartscript, chartdiv = DP.stacked_bar_chart(data, f"DOIs published by year for top {num} tags",
-                                                 xaxis="years", yaxis=top)
+                                                 xaxis="years", yaxis=top, width=900, height=height)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOI tags by year/tag", html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
@@ -2838,6 +2931,7 @@ def show_insert(idate):
            + '<th>DOI</th><th>Source</th><th>Type</th><th>Published</th><th>Load source</th>' \
            + '<th>Inserted</th><th>Is version of</th><th>Newsletter</th></tr></thead><tbody>'
     fileoutput = ""
+    limit = weeks_ago(2)
     for row in rows:
         source = row['jrc_load_source'] if row['jrc_load_source'] else ""
         typ = ""
@@ -2852,18 +2946,26 @@ def show_insert(idate):
             for ver in row['relation']['is-version-of']:
                 if ver['id-type'] == 'doi':
                     version.append(ver['id'])
-        version = ", ".join(version) if version else ""
-        link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
+        version = doi_link(version) if version else ""
         news = row['jrc_newsletter'] if 'jrc_newsletter' in row else ""
-        html += "<tr><td>" + "</td><td>".join([link, row['jrc_obtained_from'], typ,
-                                              row['jrc_publishing_date'], source,
-                                              str(row['jrc_inserted']), version,
-                                              news]) + "</td></tr>"
+        if (not news) and (row['jrc_obtained_from'] == 'Crossref') and \
+           (row['jrc_publishing_date'] >= str(limit)):
+            rclass = 'candidate'
+        else:
+            rclass = 'other'
+        html += f"<tr class='{rclass}'><td>" \
+                + "</td><td>".join([doi_link(row['doi']), row['jrc_obtained_from'], typ,
+                                    row['jrc_publishing_date'], source,
+                                    str(row['jrc_inserted']), version,
+                                    news]) + "</td></tr>"
         frow = "\t".join([row['doi'], row['jrc_obtained_from'], typ, row['jrc_publishing_date'],
                           source, str(row['jrc_inserted']), version, news])
         fileoutput += f"{frow}\n"
     html += '</tbody></table>'
-    html = create_downloadable("jrc_inserted", None, fileoutput) + html
+    cbutton = "<button class=\"btn btn-outline-warning\" " \
+              + "onclick=\"$('.other').toggle();\">Filter for candidate DOIs</button>"
+
+    html = create_downloadable("jrc_inserted", None, fileoutput) + f" &nbsp;{cbutton}{html}"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"DOIs inserted on or after {idate}", html=html,
                                          navbar=generate_navbar('DOIs')))
@@ -2929,8 +3031,7 @@ def show_doiui_custom():
         title = DL.get_title(row)
         if not title:
             title = ""
-        link = f"<a href='/doiui/{row['doi']}'>{row['doi']}</a>"
-        works.append({"published": published, "link": link, "title": title, "doi": row['doi']})
+        works.append({"published": published, "link": doi_link(row['doi']), "title": title, "doi": row['doi']})
     fileoutput = ""
     for row in sorted(works, key=lambda row: row['published'], reverse=True):
         html += "<tr><td>" + dloop(row, ['published', 'link', 'title'], "</td><td>") + "</td></tr>"
@@ -3189,6 +3290,64 @@ def orcid_duplicates():
             html = "<p>No duplicates found</p>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title="ORCID duplicates", html=html,
+                                         navbar=generate_navbar('ORCID')))
+
+# ******************************************************************************
+# * UI endpoints (People)                                                      *
+# ******************************************************************************
+@app.route('/people/<string:name>')
+@app.route('/people')
+def people(name=None):
+    ''' Show information from the People system
+    '''
+    if not name:
+        return make_response(render_template('people.html', urlroot=request.url_root,
+                                             title="Search People system", content="",
+                                             navbar=generate_navbar('ORCID')))
+    try:
+        response = JRC.call_people_by_name(name)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not get People data for {name}"),
+                               message=error_message(err))
+    html = "<br><br><h3>Select a name for details:</h3>"
+    html += "<table id='people' class='tablesorter standard'><thead><tr><th>Name</th>" \
+            + "<th>Title</th><th>Employee ID</th><th>Location</th></tr></thead><tbody>"
+    for rec in response:
+        pname = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
+        link = f"<a href='/peoplerec/{rec['employeeId']}'>{pname}</a>"
+        loc = rec['locationName'] if 'locationName' in rec else ""
+        if "Janelia" in loc:
+            loc = f"<span style='color:lime'>{loc}</span>"
+        html += f"<tr><td>{link}</td><td>{rec['businessTitle']}</td><td>{rec['employeeId']}</td>" \
+                + f"<td>{loc}</td></tr>"
+    html += "</tbody></table>"
+    return make_response(render_template('people.html', urlroot=request.url_root,
+                                         title="Search People system", content=html,
+                                         navbar=generate_navbar('ORCID')))
+
+
+@app.route('/peoplerec/<string:eid>')
+def peoplerec(eid):
+    ''' Show a single People record
+    '''
+    try:
+        rec = JRC.call_people_by_id(eid)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not get People data for {eid}"),
+                               message=error_message(err))
+    if not rec:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find People record for {eid}"),
+                               message="No record found")
+    title = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
+    if 'photoURL' in rec:
+        title += f"&nbsp;<img src='{rec['photoURL']}' width=100 height=100 " \
+                 + f"alt='Photo of {rec['nameFirstPreferred']}'>"
+    html = f"<div class='scroll' style='height:750px'><pre>{json.dumps(rec, indent=2)}</pre></div>"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title=title, html=html,
                                          navbar=generate_navbar('ORCID')))
 
 # ******************************************************************************
