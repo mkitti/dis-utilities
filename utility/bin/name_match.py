@@ -312,25 +312,6 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
                 print(f"No action will be taken for {author.name}.\n")
                 return( Guess(exists=False) )
 
-def confirm_action(confirm_message):
-    """
-    Ask the user to confirm whether they wish to write to the database.
-    Arguments:
-        confirm_message: a string, a message describing the change to be made
-    Returns:
-        True if the user confirms the change, False otherwise
-    """
-    quest = [inquirer.List('confirm',
-                message = confirm_message,
-                choices = ['Yes', 'No'])]
-    ans = inquirer.prompt(quest, theme=BlueComposure())
-    if ans['confirm'] == 'Yes':
-        return True
-    else:
-        print(f"No change to our collection will be made.\n")
-        return False
-
-
 
 
 
@@ -618,18 +599,6 @@ if __name__ == '__main__':
                     best_guess = evaluate_candidates(author, candidates, inform_message, verbose=arg.VERBOSE)
                     if best_guess.approved:
                         final_choice = best_guess
-                        #DON'T DELETE YET:
-                        #experimental: don't create new records without ORCIDs.
-                        # mongo_orcid_record = get_mongo_orcid_record(best_guess.id, orcid_collection)
-                        # if mongo_orcid_record.exists:
-                        #     if mongo_orcid_record.has_employeeId():
-                        #         doi_common.add_orcid_name(lookup=best_guess.id, lookup_by='employeeId', given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), coll=orcid_collection)
-                        # else:
-                        #     print(f"There is no record in our collection for {author.name}.")
-                        #     confirm_message = f"Would you like to create an ORCID record for {best_guess.name} with an employee ID only?"
-                        #     proceed = confirm_action(confirm_message)
-                        #     if proceed:
-                        #         create_orcid_record(best_guess, orcid_collection, author)
                 if final_choice == None:
                     revised_jrc_authors.append(Employee(exists=False))
                 else:
