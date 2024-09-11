@@ -12,7 +12,7 @@ First, create a Python virtual environment:
 Enter the virtual environment and install necessary libraries:
 
     source my_venv/bin/activate
-    venv/bin/pip install -r requirements.txt
+    my_venv/bin/pip install -r requirements.txt
 
 If it doesn't already exist, create the configuration file:
 
@@ -22,7 +22,7 @@ Change values in config.cfg for this specific installation.
 
 Start the development server:
 
-    venv/bin/python3 dis_responder.py
+    my_venv/bin/python3 dis_responder.py
 
 ### Running on production
 
