@@ -41,6 +41,12 @@ If it doesn't already exist, create the configuration file:
 
 Change values in config.cfg for this specific installation.
 
+If it doesn't already exist, create the Docker compose file:
+
+    cp docker-compose-prod_template.yml docker-compose-prod.yml
+
+Change values in docker-compose-prod.yml for this specific installation.
+
 Start the server:
 
     sh restart_production.sh
