@@ -29,7 +29,6 @@ from inquirer.themes import BlueComposure
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
-#TODO: Add some of these imports to requirements.txt?
 
 
 
