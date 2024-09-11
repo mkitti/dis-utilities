@@ -22,6 +22,7 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - CONFIG_SERVER_URL=https://config.int.janelia.org/
+      - PEOPLE_API_KEY=<<INSERT API KEY>>
     networks:
         - dis-net
 
