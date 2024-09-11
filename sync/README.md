@@ -48,7 +48,7 @@ the "sandbox-220614" project space.
 3. The following keys must be present in the run environment:
     - CONFIG_SERVER_URL: abase URL for Configuration system
     - PEOPLE_API_KEY: API key for HHMI People system
-4. The config.ini fiile must have the latest URL bases and suffixes for Crossref, DataCite, FigShare, and ORCID.
+4. The *config.ini* fiile must have the latest URL bases and suffixes for Crossref, DataCite, FigShare, and ORCID.
 
 ## ORCID
 
@@ -79,7 +79,7 @@ status. Results of a typical run are below:
 ```
 ### Running in production
 
-The update_orcid.py program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/).
+The *update_orcid.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/).
 
 ## DOIs
 
@@ -118,7 +118,7 @@ Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
 
-The update_dois.py program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/).
+The *update_dois.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/).
 
 ### FlyCore processing 
 A list of DOIs is retrieved from the FLYF2 database using the
@@ -144,7 +144,7 @@ a typical run are below:
 ```
 ### Running in production
 
-The update_dois.py program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).
+The *update_dois.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).
 
 ### arXiv
 Potentially relevant DOIs are found in the arXiv repository:
@@ -163,7 +163,7 @@ Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
 
-The pull_arxiv.py program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/).
+The *pull_arxiv.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/).
 
 ### bioRxiv
 Potentially relevant DOIs are found in the bioRxiv repository:
@@ -182,7 +182,7 @@ Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
 
-The pull_biorxiv.py program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_biorxiv/).
+The *pull_biorxiv.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_biorxiv/).
 
 ### figshare
 Relevant DOIs are found in the figshare repository:
@@ -198,4 +198,22 @@ Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
 
-The pull_figshare.py program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_figshare/).
+The *pull_figshare.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_figshare/).
+
+### OA
+DOIs are found in the OA repository. **All** DOIs from this repository are relevant. There will be some without current 
+Janelia authors; these are alumni.
+New DOIs are inserted. Results of a typical run are below:
+```
+    DOIs read from OA:               2,470
+    DOIs already in database:        2,277
+    DOIs not in Crossref (asserted): 0
+    DOIs not in Crossref:            0
+    DOIs with no Janelian authors:   193
+    DOIs ready for processing:       193
+```
+Any newly-inserted DOIs are emailed to Virginia and Rob.
+
+### Running in production
+
+The *pull_oa.py* program is run every Friday morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_oa/).
