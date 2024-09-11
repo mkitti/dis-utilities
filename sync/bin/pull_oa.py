@@ -120,16 +120,16 @@ def parse_authors(doi, msg, ready):
     adet = DL.get_author_details(msg, DB['dis']['orcid'])
     if adet:
         janelians = []
-        mode = None
         for auth in adet:
             if auth['janelian']:
                 janelians.append(f"{auth['given']} {auth['family']} ({auth['match']})")
-                if auth['match'] in ("ORCID", "asserted"):
-                    mode = auth['match']
         if janelians:
             print(f"Janelians found for {doi}: {', '.join(janelians)}")
             ready.append(doi)
             return True
+        # If just name matches were found, we're still goint to trust OA that there
+        # is at least one [likely alumni] Janelian on the paper.
+        ready.append(doi)
     return False
 
 
