@@ -70,13 +70,13 @@ Processed records will be inserted/updated. Janelia employees from the orcid
 collection are then backchecked against the HHMI People database. If the user
 is no longer in the People database, their orcid record is then given alumni
 status. Results of a typical run are below:
-
+```
     Records read from MongoDB:dois: 753
     Records read from ORCID:        561
     ORCIDs inserted:                0
     ORCIDs updated:                 657
     ORCIDs set to alumni:           0
-
+```
 ### Running in production
 
 The update_orcid.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/).
@@ -98,7 +98,7 @@ a", and DOIs starting with 10.25378
 New DOIs are inserted, and DOIs that have been updated (according to the
 record from Crossref or DataCite) after the stored update date (in the dois
 collection) are reprocessed. Results of a typical run are below:
-
+```
     DOIs fetched from Crossref:      1,278
     DOIs fetched from DataCite:      3,231
     DOIs specified:                  6,725
@@ -113,7 +113,7 @@ collection) are reprocessed. Results of a typical run are below:
     Elapsed time: 0:05:51.688400
     DOI calls to Crossref: 2,140
     DOI calls to DataCite: 51
-
+```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
@@ -125,7 +125,7 @@ A list of DOIs is retrieved from the FLYF2 database using the
 [FlyCore responder](https://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?request=doilist).
 These are then added to the doi_data table in the FlyBoy database. Results of
 a typical run are below:
-
+```
     DOIs specified:                  110
     DOIs found in Crossref:          105
     DOIs found in DataCite:          1
@@ -141,7 +141,7 @@ a typical run are below:
     Elapsed time: 0:00:21.078572
     DOI calls to Crossref: 105
     DOI calls to DataCite: 1
-
+```
 ### Running in production
 
 The update_dois.py program is run every night on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).
@@ -150,7 +150,7 @@ The update_dois.py program is run every night on [Jenkins](https://jenkins.int.j
 Potentially relevant DOIs are found in the arXiv repository:
 - At least one author has an affiliation containing "Janelia" or an ORCID in the orcid collection
 New DOIs are inserted. Results of a typical run are below:
-
+```
     DOIs read from arXiv:            10
     DOIs already in database:        4
     DOIs in DataCite (asserted):     0
@@ -158,7 +158,7 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs with no Janelian authors:   5
     DOIs ready for processing:       0
     DOIs requiring review:           1
-
+```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
@@ -169,7 +169,7 @@ The pull_arxiv.py program is run every night on [Jenkins](https://jenkins.int.ja
 Potentially relevant DOIs are found in the bioRxiv repository:
 - At least one author has an affiliation containing "Janelia" or an ORCID in the orcid collection
 New DOIs are inserted. Results of a typical run are below:
-
+```
     DOIs read from bioRxiv:          1,189
     DOIs already in database:        1
     DOIs not in Crossref (asserted): 0
@@ -177,7 +177,7 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs with no Janelian authors:   1,037
     DOIs ready for processing:       0
     DOIs requiring review:           4
-
+```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
 ### Running in production
