@@ -515,7 +515,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug', dest='DEBUG', action='store_true',
                         default=False, help='Flag, Very chatty')
     parser.add_argument('--write', dest='WRITE', action='store_true',
-                        default=False, help='Flag, Very chatty')
+                        default=False, help='Write results to database. If --write is missing, no changes to the database will be made.')
     
     arg = parser.parse_args()
     LOGGER = JRC.setup_logging(arg) 
