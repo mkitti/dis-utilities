@@ -4,7 +4,7 @@
 
 | Name                 | Description                                            |
 | -------------------- | ------------------------------------------------------ |
-| update_preprints.py  | Update preprint relations                              |
+| email_authors.py     | Email information on newly-curated DOIs to authors     |
 | group_search.py      | Find resources authored by group (lab) heads           |
 | pull_arxiv.py        | Produce a list of aRxiv DOIs eligible for insertion    |
 | pull_bioRxiv.py      | Produce a list of bioRxiv DOIs eligible for insertion  |
@@ -12,6 +12,7 @@
 | pull_oa.py           | Produce a list of OA DOIs eligible for insertion       |
 | update_dois.py       | Synchronize DOI information from Crossref/DataCite     |
 | update_orcid.py      | Synchronize ORCID names and IDs                        |
+| update_preprints.py  | Update preprint relations                              |
 
 ### Development setup
 
