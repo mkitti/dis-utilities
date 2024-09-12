@@ -507,9 +507,9 @@ if __name__ == '__main__':
     description = "Given a DOI, use fuzzy name matching to correlate Janelia authors who don't have ORCIDs to Janelia employees. Update ORCID records as needed.")
     muexgroup = parser.add_mutually_exclusive_group(required=True)
     muexgroup.add_argument('--doi', dest='DOI', action='store',
-                         help='Produce a citation from a single DOI.')
+                         help='Curate janelia authors for a single DOI.')
     muexgroup.add_argument('--file', dest='FILE', action='store',
-                         help='Produce a citation from a file containing one or more DOIs.')
+                         help='Curate janelia authors for multiple DOIs in a file.')
     parser.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         default=False, help='Flag, Chatty')
     parser.add_argument('--debug', dest='DEBUG', action='store_true',
