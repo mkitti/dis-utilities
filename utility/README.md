@@ -29,3 +29,14 @@ Enter the virtual environment and install necessary libraries:
 Programs can now be run in the virtual environment:
 
     my_venv/bin/python3 add_newsletter.py --verbose
+
+### Dependencies
+
+1. The libraries specified in requirements.txt need to be installed.
+2. The [Configuration system](https://github.com/JaneliaSciComp/configurator) must be accessible. The following configurations are used:
+    - databases
+    - dis
+    - rest_services
+3. The following keys must be present in the run environment:
+    - CONFIG_SERVER_URL: abase URL for Configuration system
+    - PEOPLE_API_KEY: API key for HHMI People system
