@@ -14,7 +14,7 @@
 | update_orcid.py      | Synchronize ORCID names and IDs                        |
 | update_preprints.py  | Update preprint relations                              |
 
-### Development setup
+## Development setup
 
 First, create a Python virtual environment:
 
@@ -30,13 +30,13 @@ Programs can now be run in the virtual environment:
 
     my_venv/bin/python3 update_dois.py --verbose
 
-### Making latest codebase available to Jenkins
+## Making latest codebase available to Jenkins
 
 Simply update the VERSION in update_gcr.sh then run it. This requires access to gcloud and
 the "sandbox-220614" project space.
 
 
-### Dependencies
+## Dependencies
 
 1. The libraries specified in requirements.txt need to be installed.
 2. The [Configuration system](https://github.com/JaneliaSciComp/configurator) must be accessible. The following configurations are used:
@@ -218,3 +218,23 @@ Any newly-inserted DOIs are emailed to Virginia and Rob.
 ### Running in production
 
 The *pull_oa.py* program is run every Friday morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_oa/).
+
+### Notifying authors of curated resources 
+Resources (with the exception of DataCite datasets) that have been curated (jrc_newsletter date is set) are found,
+and emails containing citations for their weekly publications are sent to Janelia authors.
+Results of a typical run (with --verbose) are below:
+```
+    INFO:root:Connecting to DISMongoDB prod on dis.int.janelia.org as disAdmin
+    INFO:root:Finding DOIs from the last 7 days (2024-09-05)
+    INFO:root:DOIs found: 1
+    INFO:root:Authors found: 4
+    INFO:root:Email sent to Hiroshi Shiozaki (shiozakih@janelia.hhmi.org)
+    INFO:root:Email sent to Joshua Lillvis (lillvisj@janelia.hhmi.org)
+    INFO:root:Email sent to Barry Dickson (dicksonb@janelia.hhmi.org)
+    INFO:root:Email sent to David Stern (sternd@janelia.hhmi.org)
+```
+A summary is emailed to Virginia and Rob.
+
+### Running in production
+
+The *email_authors.py* program is run every Monday morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-email_authors/).
