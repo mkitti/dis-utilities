@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "17.2.0"
+__version__ = "18.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -1063,18 +1063,20 @@ def create_downloadable(name, header, content):
                 + 'role="button">Download tab-delimited file</a>'
 
 
-def humansize(num, suffix='B'):
+def humansize(num, suffix='B', places=2, space='disk'):
     ''' Return a human-readable storage size
         Keyword arguments:
           num: size
           suffix: default suffix
+          space: "disk" or "mem"
         Returns:
           string
     '''
+    limit = 1024.0 if space == 'disk' else 1000.0
     for unit in ['', 'K', 'M', 'G', 'T']:
-        if abs(num) < 1024.0:
-            return f"{num:.1f}{unit}{suffix}"
-        num /= 1024.0
+        if abs(num) < limit:
+            return f"{num:.{places}f}{unit}{suffix}"
+        num /= limit
     return "{num:.1f}P{suffix}"
 
 
@@ -3375,10 +3377,11 @@ def stats_database():
             stat = DB['dis'].command('collStats', cname)
             indices = []
             for key, val in stat['indexSizes'].items():
-                indices.append(f"{key} ({humansize(val)})")
+                indices.append(f"{key} ({humansize(val, space='mem')})")
             free = stat['freeStorageSize'] / stat['storageSize'] * 100
             collection[cname] = {"docs": f"{stat['count']:,}",
-                                 "size": humansize(stat['size']),
+                                 "docsize": humansize(stat['avgObjSize'], space='mem'),
+                                 "size": humansize(stat['storageSize'], space='mem'),
                                  "free": f"{free:.2f}%",
                                  "idx": ", ".join(indices)
                                 }
@@ -3387,12 +3390,25 @@ def stats_database():
                                title=render_warning("Could not get collection stats"),
                                message=error_message(err))
     html = '<table id="collections" class="tablesorter numbercenter"><thead><tr>' \
-           + '<th>Collection</th><th>Documents</th><th>Size</th><th>Free space</th>' \
-           + '<th>Indices</th></tr></thead><tbody>'
+           + '<th>Collection</th><th>Documents</th><th>Avg. document size</th><th>Size</th>' \
+            + '<th>Free space</th><th>Indices</th></tr></thead><tbody>'
     for coll, val in sorted(collection.items()):
-        html += f"<tr><td>{coll}</td><td>" + dloop(val, ['docs', 'size', 'free', 'idx'],
+        html += f"<tr><td>{coll}</td><td>" + dloop(val, ['docs', 'docsize', 'size', 'free', 'idx'],
                                                    "</td><td>") + "</td></tr>"
-    html += '</tbody></table>'
+    html += '</tbody>'
+    stat = DB['dis'].command('dbStats')
+    val = {"objects": f"{stat['objects']:,}",
+              "avgObjSize": humansize(stat['avgObjSize'], space='mem'),
+              "storageSize": humansize(stat['storageSize'], space='mem'),
+              "blank": "",
+              "indexSize": f"{stat['indexes']} indices " \
+                           + f"({humansize(stat['indexSize'], space='mem')})"}
+    html += '<tfoot>'
+    html += "<tr><th style='text-align:right'>TOTAL</th><th style='text-align:center'>" \
+            + dloop(val, ['objects', 'avgObjSize', 'storageSize', 'blank', 'indexSize'],
+                    "</th><th style='text-align:center'>") + "</th></tr>"
+    html += '</tfoot>'
+    html += '</table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title="Database statistics", html=html,
                                          navbar=generate_navbar('Stats')))
