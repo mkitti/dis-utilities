@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "17.1.0"
+__version__ = "17.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -2574,8 +2574,7 @@ def dois_month(year=str(datetime.now().year)):
     data = {'months': [f"{mon:02}" for mon in range(1, 13)], 'Crossref': [0] * 12,
             'DataCite': [0] * 12}
     for row in rows:
-        month = row['_id']['month'][-2:]
-        data[row['_id']['obtained']][int(month)-1] = row['count']
+        data[row['_id']['obtained']][int(row['_id']['month'][-2:])-1] = row['count']
     title = f"DOIs published by month for {year}"
     html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
            + '<th>Month</th><th>Crossref</th><th>DataCite</th>' \
@@ -3316,6 +3315,12 @@ def people(name=None):
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning(f"Could not get People data for {name}"),
                                message=error_message(err))
+    if not response:
+        return make_response(render_template('people.html', urlroot=request.url_root,
+                                             title="Search People system",
+                                             content="<br><h3>No names found containing " \
+                                                     + f"\"{name}\"</h3>",
+                                             navbar=generate_navbar('ORCID')))
     html = "<br><br><h3>Select a name for details:</h3>"
     html += "<table id='people' class='tablesorter standard'><thead><tr><th>Name</th>" \
             + "<th>Title</th><th>Employee ID</th><th>Location</th></tr></thead><tbody>"
