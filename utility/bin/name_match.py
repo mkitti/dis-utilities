@@ -316,13 +316,17 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
 
 
 
-### Functions to search and write to databases 
+### Functions to search and write to database
 
-def determine_authors_to_check(all_authors):
+def set_author_check_attr(all_authors):
+    new_author_list = all_authors
     if not any([a.affiliations for a in all_authors]):
-        return([True] * len(all_authors))
+        for i in range(len(new_author_list)):
+            setattr(new_author_list[i], 'check', True)
     else:
-        return([ is_janelian(a, orcid_collection) for a in all_authors ])
+        for i in range(len(new_author_list)):
+            setattr(new_author_list[i], 'check', is_janelian(new_author_list[i], orcid_collection))
+    return(new_author_list)
 
 def is_janelian(author, orcid_collection):
     result = False
@@ -437,6 +441,23 @@ def strip_orcid_if_provided_as_url(orcid):
 
 ### Miscellaneous low-level functions and variables
 
+def get_dois_from_commandline(doi_arg, file_arg):
+    dois = [doi_arg.lower()] if doi_arg else [] # .lower() because our collection is case-sensitive
+    if file_arg:
+        try:
+            with open(file_arg, "r", encoding="ascii") as instream:
+                for doi in instream.read().splitlines():
+                    dois.append(doi.strip().lower())
+        except Exception as err:
+            print(f"Could not process {arg.FILE}")
+            exit()
+    return(dois)
+
+def print_title(doi_record):
+    if 'titles' in doi_record: # DataCite
+        print(f"{doi}: {doi_record['titles'][0]['title']}")
+    else: # Crossref
+        print(f"{doi}: {doi_record['title'][0]}")
 
 def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregular-arbitrarily-nested-list-of-lists
     for x in xs:
@@ -525,32 +546,21 @@ if __name__ == '__main__':
     orcid_collection = DB['dis'].orcid
     doi_collection = DB['dis'].dois
 
-    dois = [arg.DOI.lower()] if arg.DOI else [] # .lower() because our collection is case-sensitive
-    if arg.FILE:
-        try:
-            with open(arg.FILE, "r", encoding="ascii") as instream:
-                for doi in instream.read().splitlines():
-                    dois.append(doi.lower())
-        except Exception as err:
-            print(f"Could not process {arg.FILE}")
-            exit()
+    dois = get_dois_from_commandline(arg.DOI, arg.FILE)
 
     for doi in dois:
 
         doi_record = doi_common.get_doi_record(doi, doi_collection)
-        if 'titles' in doi_record: # DataCite
-            print(f"{doi}: {doi_record['titles'][0]['title']}")
-        else: # Crossref
-            print(f"{doi}: {doi_record['title'][0]}")
+        print_title(doi_record)
+
         all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]
-        authors_to_check = determine_authors_to_check(all_authors) # A list of booleans, the same length as all_authors
-        # If the paper has affiliations, just those authors with janelia affiliations will be True. Otherwise, all authors will be True.
-        print(", ".join( [a.name for booln, a in zip(authors_to_check, all_authors) if booln] ))
+        all_authors = set_author_check_attr(all_authors)
+        # If the paper has affiliations, we will only check those authors with janelia affiliations. Otherwise, we will check all authors.
+        print(", ".join( [a.name for a in all_authors if a.check == True] ))
         revised_jrc_authors = []
 
-        for i in range(len(all_authors)): # iterate through Janelian authors, or all authors if there are no affiliations for this DOI.
-            if authors_to_check[i] == True:
-                author = all_authors[i]
+        for author in all_authors: 
+            if author.check == True:
                 final_choice = None
 
                 if author.orcid:
