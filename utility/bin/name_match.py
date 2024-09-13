@@ -131,12 +131,6 @@ def create_guess(employee, name=None, score=None):
 
 
 
-### Functions for executing the branches of our decision tree
-
-def add_preferred_names_to_complete_orcid_record(mongo_orcid_record, author, employee, orcid_collection, verbose_arg):
-    doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, employee), family=last_names_for_orcid_record(author, employee), coll=orcid_collection)
-    if verbose_arg:
-        print( f"{author.name} has an ORCID on this paper. They are in our ORCID collection, with both an ORCID an employee ID.\n" )
 
 
 
@@ -372,6 +366,15 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
 
 ### Functions to search and write to database
 
+def get_author_objects(doi, doi_collection):
+    doi_record = doi_common.get_doi_record(doi, doi_collection)
+    print_title(doi_record)
+    all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]
+    all_authors = set_author_check_attr(all_authors)
+    # If the paper has affiliations, we will only check those authors with janelia affiliations. Otherwise, we will check all authors.
+    print_janelia_authors(all_authors)
+    return(all_authors)
+
 def set_author_check_attr(all_authors):
     new_author_list = all_authors
     if not any([a.affiliations for a in all_authors]):
@@ -391,10 +394,10 @@ def is_janelian(author, orcid_collection):
         result = True
     return(result)
 
-def create_orcid_record(best_guess, orcid_collection, author, write_arg):
-    if write_arg:
-        doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
-        print(f"Record created for {author.name} in orcid collection.")
+def add_preferred_names_to_complete_orcid_record(mongo_orcid_record, author, employee, orcid_collection, verbose_arg):
+    doi_common.add_orcid_name(lookup=author.orcid, lookup_by='orcid', given=first_names_for_orcid_record(author, employee), family=last_names_for_orcid_record(author, employee), coll=orcid_collection)
+    if verbose_arg:
+        print( f"{author.name} has an ORCID on this paper. They are in our ORCID collection, with both an ORCID an employee ID.\n" )
 
 def add_id_and_names_to_incomplete_orcid_record(employee, author, to_add, orcid_collection, write_arg):
     if to_add not in {'id', 'orcid'}:
@@ -414,6 +417,10 @@ def add_id_and_names_to_incomplete_orcid_record(employee, author, to_add, orcid_
         else:
             print(f'ERROR: {author.name} has two records in our orcid collection. Aborting attempt to add orcid {author.orcid} to existing record for this employeeId: {employee.id}')
 
+def create_orcid_record(best_guess, orcid_collection, author, write_arg):
+    if write_arg:
+        doi_common.add_orcid(best_guess.id, orcid_collection, given=first_names_for_orcid_record(author, best_guess), family=last_names_for_orcid_record(author, best_guess), orcid=author.orcid)
+        print(f"Record created for {author.name} in orcid collection.")
 
 def generate_name_permutations(first_names, middle_names, last_names):
         middle_names = [n for n in middle_names if n not in ('', None)] # some example middle_names, from HHMI People system: [None], ['D.', ''], ['Marie Sophie'], ['', '']
@@ -485,13 +492,21 @@ def search_people_api(query, mode):
         response = JRC.call_people_by_id(query)
     return(response)
 
-
 def strip_orcid_if_provided_as_url(orcid):
     prefixes = ["http://orcid.org/", "https://orcid.org/"]
     for prefix in prefixes:
         if orcid.startswith(prefix):
             return orcid[len(prefix):]
     return(orcid)
+
+def overwrite_jrc_author(revised_jrc_authors):
+    id_list = [e.id for e in revised_jrc_authors]
+    id_list = [id for id in id_list if id]
+    payload = {'jrc_author': id_list}
+    doi_common.update_jrc_fields(doi, doi_collection, payload)
+    print('jrc_author field has been updated.')
+
+
 
 
 
@@ -608,12 +623,7 @@ if __name__ == '__main__':
 
     dois = get_dois_from_commandline(arg.DOI, arg.FILE)
     for doi in dois:
-        doi_record = doi_common.get_doi_record(doi, doi_collection)
-        print_title(doi_record)
-        all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]
-        all_authors = set_author_check_attr(all_authors)
-        # If the paper has affiliations, we will only check those authors with janelia affiliations. Otherwise, we will check all authors.
-        print_janelia_authors(all_authors)
+        all_authors = get_author_objects(doi, doi_collection)
         revised_jrc_authors = []
 
         for author in all_authors: 
@@ -639,11 +649,7 @@ if __name__ == '__main__':
                 print(all_authors[i].name)
 
         if arg.WRITE:
-            revised_jrc_authors = [e.id for e in revised_jrc_authors]
-            revised_jrc_authors = [id for id in revised_jrc_authors if id]
-            payload = {'jrc_author': revised_jrc_authors}
-            doi_common.update_jrc_fields(doi, doi_collection, payload)
-            print('jrc_author field has been updated.')
+            overwrite_jrc_author(revised_jrc_authors)
         else:
             print(colored(
                 ("Dry run complete, no changes were made"), "yellow"
