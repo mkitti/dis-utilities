@@ -31,7 +31,7 @@ The Python programs in the [sync](sync/README.md) and [utility](utility/README.m
 ### Common command line parameters
 Most of the command line programs have a set of common parameters:
 
-- --manifold: used to specify the MOngoDB database manifold (dev or prod)
+- --manifold: used to specify the MongoDB database manifold (dev or prod)
 - --write: actually write to the database. If not specified, no rows will be updated in the MongoDB database
 - --verbose: verbose mode for logging - status messages are printed to STDOUT - this is chatty
 - --debug: debug mode for logging - debug messages are printed to STDOUT - this is chatty in the extreme

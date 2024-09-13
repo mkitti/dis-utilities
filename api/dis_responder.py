@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "17.1.0"
+__version__ = "18.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -1063,18 +1063,20 @@ def create_downloadable(name, header, content):
                 + 'role="button">Download tab-delimited file</a>'
 
 
-def humansize(num, suffix='B'):
+def humansize(num, suffix='B', places=2, space='disk'):
     ''' Return a human-readable storage size
         Keyword arguments:
           num: size
           suffix: default suffix
+          space: "disk" or "mem"
         Returns:
           string
     '''
+    limit = 1024.0 if space == 'disk' else 1000.0
     for unit in ['', 'K', 'M', 'G', 'T']:
-        if abs(num) < 1024.0:
-            return f"{num:.1f}{unit}{suffix}"
-        num /= 1024.0
+        if abs(num) < limit:
+            return f"{num:.{places}f}{unit}{suffix}"
+        num /= limit
     return "{num:.1f}P{suffix}"
 
 
@@ -2574,8 +2576,7 @@ def dois_month(year=str(datetime.now().year)):
     data = {'months': [f"{mon:02}" for mon in range(1, 13)], 'Crossref': [0] * 12,
             'DataCite': [0] * 12}
     for row in rows:
-        month = row['_id']['month'][-2:]
-        data[row['_id']['obtained']][int(month)-1] = row['count']
+        data[row['_id']['obtained']][int(row['_id']['month'][-2:])-1] = row['count']
     title = f"DOIs published by month for {year}"
     html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
            + '<th>Month</th><th>Crossref</th><th>DataCite</th>' \
@@ -3316,6 +3317,12 @@ def people(name=None):
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning(f"Could not get People data for {name}"),
                                message=error_message(err))
+    if not response:
+        return make_response(render_template('people.html', urlroot=request.url_root,
+                                             title="Search People system",
+                                             content="<br><h3>No names found containing " \
+                                                     + f"\"{name}\"</h3>",
+                                             navbar=generate_navbar('ORCID')))
     html = "<br><br><h3>Select a name for details:</h3>"
     html += "<table id='people' class='tablesorter standard'><thead><tr><th>Name</th>" \
             + "<th>Title</th><th>Employee ID</th><th>Location</th></tr></thead><tbody>"
@@ -3370,10 +3377,11 @@ def stats_database():
             stat = DB['dis'].command('collStats', cname)
             indices = []
             for key, val in stat['indexSizes'].items():
-                indices.append(f"{key} ({humansize(val)})")
+                indices.append(f"{key} ({humansize(val, space='mem')})")
             free = stat['freeStorageSize'] / stat['storageSize'] * 100
             collection[cname] = {"docs": f"{stat['count']:,}",
-                                 "size": humansize(stat['size']),
+                                 "docsize": humansize(stat['avgObjSize'], space='mem'),
+                                 "size": humansize(stat['storageSize'], space='mem'),
                                  "free": f"{free:.2f}%",
                                  "idx": ", ".join(indices)
                                 }
@@ -3382,12 +3390,25 @@ def stats_database():
                                title=render_warning("Could not get collection stats"),
                                message=error_message(err))
     html = '<table id="collections" class="tablesorter numbercenter"><thead><tr>' \
-           + '<th>Collection</th><th>Documents</th><th>Size</th><th>Free space</th>' \
-           + '<th>Indices</th></tr></thead><tbody>'
+           + '<th>Collection</th><th>Documents</th><th>Avg. document size</th><th>Size</th>' \
+            + '<th>Free space</th><th>Indices</th></tr></thead><tbody>'
     for coll, val in sorted(collection.items()):
-        html += f"<tr><td>{coll}</td><td>" + dloop(val, ['docs', 'size', 'free', 'idx'],
+        html += f"<tr><td>{coll}</td><td>" + dloop(val, ['docs', 'docsize', 'size', 'free', 'idx'],
                                                    "</td><td>") + "</td></tr>"
-    html += '</tbody></table>'
+    html += '</tbody>'
+    stat = DB['dis'].command('dbStats')
+    val = {"objects": f"{stat['objects']:,}",
+              "avgObjSize": humansize(stat['avgObjSize'], space='mem'),
+              "storageSize": humansize(stat['storageSize'], space='mem'),
+              "blank": "",
+              "indexSize": f"{stat['indexes']} indices " \
+                           + f"({humansize(stat['indexSize'], space='mem')})"}
+    html += '<tfoot>'
+    html += "<tr><th style='text-align:right'>TOTAL</th><th style='text-align:center'>" \
+            + dloop(val, ['objects', 'avgObjSize', 'storageSize', 'blank', 'indexSize'],
+                    "</th><th style='text-align:center'>") + "</th></tr>"
+    html += '</tfoot>'
+    html += '</table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title="Database statistics", html=html,
                                          navbar=generate_navbar('Stats')))
