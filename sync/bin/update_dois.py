@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.6.0'
+__version__ = '5.7.0'
 
 import argparse
 import configparser
@@ -606,6 +606,8 @@ def persist_author(key, authors, persist):
     if jrc_author:
         LOGGER.debug(f"Added jrc_author {jrc_author} to {key}")
         persist[key]['jrc_author'] = jrc_author
+    else:
+        LOGGER.warning(f"No Janelia authors for {key}")
 
 
 def add_tags(persist):
