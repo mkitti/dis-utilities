@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.5.0'
+__version__ = '5.6.0'
 
 import argparse
 import configparser
@@ -688,12 +688,18 @@ def add_first_last_authors(rec):
             janelian = DL.is_janelia_author(rec[field][0], DB['dis'].orcid, PROJECT)
             if janelian:
                 first.append(janelian)
-        if not('given' in rec[field][-1] and 'family' in rec[field][-1]):
-                    LOGGER.warning(f"Missing author name in {rec['doi']} author {rec[field][-1]}")
-        else:
+        okay = True
+        if not datacite:
+            if not('given' in rec[field][-1] and 'family' in rec[field][-1]):
+                okay = False
+        elif not('givenName' in rec[field][-1] and 'familyName' in rec[field][-1]):
+            okay = False
+        if okay:
             janelian = DL.is_janelia_author(rec[field][-1], DB['dis'].orcid, PROJECT)
             if janelian:
                 rec["jrc_last_author"] = janelian
+        else:
+            LOGGER.warning(f"Missing author name in {rec['doi']} author {rec[field][-1]}")
     if first:
         rec["jrc_first_author"] = first
     if (not first) and ('jrc_last_author' not in rec):
