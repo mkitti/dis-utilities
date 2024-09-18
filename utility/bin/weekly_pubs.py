@@ -1,11 +1,9 @@
 import os
-import sys
 import argparse
 import subprocess
 from collections.abc import Iterable
 
-sys.path.append(os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'sync', 'bin')))
-
+sync_bin_path = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'sync', 'bin'))
 
 PARSER = argparse.ArgumentParser(
 description = "Run the weekly pipeline for one or more DOIs: add DOI(s) to database, curate authors and tags, and print citation(s).")
@@ -53,15 +51,19 @@ def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregu
             yield x
 
 
-def command_list(script, ARG):
+def create_command(script, ARG): # will produce a list like, e.g. ['python3', 'update_dois.py', '--doi' '10.1038/s41593-024-01738-9', '--verbose']
     return(
         list(flatten( ['python3', script, doi_source(ARG), verbose(ARG), write(ARG)] ))
     )
 
 
+# use get_doi_record to check whether its in db alreday, if it is, don't add
+#can use doi/<doi> endpoint, check 'source' key under the 'rest' key. if 'source' is 'mongo', don't add
+subprocess.call(create_command(f'{sync_bin_path}/update_dois.py', ARG))
 
-#subprocess.call(command_list('update_dois.py', ARG))
+subprocess.call(create_command('name_match.py', ARG))
 
-print(command_list('update_dois.py', ARG))
+subprocess.call(create_command('update_tags.py', ARG))
 
+subprocess.call(list(flatten( ['python3', 'get_citation.py', doi_source(ARG)] ))) 
 
