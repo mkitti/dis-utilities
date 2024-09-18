@@ -1,7 +1,9 @@
 ''' weekly_pubs.py
     Run all the librarian's scripts for the weekly pipeline, in order.
-    This script should live in utility/bin, and it expects update_dois.py to be in sync/bin.
-
+    This script should live in utility/bin. It expects update_dois.py to be in sync/bin.
+    IMPORTANT: I'm keeping the --write flag for consistency with all our other scripts, 
+    but it doesn't really make sense to NOT include the --write flag in this script.
+    And new DOIs won't be added to the database, so you'll get errors in the downstream scripts.
 '''
 
 import os
@@ -13,6 +15,7 @@ import subprocess
 from collections.abc import Iterable
 import jrc_common.jrc_common as JRC
 from operator import attrgetter
+from termcolor import colored
 
 
 
@@ -53,7 +56,7 @@ def flatten(xs): # https://stackoverflow.com/questions/2158395/flatten-an-irregu
 
 # Functions to handle DOIs already in the database
 
-def modify_arg_for_sync(ARG):
+def copy_arg_for_sync(ARG):
     arg_copy = copy.deepcopy(ARG)
     dois = get_dois_from_commandline(ARG)
     dois_to_sync = [ d for d in dois if not already_in_db(d) ]
@@ -144,16 +147,14 @@ if __name__ == '__main__':
 # which is misleading, so we don't want to add DOIs that are already in there.
 # We can use the API to check whether the DOI is already in the database.
     sync_bin_path = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'sync', 'bin'))
-    print(ARG.DOI, ARG.FILE)
-    arg_copy = modify_arg_for_sync(ARG)
-    print(ARG.DOI, ARG.FILE)
+    arg_copy = copy_arg_for_sync(ARG)
     if not arg_copy.DOI and not arg_copy.FILE:
-        print('WARNING: No DOIs to add to database. Skipping sync.')
+        print(colored(
+                ("WARNING: No DOIs to add to database. Skipping sync."), "yellow"
+            ))
     else:
         subprocess.call(create_command(f'{sync_bin_path}/update_dois.py', arg_copy))
 
-    print(create_command('name_match.py', ARG))
-    print(ARG.DOI, ARG.FILE)
     subprocess.call(create_command('name_match.py', ARG))
 
     subprocess.call(create_command('update_tags.py', ARG))
