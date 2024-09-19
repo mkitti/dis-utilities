@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.7.0'
+__version__ = '5.8.0'
 
 import argparse
 import configparser
@@ -258,12 +258,19 @@ def get_dois_for_dis(flycore):
                     dlist.append(val['doi'][dtype])
     LOGGER.info(f"Got {cnt:,} DOIs from ALPS releases")
     # EM datasets
+    disconfig = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     emdois = JRC.simplenamespace_to_dict(JRC.get_config('em_dois'))
     cnt = 0
-    for val in emdois.values():
-        if val:
+    for key, val in emdois.items():
+        if key in disconfig['em_dataset_ignore']:
+            continue
+        if val and isinstance(val, str):
             cnt += 1
             dlist.append(val)
+        elif val and isinstance(val, list):
+            for dval in val:
+                cnt += 1
+                dlist.append(dval)
     LOGGER.info(f"Got {cnt:,} DOIs from EM releases")
     # Previously inserted
     for doi in EXISTING:
