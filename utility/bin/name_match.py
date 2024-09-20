@@ -366,8 +366,7 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
 
 ### Functions to search and write to database
 
-def get_author_objects(doi, doi_collection):
-    doi_record = doi_common.get_doi_record(doi, doi_collection)
+def get_author_objects(doi, doi_record, doi_collection):
     print_title(doi_record)
     all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]
     all_authors = set_author_check_attr(all_authors)
@@ -504,7 +503,7 @@ def overwrite_jrc_author(revised_jrc_authors):
     id_list = [id for id in id_list if id]
     payload = {'jrc_author': id_list}
     doi_common.update_jrc_fields(doi, doi_collection, payload)
-    print('jrc_author field has been updated.')
+    print(colored( ('jrc_author field has been updated.'), 'green' ))
 
 
 
@@ -623,37 +622,41 @@ if __name__ == '__main__':
 
     dois = get_dois_from_commandline(arg.DOI, arg.FILE)
     for doi in dois:
-        all_authors = get_author_objects(doi, doi_collection)
-        revised_jrc_authors = []
-
-        for author in all_authors: 
-            if author.check == True:
-                final_choice = get_corresponding_employee(author, orcid_collection, arg.VERBOSE, arg.WRITE)
-                if final_choice == None:
-                    revised_jrc_authors.append(Employee(exists=False))
-                else:
-                    revised_jrc_authors.append(final_choice)
-            else:
-                revised_jrc_authors.append(Employee(exists=False))
-
-        if len(revised_jrc_authors) != len(all_authors):
-            sys.exit("ERROR: Length of revised_jrc_author doesn't make sense. Did you overlook an author, or add two employeeIds for one author?")
-        
-        print("Janelia authors are highlighted below:")
-        for i in range(len(revised_jrc_authors)):
-            if revised_jrc_authors[i].exists:
-                print(colored(
-                    (all_authors[i].name, revised_jrc_authors[i].id), "black", "on_yellow"
-                ))
-            else:
-                print(all_authors[i].name)
-
-        if arg.WRITE:
-            overwrite_jrc_author(revised_jrc_authors)
+        doi_record = doi_common.get_doi_record(doi, doi_collection)
+        if not doi_record:
+            print(colored( (f'WARNING: Skipping {doi}. No record found in DOI collection.'), 'yellow' ))
         else:
-            print(colored(
-                ("WARNING: Dry run successful, no updates were made"), "yellow"
-            ))
+            all_authors = get_author_objects(doi, doi_record, doi_collection)
+            revised_jrc_authors = []
+
+            for author in all_authors: 
+                if author.check == True:
+                    final_choice = get_corresponding_employee(author, orcid_collection, arg.VERBOSE, arg.WRITE)
+                    if final_choice == None:
+                        revised_jrc_authors.append(Employee(exists=False))
+                    else:
+                        revised_jrc_authors.append(final_choice)
+                else:
+                    revised_jrc_authors.append(Employee(exists=False))
+
+            if len(revised_jrc_authors) != len(all_authors):
+                sys.exit("ERROR: Length of revised_jrc_author doesn't make sense. Did you overlook an author, or add two employeeIds for one author?")
+            
+            print("Janelia authors are highlighted below:")
+            for i in range(len(revised_jrc_authors)):
+                if revised_jrc_authors[i].exists:
+                    print(colored(
+                        (all_authors[i].name, revised_jrc_authors[i].id), "black", "on_yellow"
+                    ))
+                else:
+                    print(all_authors[i].name)
+
+            if arg.WRITE:
+                overwrite_jrc_author(revised_jrc_authors)
+            else:
+                print(colored(
+                    ("WARNING: Dry run successful, no updates were made"), "yellow"
+                ))
 
 
 
