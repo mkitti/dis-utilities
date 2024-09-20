@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 
 import argparse
 import collections
@@ -210,8 +210,13 @@ def update_tags():
             rec = coll.find_one({"doi": doi})
         except Exception as err:
             terminate_program(err)
+        if not rec:
+            LOGGER.warning(f"DOI {doi} not found")
+            COUNT['notfound'] += 1
+            continue
         update_single_doi(rec)
     print(f"DOIs specified:           {COUNT['specified']}")
+    print(f"DOIs not found:           {COUNT['notfound']}")
     print(f"DOIs selected for update: {COUNT['selected']}")
     print(f"DOIs updated:             {COUNT['updated']}")
     if not ARG.WRITE:
