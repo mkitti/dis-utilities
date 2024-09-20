@@ -6,7 +6,7 @@
     - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
 """
 
-__version__ = '5.8.0'
+__version__ = '5.8.1'
 
 import argparse
 import configparser
@@ -821,7 +821,7 @@ def process_dois():
     for odoi in tqdm(rows['dois'], desc='DOIs'):
         if '//' in odoi:
             terminate_program(f"Invalid DOI: {odoi}")
-        doi = odoi if ARG.TARGET == 'flyboy' else odoi.lower()
+        doi = odoi if ARG.TARGET == 'flyboy' else odoi.lower().strip()
         COUNT['found'] += 1
         if doi in specified:
             COUNT['duplicate'] += 1

@@ -1,13 +1,10 @@
-''' add_reviewed.py
-    Update the jrc_newsletter date for one or more DOIs
-'''
-
 import argparse
 from datetime import datetime
 from operator import attrgetter
 import sys
 from tqdm import tqdm
 import jrc_common.jrc_common as JRC
+import doi_common.doi_common as DL
 
 # pylint: disable=broad-exception-caught,logging-fstring-interpolation
 
@@ -49,7 +46,7 @@ def initialize_program():
             terminate_program(err)
 
 
-def update_single_doi(doi):
+def update_load(doi):
     """ Process a list of DOIs
         Keyword arguments:
           None
@@ -65,16 +62,58 @@ def update_single_doi(doi):
         LOGGER.warning(f"{doi} was not found")
         COUNT["notfound"] += 1
         return
-    payload = {"jrc_newsletter": ARG.DATE}
+    payload = {"jrc_load_source": "Manual", "jrc_loaded_by": "Virginia Scarlett"}
     if ARG.WRITE:
         try:
-            if ARG.REMOVE:
-                coll.update_one({"doi": doi}, {"$unset": {"jrc_newsletter": 1}})
-            else:
-                coll.update_one({"doi": doi}, {"$set": payload})
+            coll.update_one({"doi": doi}, {"$set": payload})
         except Exception as err:
             terminate_program(err)
         COUNT["updated"] += 1
+
+
+def update_authors(row):
+    COUNT["dois"] += 1
+    first = []
+    last = None
+    if 'jrc_obtained_from' in row and row['jrc_obtained_from'] == "DataCite":
+        field = 'creators'
+        datacite = True
+    else:
+        field = 'author'
+        datacite = False
+    if field in row:
+        if datacite:
+           for auth in row[field]:
+                if 'sequence' in auth and auth['sequence'] == 'additional':
+                    break
+                try:
+                    janelian = DL.is_janelia_author(auth, DB['dis'].orcid, PROJECT)
+                except Exception as err:
+                    LOGGER.error(f"Could not process {row['doi']}")
+                    terminate_program(err)
+                if janelian:
+                    first.append(janelian)
+        else:
+            janelian = DL.is_janelia_author(row[field][0], DB['dis'].orcid, PROJECT)
+            if janelian:
+                first.append(janelian)
+        janelian = DL.is_janelia_author(row[field][-1], DB['dis'].orcid, PROJECT)
+        if janelian:
+            last = janelian
+    if not first and not last:
+        return
+    payload = {}
+    if first:
+        payload["jrc_first_author"] = first
+    if last:
+        payload["jrc_last_author"] = last
+    if first or last:
+        COUNT["updated"] += 1
+        if ARG.WRITE:
+            try:
+                DB['dis']['dois'].update_one({"doi": row['doi']}, {"$set": payload})
+            except Exception as err:
+                terminate_program(err)
 
 
 def process_dois():
@@ -84,23 +123,25 @@ def process_dois():
         Returns:
           None
     """
-    if not ARG.DATE:
-        ARG.DATE = datetime.today().strftime('%Y-%m-%d')
-    else:
-        try:
-            _ = datetime.strptime(ARG.DATE, '%Y-%m-%d')
-        except ValueError:
-            terminate_program(f"Supplied date {ARG.DATE} is not a valid date (YYYY-MM-DD)")
     if ARG.DOI:
-        update_single_doi(ARG.DOI)
+        update_load(ARG.DOI)
     elif ARG.FILE:
         try:
             with open(ARG.FILE, "r", encoding="ascii") as instream:
                 for doi in tqdm(instream.read().splitlines(), desc="DOIs"):
-                    update_single_doi(doi.lower().strip())
+                    update_load(doi.lower().strip())
         except Exception as err:
             LOGGER.error(f"Could not process {ARG.FILE}")
             terminate_program(err)
+    else:
+        try:
+            cnt = DB['dis'].dois.count_documents({})
+            rows = DB['dis'].dois.find({})
+        except Exception as err:
+            terminate_program(err)
+        for row in tqdm(rows, desc="DOIs", total=cnt):
+            #update_load(row['doi'])
+            update_authors(row)
     print(f"DOIs read:      {COUNT['dois']}")
     if COUNT['notfound']:
         print(f"DOIs not found: {COUNT['notfound']}")
@@ -118,10 +159,8 @@ if __name__ == '__main__':
                          help='Single DOI to process')
     GROUP_A.add_argument('--file', dest='FILE', action='store',
                          help='File of DOIs to process')
-    PARSER.add_argument('--date', dest='DATE', action='store',
-                        help='Newsletter date (defaults to today). Format: YYYY-MM-DD')
-    PARSER.add_argument('--remove', dest='REMOVE', action='store_true',
-                        default=False, help='Remove jrc_newsletter from DOI(s)')
+    GROUP_A.add_argument('--all', dest='ALL', action='store_true',
+                         help='Process all DOIs')
     PARSER.add_argument('--manifold', dest='MANIFOLD', action='store',
                         default='prod', choices=['dev', 'prod'],
                         help='MongoDB manifold (dev, prod)')
@@ -133,13 +172,10 @@ if __name__ == '__main__':
                         default=False, help='Flag, Very chatty')
     ARG = PARSER.parse_args()
     LOGGER = JRC.setup_logging(ARG)
-    if ARG.DATE:
-        if ARG.REMOVE:
-            terminate_program("Specifying --date and --remove isn't permitted")
-        try:
-            datetime.strptime(ARG.DATE, '%Y-%m-%d')
-        except ValueError:
-            terminate_program(f"{ARG.DATE} is an invalid date")
     initialize_program()
+    try:
+        PROJECT = DL.get_project_map(DB['dis'].project_map)
+    except Exception as err:
+        terminate_program(err)
     process_dois()
     terminate_program()
