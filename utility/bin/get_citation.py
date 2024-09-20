@@ -11,34 +11,31 @@ from operator import attrgetter
 from termcolor import colored
 
 
-class Citation:
+
+class Item:
     def __init__(self, citation=None, preprint=None):
         self.citation = citation # a string
         self.preprint = preprint # If the DOI is a journal article, this is a list. else None
 
-class SimpleItem:
-    def __init__(self, doi=None, item_type=None):
-        self.doi = doi
-        self.item_type = item_type
 
-def create_simple_item(doi_record):
-    item = SimpleItem(
-        doi = doi_record['doi'] if 'doi' in doi_record else doi_record['DOI'], # In DIS DB, DataCite only has DOI; Crossref has both doi and DOI
-        item_type = get_type(doi_record)
-    )
-    return(item)
-
-def create_citation(doi):
+def create_item(doi):
     rest = JRC.get_config("rest_services")
     url_base = attrgetter("dis.url")(rest)
     response = get_request(f"{url_base}citation/dis/{replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))}")
     if response:
-        if 'jrc_preprint' in response:
-            doi_record = get_doi_record(doi)
-            item = create_simple_item(doi_record)
-            if item.item_type == 'Journal article':
-                return( Citation(citation=response['data'], preprint=response['jrc_preprint']) )
-        return(Citation(citation=response['data']))
+        doi_record = get_doi_record(doi)
+        item_type = get_type(doi_record)
+        citation = response['data']
+        if 'jrc_preprint' in response and item_type == 'Journal article':
+            return(Item(  
+                citation = citation, 
+                preprint = response['jrc_preprint'] 
+                ))
+        else:
+            return(Item( 
+                citation = citation, 
+                preprint = None
+                ))
     else:
         print(colored( (f'WARNING: Unable to retrieve a citation for {doi}'), "yellow" ))
         return(None)
@@ -50,7 +47,6 @@ def get_doi_record(doi):
     response = get_request(url)
     return( response['data'] ) 
 
-
 def get_type(doi_record):
     if 'type' in doi_record: # crossref
         if doi_record['type'] == 'journal-article':
@@ -61,6 +57,25 @@ def get_type(doi_record):
     else: # datacite
         return(doi_record['types']['resourceTypeGeneral'])
 
+
+
+def print_citation(item):
+    if item.preprint:
+        print(f"{item.citation}")
+        for n in range(len(item.preprint)):
+            if n == len(item.preprint)-1:
+                print(f"Preprint: {item.preprint[n]}\n")
+            else:
+                print(f"Preprint: {item.preprint[n]}")
+    else:
+        print(f"{item.citation}\n")
+
+
+
+
+
+### Miscellaneous low-level functions
+ 
 def replace_slashes_in_doi(doi):
     return( doi.replace("/", "%2F") ) # e.g. 10.1186/s12859-024-05732-7 becomes 10.1186%2Fs12859-024-05732-7
 
@@ -100,33 +115,22 @@ if __name__ == '__main__':
     
     arg = parser.parse_args()
     
-    citations = []
+    items = []
     if arg.DOI:
-        citations.append( create_citation(arg.DOI) )
+        items.append( create_item(arg.DOI) )
     elif arg.FILE:
         try:
             with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
-                    citations.append( create_citation(doi) )
+                    items.append( create_item(doi) )
         except:
             print(f"Could not process {arg.FILE}")
             raise ImportError
     
-    citations = [c for c in citations if c is not None]
-    for citation in sorted(citations, key=lambda c: c.citation):        
-        if citation.preprint:
-            print(f"{citation.citation}")
-            for n in range(len(citation.preprint)):
-                if n == len(citation.preprint)-1:
-                    print(f"Preprint: {citation.preprint[n]}\n")
-                else:
-                    print(f"Preprint: {citation.preprint[n]}")
+    items = [i for i in items if i is not None]
+    for item in sorted(items, key=lambda i: i.citation):
+        print_citation(item)
 
-            # print(f"{citation.citation}")
-            # for pp in citation.preprint:
-            #     print(f"Preprint: {pp}")
-            # print("\n")
-        else:
-            print(f"{citation.citation}\n")
+
 
 # debugging: 10.7554/elife.90523 is a journal article with multiple preprints
