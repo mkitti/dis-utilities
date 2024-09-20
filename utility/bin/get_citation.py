@@ -64,9 +64,9 @@ def print_citation(item):
         print(f"{item.citation}")
         for n in range(len(item.preprint)):
             if n == len(item.preprint)-1:
-                print(f"Preprint: {item.preprint[n]}\n")
+                print(f"Preprint: https://doi.org/{item.preprint[n]}\n")
             else:
-                print(f"Preprint: {item.preprint[n]}")
+                print(f"Preprint: https://doi.org/{item.preprint[n]}")
     else:
         print(f"{item.citation}\n")
 
