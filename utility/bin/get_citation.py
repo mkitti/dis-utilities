@@ -133,19 +133,21 @@ if __name__ == '__main__':
         try:
             with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
-                    items.append( create_item(doi.strip().lower()) )
+                    if doi.strip(): # don't throw an error if you encounter an empty line
+                        items.append( create_item(doi.strip().lower()) )
         except:
             print(f"Could not process {arg.FILE}")
             raise ImportError
+
     if arg.ENDNOTE:
-        #try:
-        with open(arg.ENDNOTE, "r", encoding="ascii") as instream:
-            for endnote_citation in instream.read().splitlines():
-                if endnote_citation.strip(): # in case of empty line
-                    print( fix_endnote(endnote_citation)+'\n' )
-        # except:
-        #     print(f"Could not process {arg.ENDNOTE}")
-        #     raise ImportError
+        try:
+            with open(arg.ENDNOTE, "r", encoding="ascii") as instream:
+                for endnote_citation in instream.read().splitlines():
+                    if endnote_citation.strip(): # don't throw an error if you encounter an empty line
+                        print( fix_endnote(endnote_citation)+'\n' )
+        except:
+            print(f"Could not process {arg.ENDNOTE}")
+            raise ImportError
 
     
     items = [i for i in items if i is not None]
