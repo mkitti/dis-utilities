@@ -7,8 +7,6 @@
 | add_newsletter.py      | Add a newsletter date to a DOI                                         |
 | edit_orcid.py          | Edit a record in the orcid collection                                  |
 | find_missing_orcids.py | Find entries in the People system with groups (lab heads) but no ORCID |
-| fix_jrc_author.py      | Add jrc_author field to DOIs that don't have it                        |
-| fix_middle_names.py    | Expand given names in the orcid collection                             |
 | get_citation.py        |                                                                        |
 | name_match.py          |                                                                        |
 | search_people.py       | Search for a name in the People system                                 |
@@ -38,5 +36,5 @@ Programs can now be run in the virtual environment:
     - dis
     - rest_services
 3. The following keys must be present in the run environment:
-    - CONFIG_SERVER_URL: abase URL for Configuration system
+    - CONFIG_SERVER_URL: base URL for Configuration system
     - PEOPLE_API_KEY: API key for HHMI People system
