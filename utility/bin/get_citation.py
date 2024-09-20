@@ -117,12 +117,12 @@ if __name__ == '__main__':
     
     items = []
     if arg.DOI:
-        items.append( create_item(arg.DOI) )
+        items.append( create_item(arg.DOI.strip().lower()) )
     elif arg.FILE:
         try:
             with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
-                    items.append( create_item(doi) )
+                    items.append( create_item(doi.strip().lower()) )
         except:
             print(f"Could not process {arg.FILE}")
             raise ImportError
