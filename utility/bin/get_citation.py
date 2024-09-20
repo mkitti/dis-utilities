@@ -1,15 +1,14 @@
 ''' get_citation.py
     Get the citation(s) for one or more DOIs through the DIS DB API.
-    Citations are already in the 'Janelia Science News' format.
+    Print to terminal for easy copy-pasting to HughesHub.
 '''
 
 import requests
 import argparse
-import sys
-import jrc_common.jrc_common as JRC
+import re
 from operator import attrgetter
 from termcolor import colored
-
+import jrc_common.jrc_common as JRC
 
 
 class Item:
@@ -58,6 +57,15 @@ def get_type(doi_record):
         return(doi_record['types']['resourceTypeGeneral'])
 
 
+### Functions for formatting and printing citations
+
+def fix_endnote(endnote_citation):
+    parts = endnote_citation.split('. ')
+    authors = parts[0]
+    title = parts[1]
+    url = parts[-1]
+    url = re.sub(r'^http://dx\.doi\.org/', 'https://doi.org/', url)
+    return(authors + ". " + title + ". " + url)
 
 def print_citation(item):
     if item.preprint:
@@ -112,13 +120,16 @@ if __name__ == '__main__':
                          help='Produce a citation from a single DOI.')
     muexgroup.add_argument('--file', dest='FILE', action='store',
                          help='Produce a citation from a file containing one or more DOIs.')
+    muexgroup.add_argument('--endnote', dest='ENDNOTE', action='store',
+                         help='Print updated citations from a file containing citations in the Janelia Science News style, obtained by EndNote export.')
+    
     
     arg = parser.parse_args()
     
     items = []
     if arg.DOI:
         items.append( create_item(arg.DOI.strip().lower()) )
-    elif arg.FILE:
+    if arg.FILE:
         try:
             with open(arg.FILE, "r", encoding="ascii") as instream:
                 for doi in instream.read().splitlines():
@@ -126,6 +137,16 @@ if __name__ == '__main__':
         except:
             print(f"Could not process {arg.FILE}")
             raise ImportError
+    if arg.ENDNOTE:
+        #try:
+        with open(arg.ENDNOTE, "r", encoding="ascii") as instream:
+            for endnote_citation in instream.read().splitlines():
+                if endnote_citation.strip(): # in case of empty line
+                    print( fix_endnote(endnote_citation)+'\n' )
+        # except:
+        #     print(f"Could not process {arg.ENDNOTE}")
+        #     raise ImportError
+
     
     items = [i for i in items if i is not None]
     for item in sorted(items, key=lambda i: i.citation):
