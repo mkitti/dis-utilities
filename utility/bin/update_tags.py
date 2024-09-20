@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 import argparse
 import collections
@@ -90,6 +90,31 @@ def get_dois():
     return dois
 
 
+def append_tags(auth, janelians, atags):
+    """ Update "janelians" and "atags" lists
+        Keyword arguments:
+          auth: author record
+          janelians: list of Janelia author names
+          atags: list of tags
+        Returns:
+          None
+    """
+    if auth['janelian']:
+        janelians.append(f"{auth['given']} {auth['family']}")
+    if 'group' in auth:
+        if auth['group'] not in atags:
+            atags.append(auth['group'])
+    if 'tags' in auth:
+        for tag in auth['tags']:
+            if tag not in atags:
+                atags.append(tag)
+    if 'name' in auth:
+        if auth['name'] not in PROJECT:
+            LOGGER.warning(f"Project {auth['name']} is not defined")
+        elif PROJECT[auth['name']] and PROJECT[auth['name']] not in atags:
+            atags.append(PROJECT[auth['name']])
+
+
 def get_tags(authors):
     """ Get tags from a list of authors
         Keyword arguments:
@@ -104,26 +129,13 @@ def get_tags(authors):
     tagauth = {}
     for auth in authors:
         atags = []
-        if auth['janelian']:
-            janelians.append(f"{auth['given']} {auth['family']}")
-        if 'group' in auth:
-            if auth['group'] not in atags:
-                atags.append(auth['group'])
-        if 'tags' in auth:
-            for tag in auth['tags']:
-                if tag not in atags:
-                    atags.append(tag)
-        if 'name' in auth:
-            if auth['name'] not in PROJECT:
-                LOGGER.warning(f"Project {auth['name']} is not defined")
-            elif PROJECT[auth['name']] and PROJECT[auth['name']] not in atags:
-                atags.append(PROJECT[auth['name']])
+        append_tags(auth, janelians, atags)
         for tag in atags:
             if tag not in tags:
                 tags.append(tag)
             if tag not in tagauth:
                 tagauth[tag] = []
-            if auth['family'] not in tagauth[tag]:
+            if 'family' in auth and auth['family'] not in tagauth[tag]:
                 tagauth[tag].append(auth['family'])
                 tagauth[tag].sort()
     return tags, janelians, tagauth
