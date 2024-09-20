@@ -8,6 +8,7 @@ import argparse
 import sys
 import jrc_common.jrc_common as JRC
 from operator import attrgetter
+from termcolor import colored
 
 
 class Citation:
@@ -31,12 +32,16 @@ def create_citation(doi):
     rest = JRC.get_config("rest_services")
     url_base = attrgetter("dis.url")(rest)
     response = get_request(f"{url_base}citation/dis/{replace_slashes_in_doi(strip_doi_if_provided_as_url(doi))}")
-    if 'jrc_preprint' in response:
-        doi_record = get_doi_record(doi)
-        item = create_simple_item(doi_record)
-        if item.item_type == 'Journal article':
-            return( Citation(citation=response['data'], preprint=response['jrc_preprint']) )
-    return(Citation(citation=response['data']))
+    if response:
+        if 'jrc_preprint' in response:
+            doi_record = get_doi_record(doi)
+            item = create_simple_item(doi_record)
+            if item.item_type == 'Journal article':
+                return( Citation(citation=response['data'], preprint=response['jrc_preprint']) )
+        return(Citation(citation=response['data']))
+    else:
+        print(colored( (f'WARNING: Unable to retrieve a citation for {doi}'), "yellow" ))
+        return(None)
 
 def get_doi_record(doi):
     rest = JRC.get_config("rest_services")
@@ -78,8 +83,9 @@ def get_request(url):
     if response.status_code == 200:
         return(response.json())
     else:
-        print(f"There was an error with the API GET request. Status code: {response.status_code}.\n Error message: {response.reason}")
-        sys.exit(1)
+        print(f"ERROR: GET request status code: {response.status_code}. Error message: {response.reason}")
+        # sys.exit(1)
+        return(None)
 
 # -----------------------------------------------------------------------------
 
@@ -106,6 +112,7 @@ if __name__ == '__main__':
             print(f"Could not process {arg.FILE}")
             raise ImportError
     
+    citations = [c for c in citations if c is not None]
     for citation in sorted(citations, key=lambda c: c.citation):        
         if citation.preprint:
             print(f"{citation.citation}")
