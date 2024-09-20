@@ -521,7 +521,7 @@ def get_dois_from_commandline(doi_arg, file_arg):
                 for doi in instream.read().splitlines():
                     dois.append(doi.strip().lower())
         except Exception as err:
-            print(f"Could not process {arg.FILE}")
+            print(f"Could not process {file_arg}")
             exit()
     return(dois)
 
@@ -652,7 +652,7 @@ if __name__ == '__main__':
             overwrite_jrc_author(revised_jrc_authors)
         else:
             print(colored(
-                ("Dry run complete, no changes were made"), "yellow"
+                ("WARNING: Dry run successful, no updates were made"), "yellow"
             ))
 
 
