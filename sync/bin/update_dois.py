@@ -3,10 +3,11 @@
     If a single DOI or file of DOIs is specified, these are updated in FlyBoy/config or DIS MongoDB.
     Otherwise, DOIs are synced according to target:
     - flyboy: FLYF2 to FlyBoy and the config system
-    - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
+    - dis: FLYF2, Crossref, DataCite, ALPS releases, EM datasets, and "to process" DOIs
+           to DIS MongoDB.
 """
 
-__version__ = '5.5.0'
+__version__ = '6.0.0'
 
 import argparse
 import configparser
@@ -25,7 +26,8 @@ from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 
-# pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
+# pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation,
+# pylint: disable=too-many-lines
 
 # Database
 DB = {}
@@ -45,6 +47,7 @@ DATACITE_CALL = {}
 INSERTED = {}
 UPDATED = {}
 MISSING = {}
+TO_BE_PROCESSED = []
 MAX_CROSSREF_TRIES = 3
 # Email
 SENDER = 'svirskasr@hhmi.org'
@@ -224,6 +227,26 @@ def get_dois_from_datacite(query):
     return dlist
 
 
+def add_to_be_processed(dlist):
+    ''' Add DOIs from the dois_to_process collection
+        Keyword arguments:
+          dlist: list of DOIs
+        Returns:
+          None
+    '''
+    try:
+        rows = DB['dis'].dois_to_process.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        doi = row['doi']
+        if doi not in dlist:
+            TO_BE_PROCESSED.append(doi)
+            dlist.append(doi)
+    if TO_BE_PROCESSED:
+        LOGGER.info(f"Got {len(TO_BE_PROCESSED):,} DOIs from dois_to_process")
+
+
 def get_dois_for_dis(flycore):
     ''' Get a list of DOIs to process for an update of the DIS database. Sources are:
         - DOIs with an affiliation of Janelia from Crossref
@@ -232,6 +255,7 @@ def get_dois_for_dis(flycore):
         - DOIs in use by FLYF2
         - DOIs associated with ALPs releases
         - DOIs associated with FlyEM datasets
+        - DOIs from dois_to_process collection
         - DOIs that are already in the DIS database
         Keyword arguments:
           flycore: list of DOIs from FlyCore
@@ -258,12 +282,21 @@ def get_dois_for_dis(flycore):
                     dlist.append(val['doi'][dtype])
     LOGGER.info(f"Got {cnt:,} DOIs from ALPS releases")
     # EM datasets
+    disconfig = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     emdois = JRC.simplenamespace_to_dict(JRC.get_config('em_dois'))
     cnt = 0
-    for val in emdois.values():
-        if val:
+    for key, val in emdois.items():
+        if key in disconfig['em_dataset_ignore']:
+            continue
+        if val and isinstance(val, str):
             cnt += 1
             dlist.append(val)
+        elif val and isinstance(val, list):
+            for dval in val:
+                cnt += 1
+                dlist.append(dval)
+    # DOIs to be processed
+    add_to_be_processed(dlist)
     LOGGER.info(f"Got {cnt:,} DOIs from EM releases")
     # Previously inserted
     for doi in EXISTING:
@@ -606,6 +639,8 @@ def persist_author(key, authors, persist):
     if jrc_author:
         LOGGER.debug(f"Added jrc_author {jrc_author} to {key}")
         persist[key]['jrc_author'] = jrc_author
+    else:
+        LOGGER.warning(f"No Janelia authors for {key}")
 
 
 def add_tags(persist):
@@ -688,12 +723,18 @@ def add_first_last_authors(rec):
             janelian = DL.is_janelia_author(rec[field][0], DB['dis'].orcid, PROJECT)
             if janelian:
                 first.append(janelian)
-        if not('given' in rec[field][-1] and 'family' in rec[field][-1]):
-                    LOGGER.warning(f"Missing author name in {rec['doi']} author {rec[field][-1]}")
-        else:
+        okay = True
+        if not datacite:
+            if not('given' in rec[field][-1] and 'family' in rec[field][-1]):
+                okay = False
+        elif not('givenName' in rec[field][-1] and 'familyName' in rec[field][-1]):
+            okay = False
+        if okay:
             janelian = DL.is_janelia_author(rec[field][-1], DB['dis'].orcid, PROJECT)
             if janelian:
                 rec["jrc_last_author"] = janelian
+        else:
+            LOGGER.warning(f"Missing author name in {rec['doi']} author {rec[field][-1]}")
     if first:
         rec["jrc_first_author"] = first
     if (not first) and ('jrc_last_author' not in rec):
@@ -740,6 +781,11 @@ def update_mongodb(persist):
             else:
                 val['jrc_load_source'] = "Sync"
             coll.update_one({"doi": key}, {"$set": val}, upsert=True)
+            if key in TO_BE_PROCESSED:
+                try:
+                    DB['dis'].dois_to_process.delete_one({"doi": key})
+                except Exception as err:
+                    LOGGER.error(f"Could not delete {key} from dois_to_process: {err}")
         if key in EXISTING:
             COUNT['update'] += 1
             if key not in UPDATED:
@@ -806,7 +852,7 @@ def process_dois():
     for odoi in tqdm(rows['dois'], desc='DOIs'):
         if '//' in odoi:
             terminate_program(f"Invalid DOI: {odoi}")
-        doi = odoi if ARG.TARGET == 'flyboy' else odoi.lower()
+        doi = odoi if ARG.TARGET == 'flyboy' else odoi.lower().strip()
         COUNT['found'] += 1
         if doi in specified:
             COUNT['duplicate'] += 1
