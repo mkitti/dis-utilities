@@ -2748,7 +2748,7 @@ def dois_top(num):
 @app.route('/dois_report/<string:year>')
 @app.route('/dois_report')
 def dois_report(year=str(datetime.now().year)):
-    ''' Show publishers with counts
+    ''' Show year in review
     '''
     pmap = {"journal-article": "Journal articles", "posted-content": "Preprints",
             "proceedings-article": "Proceedings articles", "book-chapter": "Book chapters",

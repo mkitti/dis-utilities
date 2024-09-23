@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '1.2.0'
+__version__ = '1.3.0'
 
 import argparse
 import collections
@@ -141,6 +141,27 @@ def get_tags(authors):
     return tags, janelians, tagauth
 
 
+def get_tag_choices(tags, tagauth, rec):
+    """ Get tag choices for checklist prompt
+        Keyword arguments:
+          tags: list of tags
+          tagauth: dict of authors by tag
+          rec: DOI record
+        Returns:
+          tagd: dict of tags by tag name
+          current: list of current tags
+    """
+    tags.sort()
+    tagd = {}
+    current = []
+    for tag in tags:
+        newtag = f"{tag} ({', '.join(tagauth[tag])})"
+        if 'jrc_tag' in rec and tag in rec['jrc_tag']:
+            current.append(newtag)
+        tagd[newtag] = tag
+    return tagd, current
+
+
 def update_single_doi(rec):
     """ Update tags for a single DOI
         Keyword arguments:
@@ -149,37 +170,37 @@ def update_single_doi(rec):
           None
     """
     authors = DL.get_author_details(rec, DB['dis'].orcid)
-    current = []
     tags, janelians, tagauth = get_tags(authors)
     if not tags:
         LOGGER.warning(f"No tags for DOI {rec['doi']}")
-        return
-    tags.sort()
-    tagd = {}
-    for tag in tags:
-        newtag = f"{tag} ({', '.join(tagauth[tag])})"
-        if 'jrc_tag' in rec and tag in rec['jrc_tag']:
-            current.append(newtag)
-        tagd[newtag] = tag
+    tagd, current = get_tag_choices(tags, tagauth, rec)
     print(f"DOI: {rec['doi']}")
     print(f"{DL.get_title(rec)}")
     print(', '.join(janelians))
     today = datetime.today().strftime('%Y-%m-%d')
-    quest = [inquirer.Checkbox('checklist', carousel=True,
-                               message='Select tags',
-                               choices=tagd, default=current),
-             inquirer.List('newsletter',
-                           message=f"Set jrc_newsletter to {today}",
-                           choices=['Yes', 'No'])
-            ]
+    quest = []
+    if tagd:
+        quest.append(inquirer.Checkbox('checklist', carousel=True,
+                                       message='Select tags',
+                                       choices=tagd, default=current))
+    quest.append(inquirer.List('newsletter',
+                               message=f"Set jrc_newsletter to {today}",
+                               choices=['Yes', 'No']))
     ans = inquirer.prompt(quest, theme=BlueComposure())
-    tags = []
-    for tag in ans['checklist']:
-        tags.append(tagd[tag])
-    payload = {"jrc_tag": tags}
+    if not ans:
+        return
+    payload = {}
+    if 'checklist' in ans:
+        tags = []
+        for tag in ans['checklist']:
+            tags.append(tagd[tag])
+        if tags:
+            payload["jrc_tag"] = tags
     if 'newsletter' in ans and ans['newsletter'] == 'Yes':
         payload['jrc_newsletter'] = today
     COUNT['selected'] += 1
+    if not payload:
+        return
     if ARG.WRITE:
         coll = DB['dis'].dois
         result = coll.update_one({"doi": rec['doi']}, {"$set": payload})
