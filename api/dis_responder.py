@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "18.0.0"
+__version__ = "18.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -36,6 +36,7 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 # Navigation
 NAV = {"Home": "",
        "DOIs": {"DOIs by insertion date": "dois_insertpicker",
+                "DOIs awaiting processing": "dois_pending",
                 "DOIs by journal": "dois_journal",
                 "DOIs by publisher": "dois_publisher",
                 "DOIs by source": "dois_source",
@@ -2601,6 +2602,40 @@ def dois_month(year=str(datetime.now().year)):
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title=title, html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
+                                         navbar=generate_navbar('DOIs')))
+
+
+@app.route('/dois_pending')
+def dois_pending():
+    ''' Show DOIs awaiting processing
+    '''
+    try:
+        rows = DB['dis'].dois_to_process.find({})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs " \
+                                                    + "from dois_to_process collection"),
+                               message=error_message(err))
+    html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
+           + '<th>DOI</th><th>Inserted</th><th>Time waiting</th>' \
+           + '</tr></thead><tbody>'
+    if not rows:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning("No DOIs found", 'warning'),
+                               message="No DOIs are awaiting processing")
+    for row in rows:
+        elapsed = datetime. now() - row['inserted']
+        if elapsed.days:
+            etime = f"{elapsed.days} day{'s' if elapsed.days > 1 else ''}, " \
+                    + f"{elapsed.seconds // 3600:02}:{elapsed.seconds // 60 % 60:02}:" \
+                    + f"{elapsed.seconds % 60:02}"
+        else:
+            etime = f"{elapsed.seconds // 3600:02}:{elapsed.seconds // 60 % 60:02}:" \
+                    + f"{elapsed.seconds % 60:02}"
+        html += f"<tr><td>{doi_link(row['doi'])}</td><td>{row['inserted']}</td><td>{etime}</td>"
+    html += '</tbody></table>'
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title="DOIs awaiting processing", html=html,
                                          navbar=generate_navbar('DOIs')))
 
 
