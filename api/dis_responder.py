@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "18.1.0"
+__version__ = "18.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -2610,6 +2610,7 @@ def dois_pending():
     ''' Show DOIs awaiting processing
     '''
     try:
+        cnt = DB['dis'].dois_to_process.count_documents({})
         rows = DB['dis'].dois_to_process.find({})
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
@@ -2619,7 +2620,7 @@ def dois_pending():
     html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
            + '<th>DOI</th><th>Inserted</th><th>Time waiting</th>' \
            + '</tr></thead><tbody>'
-    if not rows:
+    if not cnt:
         return render_template('warning.html', urlroot=request.url_root,
                                title=render_warning("No DOIs found", 'warning'),
                                message="No DOIs are awaiting processing")
