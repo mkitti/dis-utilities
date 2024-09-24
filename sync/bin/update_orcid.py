@@ -22,9 +22,6 @@ import doi_common.doi_common as DL
 
 # Database
 DB = {}
-# Email
-SENDER = 'svirskasr@hhmi.org'
-RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # Counters
 COUNT = collections.defaultdict(lambda: 0, {})
 # General
@@ -364,8 +361,9 @@ def generate_email():
         for alum in ALUMNI:
             msg += f"\n{alum}"
     try:
-        LOGGER.info(f"Sending email to {RECEIVERS}")
-        JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
+        LOGGER.info(f"Sending email to {DISCONFIG['receivers']}")
+        JRC.send_email(msg, DISCONFIG['sender'], DISCONFIG['developer'] \
+                       if ARG.MANIFOLD == 'dev' else DISCONFIG['receivers'],
                        "ORCID updates")
     except Exception as err:
         LOGGER.error(err)

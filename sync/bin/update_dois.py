@@ -7,7 +7,7 @@
            to DIS MongoDB.
 """
 
-__version__ = '6.0.0'
+__version__ = '6.1.0'
 
 import argparse
 import configparser
@@ -49,9 +49,6 @@ UPDATED = {}
 MISSING = {}
 TO_BE_PROCESSED = []
 MAX_CROSSREF_TRIES = 3
-# Email
-SENDER = 'svirskasr@hhmi.org'
-RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
 PROJECT = {}
 DEFAULT_TAGS = ['Janelia Experimental Technology (jET)', 'Scientific Computing Software']
@@ -282,11 +279,10 @@ def get_dois_for_dis(flycore):
                     dlist.append(val['doi'][dtype])
     LOGGER.info(f"Got {cnt:,} DOIs from ALPS releases")
     # EM datasets
-    disconfig = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     emdois = JRC.simplenamespace_to_dict(JRC.get_config('em_dois'))
     cnt = 0
     for key, val in emdois.items():
-        if key in disconfig['em_dataset_ignore']:
+        if key in DISCONFIG['em_dataset_ignore']:
             continue
         if val and isinstance(val, str):
             cnt += 1
@@ -880,7 +876,7 @@ def process_dois():
     update_dois(specified, persist)
 
 
-def generate_email():
+def generate_emails():
     ''' Generate and send an email
         Keyword arguments:
           None
@@ -894,9 +890,24 @@ def generate_email():
     for doi in INSERTED:
         msg += f"\n{doi}"
     try:
-        LOGGER.info(f"Sending email to {RECEIVERS}")
-        JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
+        LOGGER.info(f"Sending email to {DISCONFIG['receivers']}")
+        JRC.send_email(msg, DISCONFIG['sender'], DISCONFIG['developer'] \
+                       if ARG.MANIFOLD == 'dev' else DISCONFIG['receivers'],
                        "New DOIs")
+    except Exception as err:
+        LOGGER.error(err)
+    if not TO_BE_PROCESSED:
+        return
+    msg = JRC.get_run_data(__file__, __version__)
+    msg += "The following DOIs were selected from the dois_to process collection and " \
+           + "should now have tags updated:"
+    for doi in TO_BE_PROCESSED:
+        msg += f"\n{doi}"
+    try:
+        LOGGER.info(f"Sending email to {DISCONFIG['librarian']}")
+        JRC.send_email(msg, DISCONFIG['sender'], DISCONFIG['developer'] if ARG.MANIFOLD == 'dev' \
+                                                                        else DISCONFIG['librarian'],
+                       "New DOIs needing tags")
     except Exception as err:
         LOGGER.error(err)
 
@@ -946,7 +957,7 @@ def post_activities():
     print(f"DOI calls to DataCite: {len(DATACITE_CALL):,}")
     # Email
     if INSERTED and ARG.WRITE:
-        generate_email()
+        generate_emails()
     if not ARG.WRITE:
         LOGGER.warning("Dry run successful, no updates were made")
 
@@ -987,6 +998,7 @@ if __name__ == '__main__':
     CONFIG = configparser.ConfigParser()
     CONFIG.read('config.ini')
     initialize_program()
+    DISCONFIG = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     REST = JRC.get_config("rest_services")
     START_TIME = datetime.now()
     if ARG.TARGET == 'flyboy':
