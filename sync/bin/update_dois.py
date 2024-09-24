@@ -7,7 +7,7 @@
            to DIS MongoDB.
 """
 
-__version__ = '6.1.0'
+__version__ = '6.2.0'
 
 import argparse
 import configparser
@@ -899,15 +899,16 @@ def generate_emails():
     if not TO_BE_PROCESSED:
         return
     msg = JRC.get_run_data(__file__, __version__)
-    msg += "The following DOIs were selected from the dois_to process collection and " \
-           + "should now have tags updated:"
+
+    msg += "The following DOIs from a previous weekly cycle have been added to the database. " \
+           + "Metadata should be updated as soon as possible."
     for doi in TO_BE_PROCESSED:
         msg += f"\n{doi}"
     try:
         LOGGER.info(f"Sending email to {DISCONFIG['librarian']}")
         JRC.send_email(msg, DISCONFIG['sender'], DISCONFIG['developer'] if ARG.MANIFOLD == 'dev' \
                                                                         else DISCONFIG['librarian'],
-                       "New DOIs needing tags")
+                       "Action needed: new DOIs")
     except Exception as err:
         LOGGER.error(err)
 
