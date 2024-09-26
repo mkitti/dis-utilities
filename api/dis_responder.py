@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "19.0.0"
+__version__ = "19.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -3446,6 +3446,8 @@ def stats_database():
             for key, val in stat['indexSizes'].items():
                 indices.append(f"{key} ({humansize(val, space='mem')})")
             free = stat['freeStorageSize'] / stat['storageSize'] * 100
+            if 'avgObjSize' not in stat:
+                stat['avgObjSize'] = 0
             collection[cname] = {"docs": f"{stat['count']:,}",
                                  "docsize": humansize(stat['avgObjSize'], space='mem'),
                                  "size": humansize(stat['storageSize'], space='mem'),
