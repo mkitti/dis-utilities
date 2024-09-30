@@ -3,7 +3,7 @@
     This script should live in utility/bin. It expects update_dois.py to be in sync/bin.
     IMPORTANT: I'm keeping the --write flag for consistency with all our other scripts, 
     but it doesn't really make sense to NOT include the --write flag in this script.
-    And new DOIs won't be added to the database, so you'll get errors in the downstream scripts.
+    New DOIs won't be added to the database, so the downstream scripts won't work.
 '''
 
 import os
@@ -136,6 +136,8 @@ if __name__ == '__main__':
                             help='Single DOI to process')
     MUEXGROUP.add_argument('--file', dest='FILE', action='store',
                             help='File of DOIs to process')
+    PARSER.add_argument('--sync_only', dest='SYNC_ONLY', action='store_true',
+                        default=False, help='Flag, simply add DOI(s) to database without running downstream scripts.')
     PARSER.add_argument('--verbose', dest='VERBOSE', action='store_true',
                         default=False, help='Flag, Chatty')
     PARSER.add_argument('--write', dest='WRITE', action='store_true',
@@ -154,10 +156,9 @@ if __name__ == '__main__':
             ))
     else:
         subprocess.call(create_command(f'{sync_bin_path}/update_dois.py', arg_copy))
-
-    subprocess.call(create_command('name_match.py', ARG))
-
-    subprocess.call(create_command('update_tags.py', ARG))
-
-    subprocess.call(list(flatten( ['python3', 'get_citation.py', doi_source(ARG)] ))) 
+    
+    if not ARG.SYNC_ONLY:
+        subprocess.call(create_command('name_match.py', ARG))
+        subprocess.call(create_command('update_tags.py', ARG))
+        subprocess.call(list(flatten( ['python3', 'get_citation.py', doi_source(ARG)] ))) 
 
