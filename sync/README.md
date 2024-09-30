@@ -2,17 +2,18 @@
 
 ## Programs for automated synchronization of dis database from external sources
 
-| Name                 | Description                                            |
-| -------------------- | ------------------------------------------------------ |
-| email_authors.py     | Email information on newly-curated DOIs to authors     |
-| group_search.py      | Find resources authored by group (lab) heads           |
-| pull_arxiv.py        | Produce a list of aRxiv DOIs eligible for insertion    |
-| pull_bioRxiv.py      | Produce a list of bioRxiv DOIs eligible for insertion  |
-| pull_figshare.py     | Produce a list of figshare DOIs eligible for insertion |
-| pull_oa.py           | Produce a list of OA DOIs eligible for insertion       |
-| update_dois.py       | Synchronize DOI information from Crossref/DataCite     |
-| update_orcid.py      | Synchronize ORCID names and IDs                        |
-| update_preprints.py  | Update preprint relations                              |
+| Name                       | Description                                            |
+| -------------------------- | ------------------------------------------------------ |
+| email_authors.py           | Email information on newly-curated DOIs to authors     |
+| find_unloaded_relations.py | Find referenced DOIS that are not in the database                      |
+| group_search.py            | Find resources authored by group (lab) heads           |
+| pull_arxiv.py              | Produce a list of aRxiv DOIs eligible for insertion    |
+| pull_bioRxiv.py            | Produce a list of bioRxiv DOIs eligible for insertion  |
+| pull_figshare.py           | Produce a list of figshare DOIs eligible for insertion |
+| pull_oa.py                 | Produce a list of OA DOIs eligible for insertion       |
+| update_dois.py             | Synchronize DOI information from Crossref/DataCite     |
+| update_orcid.py            | Synchronize ORCID names and IDs                        |
+| update_preprints.py        | Update preprint relations                              |
 
 ## Development setup
 
@@ -238,3 +239,39 @@ A summary is emailed to Virginia and Rob.
 ### Running in production
 
 The *email_authors.py* program is run every Monday morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-email_authors/).
+
+### Finding preprint relations 
+MAtches between preprints and journal articles are searched for using all available DOIs in the dois collection. DOIs will
+have a relationship set up if the following items match:
+- First author name
+- Last author name
+- Title
+Matches are made using [RapidFuzz](https://rapidfuzz.github.io/RapidFuzz/) token set ratio scoring with default processing
+(removing all non alphanumeric characters, trimming whitespaces, and converting all characters to lower case).
+The threshold score is 90%.
+Results of a typical run (with --verbose) are below:
+```
+INFO:root:Connecting to DISMongoDB prod on dis.int.janelia.org as disAdmin
+INFO:root:Getting DOIs
+INFO:root:Primary DOIs: 2,681
+INFO:root:Preprint DOIs: 888
+Preprints: 100%|█████████████████████████████| 888/888 [00:06<00:00, 142.44it/s]
+Write preprints: 100%|███████████████████| 526/526 [00:00<00:00, 2210625.15it/s]
+Write primaries: 100%|███████████████████| 502/502 [00:00<00:00, 2344700.01it/s]
+WARNING:root:Audit written to audit_2024-09-27T09:43:42.txt
+WARNING:root:Title matches written to title_matches_2024-09-27T09:43:42.xlsx
+WARNING:root:Missing DOIs written to missing_dois_2024-09-27T09:43:42.txt
+Primary DOIs:                 2,681
+Preprint DOIs:                888
+Comparisons:                  2,380,728
+Title matches:                460
+Title/author matches:         431
+Preprint DOIs with relations: 526
+Primary DOIs with relations:  502
+Preprint relations:           542
+Primary relations:            542
+```
+
+### Running in production
+
+The *update_preprints.py* program is run immediately following a scheduled run of *update_dois.py*.

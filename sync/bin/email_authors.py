@@ -16,10 +16,6 @@ DB = {}
 # DOI-level data
 AUTHORLIST = {}
 TAGLIST = {}
-# Email
-SENDER = 'datainfo@janelia.hhmi.org'
-DEVELOPER = 'svirskasr@hhmi.org'
-RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
@@ -103,7 +99,7 @@ def process_authors(authors, publications, cnt):
     for auth, val in authors.items():
         resp = JRC.call_people_by_id(auth)
         name = ' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']])
-        email = DEVELOPER if ARG.TEST else resp['email']
+        email = DISCONFIG['developer'] if ARG.TEST else resp['email']
         subject = "Your recent publication" if len(val['citations']) == 1 \
                   else "Your recent publications"
         text1 = "publication has been added" if len(val['citations']) == 1 \
@@ -135,7 +131,7 @@ def process_authors(authors, publications, cnt):
         summary += f"{name} has {len(val['citations'])} " \
                    + f"citation{'' if len(val['citations']) == 1 else 's'}<br>"
         if ARG.WRITE or ARG.TEST:
-            JRC.send_email(text, SENDER, [email], subject, mime='html')
+            JRC.send_email(text, DISCONFIG['sender'], [email], subject, mime='html')
         LOGGER.info(f"Email sent to {name} ({email})")
     if not (ARG.WRITE or ARG.TEST):
         return
@@ -144,8 +140,8 @@ def process_authors(authors, publications, cnt):
     text = f"{subject}.<br>DOIs: {cnt}<br>Authors: {len(authors)}<br><br>"
     text += "<br><br>".join(publications)
     text += "<br><br>" + summary
-    email = DEVELOPER if ARG.TEST else RECEIVERS
-    JRC.send_email(text, SENDER, email, subject, mime='html')
+    email = DISCONFIG['developer'] if ARG.TEST else DISCONFIG['receivers']
+    JRC.send_email(text, DISCONFIG['sender'], email, subject, mime='html')
 
 
 def process_dois():
