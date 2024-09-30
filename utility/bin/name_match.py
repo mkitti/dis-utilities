@@ -90,13 +90,13 @@ def create_author(author_info):
 def create_employee(id):
     idsearch_results = search_people_api(id, mode='id')
     if idsearch_results:
-        job_title = job_title = idsearch_results['businessTitle'] if 'businessTitle' in idsearch_results else None
-        email = idsearch_results['email'] if 'email' in idsearch_results else None
-        location = idsearch_results['locationName'] if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
-        supOrgName = idsearch_results['supOrgName'] if 'supOrgName' in idsearch_results and idsearch_results['supOrgName'] else None
-        first_names = [ idsearch_results['nameFirstPreferred'], idsearch_results['nameFirst'] ]
-        middle_names = [ idsearch_results['nameMiddlePreferred'], idsearch_results['nameMiddle'] ]
-        last_names = [ idsearch_results['nameLastPreferred'], idsearch_results['nameLast'] ]
+        job_title = job_title = idsearch_results['businessTitle'].strip() if 'businessTitle' in idsearch_results else None
+        email = idsearch_results['email'].strip() if 'email' in idsearch_results else None
+        location = idsearch_results['locationName'].strip() if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
+        supOrgName = idsearch_results['supOrgName'].strip() if 'supOrgName' in idsearch_results and idsearch_results['supOrgName'] else None
+        first_names = [ idsearch_results['nameFirstPreferred'].strip(), idsearch_results['nameFirst'].strip() ]
+        middle_names = [ idsearch_results['nameMiddlePreferred'].strip(), idsearch_results['nameMiddle'].strip() ]
+        last_names = [ idsearch_results['nameLastPreferred'].strip(), idsearch_results['nameLast'].strip() ]
         return(
             Employee(
             id=id,
