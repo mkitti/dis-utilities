@@ -16,10 +16,6 @@ DB = {}
 # DOI-level data
 AUTHORLIST = {}
 TAGLIST = {}
-# Email
-SENDER = 'datainfo@janelia.hhmi.org'
-DEVELOPER = 'svirskasr@hhmi.org'
-RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 
 def terminate_program(msg=None):
     ''' Terminate the program gracefully
@@ -89,10 +85,11 @@ def create_doilists(row):
     AUTHORLIST[row['doi']] = ", ".join(names)
 
 
-def process_authors(authors, cnt):
+def process_authors(authors, publications, cnt):
     ''' Create and send emails to each author with their resources
         Keyword arguments:
           authors: dictionary of authors and their citations
+          publications: list of citations
           cnt: DOI count
         Returns:
           None
@@ -102,7 +99,7 @@ def process_authors(authors, cnt):
     for auth, val in authors.items():
         resp = JRC.call_people_by_id(auth)
         name = ' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']])
-        email = DEVELOPER if ARG.TEST else resp['email']
+        email = DISCONFIG['developer'] if ARG.TEST else resp['email']
         subject = "Your recent publication" if len(val['citations']) == 1 \
                   else "Your recent publications"
         text1 = "publication has been added" if len(val['citations']) == 1 \
@@ -134,14 +131,17 @@ def process_authors(authors, cnt):
         summary += f"{name} has {len(val['citations'])} " \
                    + f"citation{'' if len(val['citations']) == 1 else 's'}<br>"
         if ARG.WRITE or ARG.TEST:
-            JRC.send_email(text, SENDER, [email], subject, mime='html')
+            JRC.send_email(text, DISCONFIG['sender'], [email], subject, mime='html')
         LOGGER.info(f"Email sent to {name} ({email})")
-    if not ARG.WRITE:
+    if not (ARG.WRITE or ARG.TEST):
         return
     # Summary email
     subject = "Emails have been sent to authors for recent publications"
-    text = f"{subject}.<br>DOIs: {cnt}<br>Authors: {len(authors)}<br><br>{summary}"
-    JRC.send_email(text, SENDER, RECEIVERS, subject, mime='html')
+    text = f"{subject}.<br>DOIs: {cnt}<br>Authors: {len(authors)}<br><br>"
+    text += "<br><br>".join(publications)
+    text += "<br><br>" + summary
+    email = DISCONFIG['developer'] if ARG.TEST else DISCONFIG['receivers']
+    JRC.send_email(text, DISCONFIG['sender'], email, subject, mime='html')
 
 
 def process_dois():
@@ -165,16 +165,19 @@ def process_dois():
         terminate_program(err)
     LOGGER.info(f"DOIs found: {cnt}")
     authors = {}
+    publications = []
     for row in rows:
+        citation = get_citation(row)
+        publications.append(citation)
         for auth in row['jrc_author']:
             if auth not in authors:
                 authors[auth] = {"citations": [], "dois": []}
-            authors[auth]['citations'].append(get_citation(row))
+            authors[auth]['citations'].append(citation)
             authors[auth]['dois'].append(row['doi'])
         if row['doi'] not in AUTHORLIST:
             create_doilists(row)
     LOGGER.info(f"Authors found: {len(authors)}")
-    process_authors(authors, cnt)
+    process_authors(authors, publications, cnt)
 
 # -----------------------------------------------------------------------------
 

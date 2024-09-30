@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "18.0.0"
+__version__ = "19.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -36,6 +36,7 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 # Navigation
 NAV = {"Home": "",
        "DOIs": {"DOIs by insertion date": "dois_insertpicker",
+                "DOIs awaiting processing": "dois_pending",
                 "DOIs by journal": "dois_journal",
                 "DOIs by publisher": "dois_publisher",
                 "DOIs by source": "dois_source",
@@ -63,6 +64,8 @@ SOURCES = ["Crossref", "DataCite"]
 JANELIA_PREFIX = '10.25378'
 # Dates
 OPSTART = datetime.strptime('2024-05-16','%Y-%m-%d')
+# UI
+DO_NOT_DISPLAY = ['jrc_author', 'jrc_first_id', 'jrc_last_id']
 
 # ******************************************************************************
 # * Classes                                                                    *
@@ -461,9 +464,13 @@ def generate_works_table(rows, name=None):
         fileoutput += f"{payload['date']}\t{row['doi']}\t{payload['title']}\n"
         if name:
             alist = DL.get_author_details(row)
-            for auth in alist:
-                if "family" in auth and "given" in auth and auth["family"].lower() == name.lower():
-                    authors[f"{auth['given']} {auth['family']}"] = True
+            if alist:
+                for auth in alist:
+                    if "family" in auth and "given" in auth \
+                       and auth["family"].lower() == name.lower():
+                        authors[f"{auth['given']} {auth['family']}"] = True
+            else:
+                print(f"Could not get author details for {row['doi']}")
     if not works:
         return html, []
     html += "<table id='pubs' class='tablesorter standard'>" \
@@ -495,7 +502,8 @@ def get_orcid_from_db(oid, use_eid=False, both=False, bare=False):
         if bare:
             orc = DB['dis'].orcid.find_one({"_id": bson.ObjectId(oid)})
         else:
-            orc = DL.single_orcid_lookup(oid, DB['dis'].orcid, 'employeeId' if use_eid else 'orcid')
+            payload = {'userIdO365' if use_eid else 'orcid': oid}
+            orc = DB['dis'].orcid.find_one(payload)
     except Exception as err:
         raise CustomException(err, "Could not find_one in orcid collection by ORCID ID.") from err
     if not orc:
@@ -506,14 +514,16 @@ def get_orcid_from_db(oid, use_eid=False, both=False, bare=False):
                 + f"{orc['orcid']}</a></td></tr>"
     html += f"<tr><td>Given name:</td><td>{', '.join(sorted(orc['given']))}</td></tr>"
     html += f"<tr><td>Family name:</td><td>{', '.join(sorted(orc['family']))}</td></tr>"
-    if 'employeeId' in orc:
+    if 'userIdO365' in orc:
         link = "<a href='" + f"{app.config['WORKDAY']}{orc['userIdO365']}" \
-               + f"' target='_blank'>{orc['employeeId']}</a>"
-        html += f"<tr><td>Employee ID:</td><td>{link}</td></tr>"
+               + f"' target='_blank'>{orc['userIdO365']}</a>"
+        html += f"<tr><td>User ID:</td><td>{link}</td></tr>"
     if 'affiliations' in orc:
         html += f"<tr><td>Affiliations:</td><td>{', '.join(orc['affiliations'])}</td></tr>"
     html += "</table><br>"
     try:
+        if use_eid:
+            oid = orc['employeeId']
         rows = get_dois_for_orcid(oid, orc, use_eid, both)
     except Exception as err:
         raise err
@@ -581,8 +591,8 @@ def generate_user_table(rows):
         count += 1
         if 'orcid' in row:
             link = f"<a href='/orcidui/{row['orcid']}'>{row['orcid']}</a>"
-        elif 'employeeId' in row:
-            link = f"<a href='/userui/{row['employeeId']}'>No ORCID found</a>"
+        elif 'userIdO365' in row:
+            link = f"<a href='/userui/{row['userIdO365']}'>No ORCID found</a>"
         else:
             link = f"<a href='/unvaluserui/{row['_id']}'>No ORCID found</a>"
         auth = DL.get_single_author_details(row, DB['dis'].orcid)
@@ -645,7 +655,7 @@ def add_jrc_fields(row):
     jrc = {}
     prog = re.compile("^jrc_")
     for key, val in row.items():
-        if not re.match(prog, key):
+        if not re.match(prog, key) or key in DO_NOT_DISPLAY:
             continue
         if isinstance(val, list) and key not in ('jrc_preprint'):
             try:
@@ -997,8 +1007,8 @@ def show_tagged_authors(authors):
         who = f"{auth['given']} {auth['family']}"
         if 'orcid' in auth and auth['orcid']:
             who = f"<a href='/orcidui/{auth['orcid']}'>{who}</a>"
-        elif 'employeeId' in auth and auth['employeeId']:
-            who = f"<a href='/userui/{auth['employeeId']}'>{who}</a>"
+        elif 'userIdO365' in auth and auth['userIdO365']:
+            who = f"<a href='/userui/{auth['userIdO365']}'>{who}</a>"
         badges = get_badges(auth)
         tags = []
         if 'group' in auth:
@@ -2057,10 +2067,11 @@ def show_doi_ui(doi):
             authors = DL.get_author_details(row, DB['dis'].orcid)
         except Exception as err:
             return inspect_error(err, 'Could not get author list details')
-        alist, count = show_tagged_authors(authors)
-        if alist:
-            html += f"<br><h4>Janelia authors ({count})</h4>" \
-                    + f"<div class='scroll'>{''.join(alist)}</div>"
+        if authors:
+            alist, count = show_tagged_authors(authors)
+            if alist:
+                html += f"<br><h4>Janelia authors ({count})</h4>" \
+                        + f"<div class='scroll'>{''.join(alist)}</div>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=doi, html=html,
                                          navbar=generate_navbar('DOIs')))
@@ -2604,6 +2615,41 @@ def dois_month(year=str(datetime.now().year)):
                                          navbar=generate_navbar('DOIs')))
 
 
+@app.route('/dois_pending')
+def dois_pending():
+    ''' Show DOIs awaiting processing
+    '''
+    try:
+        cnt = DB['dis'].dois_to_process.count_documents({})
+        rows = DB['dis'].dois_to_process.find({})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs " \
+                                                    + "from dois_to_process collection"),
+                               message=error_message(err))
+    html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
+           + '<th>DOI</th><th>Inserted</th><th>Time waiting</th>' \
+           + '</tr></thead><tbody>'
+    if not cnt:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning("No DOIs found", 'warning'),
+                               message="No DOIs are awaiting processing")
+    for row in rows:
+        elapsed = datetime. now() - row['inserted']
+        if elapsed.days:
+            etime = f"{elapsed.days} day{'s' if elapsed.days > 1 else ''}, " \
+                    + f"{elapsed.seconds // 3600:02}:{elapsed.seconds // 60 % 60:02}:" \
+                    + f"{elapsed.seconds % 60:02}"
+        else:
+            etime = f"{elapsed.seconds // 3600:02}:{elapsed.seconds // 60 % 60:02}:" \
+                    + f"{elapsed.seconds % 60:02}"
+        html += f"<tr><td>{doi_link(row['doi'])}</td><td>{row['inserted']}</td><td>{etime}</td>"
+    html += '</tbody></table>'
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title="DOIs awaiting processing", html=html,
+                                         navbar=generate_navbar('DOIs')))
+
+
 @app.route('/dois_publisher')
 def dois_publisher():
     ''' Show publishers with counts
@@ -2748,7 +2794,7 @@ def dois_top(num):
 @app.route('/dois_report/<string:year>')
 @app.route('/dois_report')
 def dois_report(year=str(datetime.now().year)):
-    ''' Show publishers with counts
+    ''' Show year in review
     '''
     pmap = {"journal-article": "Journal articles", "posted-content": "Preprints",
             "proceedings-article": "Proceedings articles", "book-chapter": "Book chapters",
@@ -3080,7 +3126,7 @@ def show_oid_ui(oid):
     else:
         who = f"{name['given-names']['value']} {name['family-name']['value']}"
     try:
-        orciddata, dois = get_orcid_from_db(oid, use_eid=bool('employeeId' in oid), both=True)
+        orciddata, dois = get_orcid_from_db(oid, use_eid=bool('userIdO365' in oid), both=True)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
                                 title=render_warning(f"Could not find ORCID ID {oid}", 'error'),
@@ -3107,15 +3153,15 @@ def show_user_ui(eid):
         orciddata, _ = get_orcid_from_db(eid, use_eid=True)
     except CustomException as err:
         return render_template('error.html', urlroot=request.url_root,
-                                title=render_warning(f"Could not find employee ID {eid}",
+                                title=render_warning(f"Could not find user ID {eid}",
                                                      'warning'),
                                 message=error_message(err))
     if not orciddata:
         return render_template('warning.html', urlroot=request.url_root,
-                               title=render_warning(f"Could not find employee ID {eid}", 'warning'),
+                               title=render_warning(f"Could not find user ID {eid}", 'warning'),
                                message="Could not find any information for this employee ID")
     return make_response(render_template('general.html', urlroot=request.url_root,
-                                         title=f"Employee ID {eid}", html=orciddata,
+                                         title=f"User ID {eid}", html=orciddata,
                                          navbar=generate_navbar('ORCID')))
 
 
@@ -3279,20 +3325,39 @@ def orcid_duplicates():
     for check in ("employeeId", "orcid"):
         payload = [{"$sortByCount": f"${check}"},
                    {"$match": {"_id": {"$ne": None}, "count": {"$gt": 1}}}
-                 ]
+                  ]
         try:
-            rows = DB['dis'].orcid.aggregate(payload)
+            rowsobj = DB['dis'].orcid.aggregate(payload)
         except Exception as err:
             return render_template('error.html', urlroot=request.url_root,
                                    title=render_warning(f"Could not get duplicate {check}s " \
                                                         + "from orcid collection"),
                                    message=error_message(err))
+        rows = []
+        for row in rowsobj:
+            rows.append(row)
         if rows:
-            arr = []
+            if check == 'employeeId':
+                html += f"{check}<table id='duplicates' class='tablesorter standard'><thead><tr>" \
+                        + "<th>Name</th><th>ORCIDs</th></tr></thead><tbody>"
+            else:
+                html += f"{check}<table id='duplicates' class='tablesorter standard'><thead><tr>" \
+                        + "<th>Name</th><th>User IDs</th></tr></thead><tbody>"
             for row in rows:
-                arr.append(f"<a href='userui/{row['_id']}'>{row['_id']}</a>")
-            if arr:
-                html += f"<h3>{check} duplicates</h3>{', '.join(arr)}"
+                try:
+                    recs = DB['dis'].orcid.find({"employeeId": row['_id']})
+                except Exception as err:
+                    return render_template('error.html', urlroot=request.url_root,
+                                           title=render_warning("Could not get ORCID data for " \
+                                                                + row['_id']),
+                                           message=error_message(err))
+                names = []
+                other = []
+                for rec in recs:
+                    names.append(f"{rec['given'][0]} {rec['family'][0]}")
+                    other.append(f"<a href=\"https://orcid.org/{rec['orcid']}\">{rec['orcid']}</a>")
+                html += f"<tr><td>{', '.join(names)}</td><td>{', '.join(other)}</td></tr>"
+            html += '</tbody></table>'
         if not html:
             html = "<p>No duplicates found</p>"
     return make_response(render_template('general.html', urlroot=request.url_root,
@@ -3325,15 +3390,14 @@ def people(name=None):
                                              navbar=generate_navbar('ORCID')))
     html = "<br><br><h3>Select a name for details:</h3>"
     html += "<table id='people' class='tablesorter standard'><thead><tr><th>Name</th>" \
-            + "<th>Title</th><th>Employee ID</th><th>Location</th></tr></thead><tbody>"
+            + "<th>Title</th><th>Location</th></tr></thead><tbody>"
     for rec in response:
         pname = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
-        link = f"<a href='/peoplerec/{rec['employeeId']}'>{pname}</a>"
+        link = f"<a href='/peoplerec/{rec['userIdO365']}'>{pname}</a>"
         loc = rec['locationName'] if 'locationName' in rec else ""
         if "Janelia" in loc:
             loc = f"<span style='color:lime'>{loc}</span>"
-        html += f"<tr><td>{link}</td><td>{rec['businessTitle']}</td><td>{rec['employeeId']}</td>" \
-                + f"<td>{loc}</td></tr>"
+        html += f"<tr><td>{link}</td><td>{rec['businessTitle']}</td><td>{loc}</td></tr>"
     html += "</tbody></table>"
     return make_response(render_template('people.html', urlroot=request.url_root,
                                          title="Search People system", content=html,
@@ -3355,6 +3419,9 @@ def peoplerec(eid):
                                title=render_warning(f"Could not find People record for {eid}"),
                                message="No record found")
     title = f"{rec['nameFirstPreferred']} {rec['nameLastPreferred']}"
+    for field in ['employeeId', 'managerId']:
+        if field in rec:
+            del rec[field]
     if 'photoURL' in rec:
         title += f"&nbsp;<img src='{rec['photoURL']}' width=100 height=100 " \
                  + f"alt='Photo of {rec['nameFirstPreferred']}'>"
@@ -3379,6 +3446,8 @@ def stats_database():
             for key, val in stat['indexSizes'].items():
                 indices.append(f"{key} ({humansize(val, space='mem')})")
             free = stat['freeStorageSize'] / stat['storageSize'] * 100
+            if 'avgObjSize' not in stat:
+                stat['avgObjSize'] = 0
             collection[cname] = {"docs": f"{stat['count']:,}",
                                  "docsize": humansize(stat['avgObjSize'], space='mem'),
                                  "size": humansize(stat['storageSize'], space='mem'),

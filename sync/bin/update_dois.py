@@ -3,10 +3,11 @@
     If a single DOI or file of DOIs is specified, these are updated in FlyBoy/config or DIS MongoDB.
     Otherwise, DOIs are synced according to target:
     - flyboy: FLYF2 to FlyBoy and the config system
-    - dis: FLYF2, Crossref, DataCite, ALPS releases, and EM datasets to DIS MongoDB.
+    - dis: FLYF2, Crossref, DataCite, ALPS releases, EM datasets, and "to process" DOIs
+           to DIS MongoDB.
 """
 
-__version__ = '5.8.1'
+__version__ = '6.2.0'
 
 import argparse
 import configparser
@@ -25,7 +26,8 @@ from tqdm import tqdm
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 
-# pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation
+# pylint: disable=broad-exception-caught,broad-exception-raised,logging-fstring-interpolation,
+# pylint: disable=too-many-lines
 
 # Database
 DB = {}
@@ -45,10 +47,8 @@ DATACITE_CALL = {}
 INSERTED = {}
 UPDATED = {}
 MISSING = {}
+TO_BE_PROCESSED = []
 MAX_CROSSREF_TRIES = 3
-# Email
-SENDER = 'svirskasr@hhmi.org'
-RECEIVERS = ['scarlettv@hhmi.org', 'svirskasr@hhmi.org']
 # General
 PROJECT = {}
 DEFAULT_TAGS = ['Janelia Experimental Technology (jET)', 'Scientific Computing Software']
@@ -224,6 +224,26 @@ def get_dois_from_datacite(query):
     return dlist
 
 
+def add_to_be_processed(dlist):
+    ''' Add DOIs from the dois_to_process collection
+        Keyword arguments:
+          dlist: list of DOIs
+        Returns:
+          None
+    '''
+    try:
+        rows = DB['dis'].dois_to_process.find({})
+    except Exception as err:
+        terminate_program(err)
+    for row in rows:
+        doi = row['doi']
+        if doi not in dlist:
+            TO_BE_PROCESSED.append(doi)
+            dlist.append(doi)
+    if TO_BE_PROCESSED:
+        LOGGER.info(f"Got {len(TO_BE_PROCESSED):,} DOIs from dois_to_process")
+
+
 def get_dois_for_dis(flycore):
     ''' Get a list of DOIs to process for an update of the DIS database. Sources are:
         - DOIs with an affiliation of Janelia from Crossref
@@ -232,6 +252,7 @@ def get_dois_for_dis(flycore):
         - DOIs in use by FLYF2
         - DOIs associated with ALPs releases
         - DOIs associated with FlyEM datasets
+        - DOIs from dois_to_process collection
         - DOIs that are already in the DIS database
         Keyword arguments:
           flycore: list of DOIs from FlyCore
@@ -258,11 +279,10 @@ def get_dois_for_dis(flycore):
                     dlist.append(val['doi'][dtype])
     LOGGER.info(f"Got {cnt:,} DOIs from ALPS releases")
     # EM datasets
-    disconfig = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     emdois = JRC.simplenamespace_to_dict(JRC.get_config('em_dois'))
     cnt = 0
     for key, val in emdois.items():
-        if key in disconfig['em_dataset_ignore']:
+        if key in DISCONFIG['em_dataset_ignore']:
             continue
         if val and isinstance(val, str):
             cnt += 1
@@ -271,6 +291,8 @@ def get_dois_for_dis(flycore):
             for dval in val:
                 cnt += 1
                 dlist.append(dval)
+    # DOIs to be processed
+    add_to_be_processed(dlist)
     LOGGER.info(f"Got {cnt:,} DOIs from EM releases")
     # Previously inserted
     for doi in EXISTING:
@@ -755,6 +777,11 @@ def update_mongodb(persist):
             else:
                 val['jrc_load_source'] = "Sync"
             coll.update_one({"doi": key}, {"$set": val}, upsert=True)
+            if key in TO_BE_PROCESSED:
+                try:
+                    DB['dis'].dois_to_process.delete_one({"doi": key})
+                except Exception as err:
+                    LOGGER.error(f"Could not delete {key} from dois_to_process: {err}")
         if key in EXISTING:
             COUNT['update'] += 1
             if key not in UPDATED:
@@ -849,7 +876,7 @@ def process_dois():
     update_dois(specified, persist)
 
 
-def generate_email():
+def generate_emails():
     ''' Generate and send an email
         Keyword arguments:
           None
@@ -863,9 +890,25 @@ def generate_email():
     for doi in INSERTED:
         msg += f"\n{doi}"
     try:
-        LOGGER.info(f"Sending email to {RECEIVERS}")
-        JRC.send_email(msg, SENDER, ['svirskasr@hhmi.org'] if ARG.MANIFOLD == 'dev' else RECEIVERS,
+        LOGGER.info(f"Sending email to {DISCONFIG['receivers']}")
+        JRC.send_email(msg, DISCONFIG['sender'], DISCONFIG['developer'] \
+                       if ARG.MANIFOLD == 'dev' else DISCONFIG['receivers'],
                        "New DOIs")
+    except Exception as err:
+        LOGGER.error(err)
+    if not TO_BE_PROCESSED:
+        return
+    msg = JRC.get_run_data(__file__, __version__)
+
+    msg += "The following DOIs from a previous weekly cycle have been added to the database. " \
+           + "Metadata should be updated as soon as possible."
+    for doi in TO_BE_PROCESSED:
+        msg += f"\n{doi}"
+    try:
+        LOGGER.info(f"Sending email to {DISCONFIG['librarian']}")
+        JRC.send_email(msg, DISCONFIG['sender'], DISCONFIG['developer'] if ARG.MANIFOLD == 'dev' \
+                                                                        else DISCONFIG['librarian'],
+                       "Action needed: new DOIs")
     except Exception as err:
         LOGGER.error(err)
 
@@ -915,7 +958,7 @@ def post_activities():
     print(f"DOI calls to DataCite: {len(DATACITE_CALL):,}")
     # Email
     if INSERTED and ARG.WRITE:
-        generate_email()
+        generate_emails()
     if not ARG.WRITE:
         LOGGER.warning("Dry run successful, no updates were made")
 
@@ -956,6 +999,7 @@ if __name__ == '__main__':
     CONFIG = configparser.ConfigParser()
     CONFIG.read('config.ini')
     initialize_program()
+    DISCONFIG = JRC.simplenamespace_to_dict(JRC.get_config("dis"))
     REST = JRC.get_config("rest_services")
     START_TIME = datetime.now()
     if ARG.TARGET == 'flyboy':
