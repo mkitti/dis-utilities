@@ -15,7 +15,7 @@
 | update_orcid.py            | Synchronize ORCID names and IDs                        | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/) |
 | update_preprints.py        | Update preprint relations                              | [Immediately following a scheduled run of *update_dois.py*](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_preprints/) |
 
-Of the above programs, only *update_dois.py*, *update_orcid.py*, and *update_preprints.py* update the database directly. The "pull" programs and *find_unloaded_relations.py* pass information to *update_dois.py* via text files.
+Of the above programs, only *update_dois.py*, *update_orcid.py*, and *update_preprints.py* update the database directly. The "*pull*" programs and *find_unloaded_relations.py* pass information to *update_dois.py* via text files.
 
 ## Development setup
 
