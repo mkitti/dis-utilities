@@ -2,18 +2,18 @@
 
 ## Programs for automated synchronization of dis database from external sources
 
-| Name                       | Description                                            |
-| -------------------------- | ------------------------------------------------------ |
-| email_authors.py           | Email information on newly-curated DOIs to authors     |
-| find_unloaded_relations.py | Find referenced DOIS that are not in the database                      |
-| group_search.py            | Find resources authored by group (lab) heads           |
-| pull_arxiv.py              | Produce a list of aRxiv DOIs eligible for insertion    |
-| pull_bioRxiv.py            | Produce a list of bioRxiv DOIs eligible for insertion  |
-| pull_figshare.py           | Produce a list of figshare DOIs eligible for insertion |
-| pull_oa.py                 | Produce a list of OA DOIs eligible for insertion       |
-| update_dois.py             | Synchronize DOI information from Crossref/DataCite     |
-| update_orcid.py            | Synchronize ORCID names and IDs                        |
-| update_preprints.py        | Update preprint relations                              |
+| Name                       | Description                                            | Run frequency          |
+| -------------------------- | ------------------------------------------------------ | ---------------------- |
+| email_authors.py           | Email information on newly-curated DOIs to authors     | [Every Monday morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-email_authors/)
+| find_unloaded_relations.py | Find referenced DOIS that are not in the database      | [Immediately following a scheduled run of *update_dois.py*](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-find_unloaded/) |
+| group_search.py            | Find resources authored by group (lab) heads           | |
+| pull_arxiv.py              | Produce a list of aRxiv DOIs eligible for insertion    | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/) |
+| pull_bioRxiv.py            | Produce a list of bioRxiv DOIs eligible for insertion  | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_bioarxiv/) |
+| pull_figshare.py           | Produce a list of figshare DOIs eligible for insertion | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_figshare/) |
+| pull_oa.py                 | Produce a list of OA DOIs eligible for insertion       | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_oa/) |
+| update_dois.py             | Synchronize DOI information from Crossref/DataCite     | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/) |
+| update_orcid.py            | Synchronize ORCID names and IDs                        | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/) |
+| update_preprints.py        | Update preprint relations                              | [Immediately following a scheduled run of *update_dois.py*](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_preprints/) |
 
 ## Development setup
 
@@ -79,9 +79,6 @@ status. Results of a typical run are below:
     ORCIDs updated:                 657
     ORCIDs set to alumni:           0
 ```
-### Running in production
-
-The *update_orcid.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/).
 
 ## DOIs
 
@@ -118,10 +115,6 @@ collection) are reprocessed. Results of a typical run are below:
 ```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
-### Running in production
-
-The *update_dois.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/).
-
 ### FlyCore processing 
 A list of DOIs is retrieved from the FLYF2 database using the
 [FlyCore responder](https://informatics-prod.int.janelia.org/cgi-bin/flycore_responder.cgi?request=doilist).
@@ -144,9 +137,6 @@ a typical run are below:
     DOI calls to Crossref: 105
     DOI calls to DataCite: 1
 ```
-### Running in production
-
-The *update_dois.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-flyboy-update_dois/).
 
 ### arXiv
 Potentially relevant DOIs are found in the arXiv repository:
@@ -163,10 +153,6 @@ New DOIs are inserted. Results of a typical run are below:
 ```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
-### Running in production
-
-The *pull_arxiv.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/).
-
 ### bioRxiv
 Potentially relevant DOIs are found in the bioRxiv repository:
 - At least one author has an affiliation containing "Janelia" or an ORCID in the orcid collection
@@ -182,10 +168,6 @@ New DOIs are inserted. Results of a typical run are below:
 ```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
-### Running in production
-
-The *pull_biorxiv.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_biorxiv/).
-
 ### figshare
 Relevant DOIs are found in the figshare repository:
 - Institution = 295
@@ -197,10 +179,6 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs ready for processing: 0
 ```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
-
-### Running in production
-
-The *pull_figshare.py* program is run every morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_figshare/).
 
 ### OA
 DOIs are found in the OA repository. **All** DOIs from this repository are relevant. There will be some without current 
@@ -215,10 +193,6 @@ New DOIs are inserted. Results of a typical run are below:
     DOIs ready for processing:       193
 ```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
-
-### Running in production
-
-The *pull_oa.py* program is run every Friday morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_oa/).
 
 ### Notifying authors of curated resources 
 Resources (with the exception of DataCite datasets) that have been curated (jrc_newsletter date is set) are found,
@@ -235,10 +209,6 @@ Results of a typical run (with --verbose) are below:
     INFO:root:Email sent to David Stern (sternd@janelia.hhmi.org)
 ```
 A summary is emailed to Virginia and Rob.
-
-### Running in production
-
-The *email_authors.py* program is run every Monday morning on [Jenkins](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-email_authors/).
 
 ### Finding preprint relations 
 MAtches between preprints and journal articles are searched for using all available DOIs in the dois collection. DOIs will
@@ -271,7 +241,3 @@ Primary DOIs with relations:  502
 Preprint relations:           542
 Primary relations:            542
 ```
-
-### Running in production
-
-The *update_preprints.py* program is run immediately following a scheduled run of *update_dois.py*.
