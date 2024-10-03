@@ -10,18 +10,27 @@
 [![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?style=for-the-badge&logo=mongodb&logoColor=white)](https://www.mongodb.com/)
 [![Docker](https://img.shields.io/badge/Docker-2CA5E0?style=for-the-badge&logo=docker&logoColor=white)](https://www.docker.com/)
 
-## Utilities for Data and Information Services
+## DOI system and utilities for Data and Information Services
 
-This repository is split into three sections:
+This system automatically discovers papers and datasets published by HHMI Janelia staff and stores them in a MongoDB database. The automated scripts, which are run periodically (nightly or weekly), also make "educated guesses" about metadata that are of strategic interest to Janelia, such as labs, teams, and employees who contributed to the work. Utility scripts allow the librarian to curate these metadata in a semi-automated fashion. A Flask-based application provides a user interface, visualizations, and a REST API.
+
+This repository is split into four sections:
 
 - [api](api/README.md): Web-based user interface and REST API
+- [etl](etl/README.md): programs for ETL (Extract-Transform-Load) for creating/maintaining DIS database
 - [sync](sync/README.md): programs meant to be periodically run in the backgroud to sync the DIS database from external data sources
-- [utility](utility/README.md): utility programs
+- [utility](utility/README.md): utility programs to be run interactively on the command line, for CRUD operations on database collections
 
 ## DIS system architecture
 ![DIS system architecture](DIS_architecture.png?raw=true "DIS system architecture")
 
 The DIS system is based on a MongoDB database with collections to persist DOIs, ORCIDs, and project mappings. Python programs are used for ETL and updates. A Flask-based application provides user interface, visualizations, and a REST API.
+
+The DIS MongoDB database contains four collections:
+- *dois*: local persistence of records from Crossref or DataCite along with Janelia metadata
+- *dois_to_process*: transient storage for DOIs that are present in secondary systems (e.g. bioRxiv) but not yet available in Crossref/DataCite
+- *orcid*: Janelia authors. Data in this collection is drawn fro ORCID and the HHMI People system.
+- *project_map*: mapping of alternate project names to approved tags
 
 ### Python command line programs
 The Python programs in the [sync](sync/README.md) and [utility](utility/README.md) sections of this repository are meant to be run from the Unix command line, preferably from inside a Python virtual environment. To see which command line parameters may be specified for programs, use --help:
@@ -35,6 +44,10 @@ Most of the command line programs have a set of common parameters:
 - --write: actually write to the database. If not specified, no rows will be updated in the MongoDB database
 - --verbose: verbose mode for logging - status messages are printed to STDOUT - this is chatty
 - --debug: debug mode for logging - debug messages are printed to STDOUT - this is chatty in the extreme
+
+Other common parameters:
+- --doi: a single DOI to process
+- --file: a file of DOIs to process (one DOI per line)
 
 ### Configuration
 While this system does use some config files, the database credentials are stored in the <a href="https://github.com/JaneliaSciComp/configurator" target="_blank">Configuration system</a>.
