@@ -204,7 +204,6 @@ def propose_candidates(author):
     strp_middle2 = name_search(unidecode(name.first), unidecode(name.middle.split()[1])) if len(name.middle.split())==2 else None
     all_results = [basic, stripped, hyphen_split1, hyphen_split2, strp_hyph1, strp_hyph2, two_middle_names1, two_middle_names2, strp_middle1, strp_middle2]
     candidate_ids = [id for id in list(set(flatten(all_results))) if id is not None]
-    print(candidate_ids)
     candidate_employees = [create_employee(id) for id in candidate_ids]
     candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
     return(fuzzy_match(author, candidate_employees))
@@ -631,7 +630,6 @@ if __name__ == '__main__':
 
             for author in all_authors: 
                 if author.check == True:
-                    print(author.name)
                     final_choice = get_corresponding_employee(author, orcid_collection, arg.VERBOSE, arg.WRITE)
                     if final_choice == None:
                         revised_jrc_authors.append(Employee(exists=False))
@@ -685,5 +683,5 @@ if __name__ == '__main__':
 #doi='10.7554/eLife.80622'
 #doi = '10.1038/s41593-024-01738-9'
 
-#A tricky employee Id: 42651 (Xuhong Cao) Middle name is a None object
+#A tricky employee Id: 42651 Middle name is a None object
 
