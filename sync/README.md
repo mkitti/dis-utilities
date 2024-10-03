@@ -10,7 +10,7 @@
 | pull_arxiv.py              | Produce a list of aRxiv DOIs eligible for insertion    | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_arxiv/) |
 | pull_bioRxiv.py            | Produce a list of bioRxiv DOIs eligible for insertion  | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_bioarxiv/) |
 | pull_figshare.py           | Produce a list of figshare DOIs eligible for insertion | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_figshare/) |
-| pull_oa.py                 | Produce a list of OA DOIs eligible for insertion       | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_oa/) |
+| pull_oa.py                 | Produce a list of OA.Works DOIs eligible for insertion | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-pull_oa/) |
 | update_dois.py             | Synchronize DOI information from Crossref/DataCite     | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_dois/) |
 | update_orcid.py            | Synchronize ORCID names and IDs                        | [Every morning](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_orcid/) |
 | update_preprints.py        | Update preprint relations                              | [Immediately following a scheduled run of *update_dois.py*](https://jenkins.int.janelia.org/view/DIS/job/DIS-sync-dis-update_preprints/) |
@@ -180,8 +180,8 @@ New DOIs are inserted. Results of a typical run are below:
 ```
 Any newly-inserted DOIs are emailed to Virginia and Rob.
 
-### OA
-DOIs are found in the OA repository. **All** DOIs from this repository are relevant. There will be some without current 
+### OA.Works
+DOIs are found in the OA.Works repository. **All** DOIs from this repository are relevant. There will be some without current 
 Janelia authors; these are alumni.
 New DOIs are inserted. Results of a typical run are below:
 ```
