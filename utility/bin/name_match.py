@@ -94,9 +94,9 @@ def create_employee(id):
         email = idsearch_results['email'].strip() if 'email' in idsearch_results else None
         location = idsearch_results['locationName'].strip() if 'locationName'in idsearch_results else None # will be 'Janelia Research Campus' for janelians
         supOrgName = idsearch_results['supOrgName'].strip() if 'supOrgName' in idsearch_results and idsearch_results['supOrgName'] else None
-        first_names = [ idsearch_results['nameFirstPreferred'].strip(), idsearch_results['nameFirst'].strip() ]
-        middle_names = [ idsearch_results['nameMiddlePreferred'].strip(), idsearch_results['nameMiddle'].strip() ]
-        last_names = [ idsearch_results['nameLastPreferred'].strip(), idsearch_results['nameLast'].strip() ]
+        first_names = [ idsearch_results['nameFirstPreferred'].strip() if idsearch_results['nameFirstPreferred'] else None, idsearch_results['nameFirst'].strip() if idsearch_results['nameFirst'] else None]
+        middle_names = [ idsearch_results['nameMiddlePreferred'].strip() if idsearch_results['nameMiddlePreferred'] else None, idsearch_results['nameMiddle'].strip() if idsearch_results['nameMiddle'] else None]
+        last_names = [ idsearch_results['nameLastPreferred'].strip() if idsearch_results['nameLastPreferred'] else None, idsearch_results['nameLast'].strip() if idsearch_results['nameLast'] else None ]
         return(
             Employee(
             id=id,
@@ -202,9 +202,9 @@ def propose_candidates(author):
     two_middle_names2 = name_search(name.first, name.middle.split(' ')[1]) if len(name.middle.split())==2 else None
     strp_middle1 = name_search(unidecode(name.first), unidecode(name.middle.split()[0])) if len(name.middle.split())==2 else None # split on middle name space and decoded
     strp_middle2 = name_search(unidecode(name.first), unidecode(name.middle.split()[1])) if len(name.middle.split())==2 else None
-
     all_results = [basic, stripped, hyphen_split1, hyphen_split2, strp_hyph1, strp_hyph2, two_middle_names1, two_middle_names2, strp_middle1, strp_middle2]
     candidate_ids = [id for id in list(set(flatten(all_results))) if id is not None]
+    print(candidate_ids)
     candidate_employees = [create_employee(id) for id in candidate_ids]
     candidate_employees = [e for e in candidate_employees if e.location == 'Janelia Research Campus']
     return(fuzzy_match(author, candidate_employees))
@@ -631,6 +631,7 @@ if __name__ == '__main__':
 
             for author in all_authors: 
                 if author.check == True:
+                    print(author.name)
                     final_choice = get_corresponding_employee(author, orcid_collection, arg.VERBOSE, arg.WRITE)
                     if final_choice == None:
                         revised_jrc_authors.append(Employee(exists=False))
@@ -683,4 +684,6 @@ if __name__ == '__main__':
 #doi='10.1038/s41556-023-01154-4'
 #doi='10.7554/eLife.80622'
 #doi = '10.1038/s41593-024-01738-9'
+
+#A tricky employee Id: 42651
 
