@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '2.0.0'
+__version__ = '2.1.0'
 
 import argparse
 import collections
@@ -10,6 +10,7 @@ from datetime import datetime, timedelta
 import json
 from operator import attrgetter
 import sys
+from colorama import Fore, Back, Style
 import inquirer
 from inquirer.themes import BlueComposure
 import jrc_common.jrc_common as JRC
@@ -161,7 +162,6 @@ def get_tag_choices(tags, tagauth, rec):
           tagd: dict of tags by tag name
           current: list of current tags
     """
-    from colorama import Fore, Back, Style
     tags.sort()
     tagd = {}
     current = []
@@ -206,6 +206,9 @@ def update_single_doi(rec):
     print(f"DOI: {rec['doi']}")
     print(f"{DL.get_title(rec)}")
     print(', '.join(janelians))
+    if 'jrc_newsletter' in rec and rec['jrc_newsletter']:
+        print(f"{Fore.LIGHTYELLOW_EX}{Back.BLACK}DOI has newsletter date of " \
+              + f"{rec['jrc_newsletter']}{Style.RESET_ALL}")
     today = datetime.today().strftime('%Y-%m-%d')
     quest = []
     if tagd:
