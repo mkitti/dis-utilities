@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "20.0.0"
+__version__ = "20.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -558,6 +558,7 @@ def add_orcid_works(data, dois):
             inner += f"<tr><td>{pdate}</td><td>&nbsp;</td>" \
                      + f"<td>{wsumm['title']['title']['value']}</td></tr>"
             continue
+        link = ""
         if work['external-ids']['external-id'][0]['external-id-url']:
             if work['external-ids']['external-id'][0]['external-id-url']:
                 link = "<a href='" \
@@ -1779,7 +1780,6 @@ def show_multiple_components(ctype='dis'):
     result['rest']['source'] = 'mongo'
     result['data'] = []
     try:
-        #TAG replace jrc.tag with jrc_tag.name
         rows = DB['dis'].dois.find({"jrc_tag.name": ipd['tag']}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
@@ -2714,13 +2714,19 @@ def dois_tag():
                {"$sort": {"_id.tag": 1}}
               ]
     try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get supervisory orgs"),
+                               message=error_message(err))
+    try:
         rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get tags from dois collection"),
                                message=error_message(err))
     html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Tag</th><th>Crossref</th><th>DataCite</th>' \
+           + '<th>Tag</th><th>SupOrg</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
     tags = {}
     for row in rows:
@@ -2731,10 +2737,17 @@ def dois_tag():
     for tag, val in tags.items():
         onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag + "\")'"
         link = f"<a href='#' {onclick}>{tag}</a>"
-        html += f"<tr><td>{link}</td>"
+        if tag in orgs:
+            if orgs[tag]:
+                org = "<span style='color: lime;'>Yes</span>"
+            else:
+                org = "<span style='color: yellow;'>No code</span>"
+        else:
+            org = "<span style='color: red;'>No</span>"
+        html += f"<tr><td>{link}</td><td>{org}</td>"
         for source in app.config['SOURCES']:
             if source in val:
-                onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag \
+                onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag \
                           + "\",\"" + source + "\")'"
                 link = f"<a href='#' {onclick}>{val[source]:,}</a>"
             else:
@@ -3230,23 +3243,36 @@ def orcid_tag():
                {"$sort": {"_id": 1}}
               ]
     try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get supervisory orgs"),
+                               message=error_message(err))
+    try:
         rows = DB['dis'].orcid.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get affiliations " \
                                                     + "from orcid collection"),
                                message=error_message(err))
-    html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
-           + '<th>Affiliation</th><th>Authors</th>' \
+    html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
+           + '<th>Affiliation</th><th>SupOrg</th><th>Authors</th>' \
            + '</tr></thead><tbody>'
     count = 0
     for row in rows:
         count += 1
         link = f"<a href='/affiliation/{escape(row['_id'])}'>{row['count']:,}</a>"
-        html += f"<tr><td>{row['_id']}</td><td>{link}</td></tr>"
+        if row['_id'] in orgs:
+            if orgs[row['_id']]:
+                org = "<span style='color: lime;'>Yes</span>"
+            else:
+                org = "<span style='color: yellow;'>No code</span>"
+        else:
+            org = "<span style='color: red;'>No</span>"
+        html += f"<tr><td>{row['_id']}</td><td>{org}</td><td>{link}</td></tr>"
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
-                                         title=f"ORCID affiliations ({count:,})", html=html,
+                                         title=f"Author affiliations ({count:,})", html=html,
                                          navbar=generate_navbar('ORCID')))
 
 
