@@ -2,11 +2,12 @@
     Update tags for selected DOIs
 """
 
-__version__ = '1.3.0'
+__version__ = '2.0.0'
 
 import argparse
 import collections
 from datetime import datetime, timedelta
+import json
 from operator import attrgetter
 import sys
 import inquirer
@@ -19,6 +20,7 @@ import doi_common.doi_common as DL
 # Database
 DB = {}
 PROJECT = {}
+SUPORG = {}
 # Counters
 COUNT = collections.defaultdict(lambda: 0, {})
 
@@ -62,6 +64,12 @@ def initialize_program():
         terminate_program(err)
     for row in rows:
         PROJECT[row['name']] = row['project']
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        terminate_program(err)
+    for key, val in orgs.items():
+        SUPORG[key] = val
 
 
 def get_dois():
@@ -153,15 +161,34 @@ def get_tag_choices(tags, tagauth, rec):
           tagd: dict of tags by tag name
           current: list of current tags
     """
+    from colorama import Fore, Back, Style
     tags.sort()
     tagd = {}
     current = []
+    tagnames = []
+    if 'jrc_tag' in rec:
+        tagnames = [etag['name'] for etag in rec['jrc_tag']]
     for tag in tags:
-        newtag = f"{tag} ({', '.join(tagauth[tag])})"
-        if 'jrc_tag' in rec and tag in rec['jrc_tag']:
+        alert = ""
+        if tag not in SUPORG:
+            alert = f" {Fore.RED}{Back.BLACK}(not a supervisory organization){Style.RESET_ALL}"
+        newtag = f"{tag} ({', '.join(tagauth[tag])}) {alert}"
+        if tag in tagnames:
             current.append(newtag)
         tagd[newtag] = tag
     return tagd, current
+
+
+def get_suporg_code(name):
+    ''' Get the code for a supervisory organization
+        Keyword arguments:
+          name: name of the organization
+        Returns:
+          Code for the organization
+    '''
+    if name in SUPORG:
+        return SUPORG[name]
+    return None
 
 
 def update_single_doi(rec):
@@ -195,7 +222,9 @@ def update_single_doi(rec):
     if 'checklist' in ans:
         tags = []
         for tag in ans['checklist']:
-            tags.append(tagd[tag])
+            code = get_suporg_code(tagd[tag])
+            tagtype = 'suporg' if code else 'affiliation'
+            tags.append({"name": tagd[tag], "code": code, "type": tagtype})
         if tags:
             payload["jrc_tag"] = tags
     if 'newsletter' in ans and ans['newsletter'] == 'Yes':
@@ -211,7 +240,7 @@ def update_single_doi(rec):
         if not tags:
             result = coll.update_one({"doi": rec['doi']}, {"$unset": {"jrc_tag":1}})
     else:
-        print(f"{rec['doi']} {payload}")
+        print(f"{rec['doi']}\n{json.dumps(payload, indent=2)}")
         COUNT['updated'] += 1
 
 

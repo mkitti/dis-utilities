@@ -73,7 +73,10 @@ def create_doilists(row):
           None
     '''
     if 'jrc_tag' in row:
-        TAGLIST[row['doi']] = ", ".join(row['jrc_tag'])
+        rtags = []
+        for tag in row['jrc_tag']:
+            rtags.append(tag['name'])
+        TAGLIST[row['doi']] = ", ".join(rtags)
     if 'jrc_author' not in row:
         return
     names = []

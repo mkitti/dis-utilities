@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "19.1.0"
+__version__ = "20.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -54,18 +54,17 @@ NAV = {"Home": "",
                  "Affiliations": "orcid_tag",
                  "Entries": "orcid_entry",
                  "Duplicates": "orcid_duplicates",
-                 "Search People system": "people",
                 },
        "Stats" : {"Database": "stats_database"
                  },
+       "External systems": {"Search People system": "people",
+                            "Supervisory Organizations": "orgs",
+                           }
       }
 # Sources
-SOURCES = ["Crossref", "DataCite"]
-JANELIA_PREFIX = '10.25378'
+
 # Dates
 OPSTART = datetime.strptime('2024-05-16','%Y-%m-%d')
-# UI
-DO_NOT_DISPLAY = ['jrc_author', 'jrc_first_id', 'jrc_last_id']
 
 # ******************************************************************************
 # * Classes                                                                    *
@@ -262,6 +261,9 @@ def generate_navbar(active):
         if subhead:
             nav += drop + menuhead
             for itm, val in subhead.items():
+                if itm == 'divider':
+                    nav += "<div class='dropdown-divider'></div>"
+                    continue
                 link = f"/{val}" if val else ('/' + itm.replace(" ", "_")).lower()
                 nav += f"<a class='dropdown-item' href='{link}'>{itm}</a>"
             nav += '</div></li>'
@@ -655,11 +657,14 @@ def add_jrc_fields(row):
     jrc = {}
     prog = re.compile("^jrc_")
     for key, val in row.items():
-        if not re.match(prog, key) or key in DO_NOT_DISPLAY:
+        if not re.match(prog, key) or key in app.config['DO_NOT_DISPLAY']:
             continue
         if isinstance(val, list) and key not in ('jrc_preprint'):
             try:
-                val = ", ".join(sorted(val))
+                if isinstance(val[0], dict):
+                    val = ", ".join(sorted(elem['name'] for elem in val))
+                else:
+                    val = ", ".join(sorted(val))
             except TypeError:
                 val = json.dumps(val)
         jrc[key] = val
@@ -675,7 +680,7 @@ def add_jrc_fields(row):
             val = ", ".join(link)
         if key == 'jrc_preprint':
             val = doi_link(val)
-        elif key == 'jrc_tag':
+        elif 'jrc_tag' in key:
             link = []
             for aff in val.split(", "):
                 link.append(f"<a href='/affiliation/{escape(aff)}'>{aff}</a>")
@@ -705,7 +710,7 @@ def add_relations(row):
     return html
 
 
-def get_migration_data(row, orgs):
+def get_migration_data(row):
     ''' Create a migration record for a single DOI
         Keyword arguments:
           doi: doi record
@@ -716,10 +721,15 @@ def get_migration_data(row, orgs):
     rec = {}
     # Author
     tags = []
-    if 'jrc_tag' in row:
-        for atag in row['jrc_tag']:
-            code = orgs[atag] if atag in orgs else None
-            tags.append({"name": atag, "code": code})
+    if 'jrc_tag' in row and row['jrc_tag']:
+        if isinstance(row['jrc_tag'][0], dict):
+            for atag in row['jrc_tag']:
+                tags.append(atag)
+        #else:
+        #    #TAG Old style - can delete after cutover
+        #    for atag in row['jrc_tag']:
+        #        code = orgs[atag] if atag in orgs else None
+        #        tags.append({"name": atag, "code": code})
     if 'jrc_author' in row:
         rec['jrc_author'] = row['jrc_author']
     if tags:
@@ -1248,12 +1258,18 @@ def show_doi_authors(doi):
         raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     if 'jrc_tag' in row:
         for atag in row['jrc_tag']:
-            if atag not in tagname:
-                code = orgs[atag] if atag in orgs else None
-                tagname.append(atag)
-                tags.append({"name": atag, "code": code})
-        if tags:
-            result['tags'] = tags
+            if atag['name'] not in tagname:
+                if atag['name'] in orgs:
+                    print(orgs[atag['name']]) #PLUG
+                    code = atag['code']
+                    tagtype = atag['type']
+                else:
+                    code = None
+                    tagtype = None
+                tagname.append(atag['name'])
+                tags.append({"name": atag['name'], "code": code, "type": tagtype})
+    if tags:
+        result['tags'] = tags
     result['data'] = authors
     return generate_response(result)
 
@@ -1328,11 +1344,7 @@ def show_doi_migration(doi):
         rec = []
     else:
         try:
-            orgs = DL.get_supervisory_orgs()
-        except Exception as err:
-            raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
-        try:
-            rec = get_migration_data(row, orgs)
+            rec = get_migration_data(row)
         except Exception as err:
             raise InvalidUsage(str(err), 500) from err
         rec['doi'] = doi
@@ -1376,14 +1388,10 @@ def show_doi_migrations(idate):
     result['rest']['row_count'] = 0
     result['rest']['source'] = 'mongo'
     result['data'] = []
-    try:
-        orgs = DL.get_supervisory_orgs()
-    except Exception as err:
-        raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     for row in rows:
         try:
             doi = row['doi']
-            rec = get_migration_data(row, orgs)
+            rec = get_migration_data(row)
             rec['doi'] = doi
             result['data'].append(rec)
         except Exception as err:
@@ -1723,6 +1731,7 @@ def show_dois_custom():
     result['rest']['source'] = 'mongo'
     result['rest']['query'] = ipd['query']
     result['data'] = []
+    print(ipd['query'])
     try:
         rows = DB['dis'].dois.find(ipd['query'], {'_id': 0})
     except Exception as err:
@@ -1770,7 +1779,8 @@ def show_multiple_components(ctype='dis'):
     result['rest']['source'] = 'mongo'
     result['data'] = []
     try:
-        rows = DB['dis'].dois.find({"jrc_tag": ipd['tag']}, {'_id': 0})
+        #TAG replace jrc.tag with jrc_tag.name
+        rows = DB['dis'].dois.find({"jrc_tag.name": ipd['tag']}, {'_id': 0})
     except Exception as err:
         raise InvalidUsage(str(err), 500) from err
     if not rows:
@@ -2202,7 +2212,7 @@ def dois_author(year='All'):
            + '<th>Authorship</th><th>Crossref</th><th>DataCite</th>' \
            + '</tr></thead><tbody>'
     data = {}
-    for src in SOURCES:
+    for src in app.config['SOURCES']:
         data[src] = source[src]
     html += f"<tr><td>All authors</td><td>{source['Crossref-all']:,}</td>" \
             + f"<td>{source['DataCite-all']:,}</td></tr>"
@@ -2453,7 +2463,7 @@ def dois_preprint(year='All'):
     ''' Show preprints
     '''
     source = {}
-    for src in SOURCES:
+    for src in app.config['SOURCES']:
         payload = {"jrc_obtained_from": src, "jrc_preprint": {"$exists": False}}
         if year != 'All':
             payload['jrc_publishing_date'] = {"$regex": "^"+ year}
@@ -2595,7 +2605,7 @@ def dois_month(year=str(datetime.now().year)):
     for mon in data['months']:
         mname = date(1900, int(mon), 1).strftime('%B')
         html += f"<tr><td>{mname}</td>"
-        for source in SOURCES:
+        for source in app.config['SOURCES']:
             if data[source][int(mon)-1]:
                 onclick = "onclick='nav_post(\"publishing_year\",\"" \
                           + f"{year}-{mon}" + "\",\"" + source + "\")'"
@@ -2678,7 +2688,7 @@ def dois_publisher():
         onclick = "onclick='nav_post(\"publisher\",\"" + pub + "\")'"
         link = f"<a href='#' {onclick}>{pub}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in SOURCES:
+        for source in app.config['SOURCES']:
             if source in val:
                 onclick = "onclick='nav_post(\"publisher\",\"" + pub \
                           + "\",\"" + source + "\")'"
@@ -2698,8 +2708,8 @@ def dois_tag():
     ''' Show tags with counts
     '''
     payload = [{"$unwind" : "$jrc_tag"},
-               {"$project": {"_id": 0, "jrc_tag": 1, "jrc_obtained_from": 1}},
-               {"$group": {"_id": {"tag": "$jrc_tag", "source": "$jrc_obtained_from"},
+               {"$project": {"_id": 0, "jrc_tag.name": 1, "jrc_obtained_from": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag.name", "source": "$jrc_obtained_from"},
                            "count":{"$sum": 1}}},
                {"$sort": {"_id.tag": 1}}
               ]
@@ -2719,10 +2729,10 @@ def dois_tag():
         if row['_id']['source'] not in tags[row['_id']['tag']]:
             tags[row['_id']['tag']][row['_id']['source']] = row['count']
     for tag, val in tags.items():
-        onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag + "\")'"
+        onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag + "\")'"
         link = f"<a href='#' {onclick}>{tag}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in SOURCES:
+        for source in app.config['SOURCES']:
             if source in val:
                 onclick = "onclick='nav_post(\"jrc_tag\",\"" + tag \
                           + "\",\"" + source + "\")'"
@@ -2743,8 +2753,8 @@ def dois_top(num):
     ''' Show a chart of DOIs by top tags
     '''
     payload = [{"$unwind" : "$jrc_tag"},
-               {"$project": {"_id": 0, "jrc_tag": 1, "jrc_publishing_date": 1}},
-               {"$group": {"_id": {"tag": "$jrc_tag",
+               {"$project": {"_id": 0, "jrc_tag.name": 1, "jrc_publishing_date": 1}},
+               {"$group": {"_id": {"tag": "$jrc_tag.name",
                                    "year": {"$substrBytes": ["$jrc_publishing_date", 0, 4]}},
                            "count": {"$sum": 1}},
                 },
@@ -2923,7 +2933,7 @@ def dois_year():
         onclick = "onclick='nav_post(\"publishing_year\",\"" + year + "\")'"
         link = f"<a href='#' {onclick}>{year}</a>"
         html += f"<tr><td>{link}</td>"
-        for source in SOURCES:
+        for source in app.config['SOURCES']:
             if source in years[year]:
                 data[source].insert(0, years[year][source])
                 onclick = "onclick='nav_post(\"publishing_year\",\"" + year \
@@ -2936,7 +2946,7 @@ def dois_year():
         html += "</tr>"
     html += '</tbody></table>'
     chartscript, chartdiv = DP.stacked_bar_chart(data, "DOIs published by year/source",
-                                                 xaxis="years", yaxis=SOURCES,
+                                                 xaxis="years", yaxis=app.config['SOURCES'],
                                                  colors=DP.SOURCE_PALETTE)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOIs published by year", html=html,
@@ -3227,13 +3237,13 @@ def orcid_tag():
                                                     + "from orcid collection"),
                                message=error_message(err))
     html = '<table id="types" class="tablesorter numberlast"><thead><tr>' \
-           + '<th>Affiliation</th><th>Count</th>' \
+           + '<th>Affiliation</th><th>Authors</th>' \
            + '</tr></thead><tbody>'
     count = 0
     for row in rows:
         count += 1
-        link = f"<a href='/affiliation/{escape(row['_id'])}'>{row['_id']}</a>"
-        html += f"<tr><td>{link}</td><td>{row['count']:,}</td></tr>"
+        link = f"<a href='/affiliation/{escape(row['_id'])}'>{row['count']:,}</a>"
+        html += f"<tr><td>{row['_id']}</td><td>{link}</td></tr>"
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"ORCID affiliations ({count:,})", html=html,
@@ -3363,6 +3373,63 @@ def orcid_duplicates():
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title="ORCID duplicates", html=html,
                                          navbar=generate_navbar('ORCID')))
+
+
+# ******************************************************************************
+# * UI endpoints (People)                                                      *
+# ******************************************************************************
+@app.route('/orgs')
+def peoporgsle():
+    ''' Show information on supervisory orgs
+    '''
+    payload = [{"$unwind": "$affiliations"},
+               {"$project": {"_id": 0, "affiliations": 1}},
+               {"$group": {"_id": "$affiliations", "count": {"$sum": 1}}}]
+    try:
+        rows = DB['dis'].orcid.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get affiliations from " \
+                                                    + "orcid collection"),
+                               message=error_message(err))
+    aff = {}
+    for row in rows:
+        aff[row['_id']] = row['count']
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get supervisory orgs"),
+                               message=error_message(err))
+    payload = [{"$unwind": "$jrc_tag"},
+               {"$project": {"_id": 0, "jrc_tag.name": 1}},
+               {"$group": {"_id": "$jrc_tag.name", "count": {"$sum": 1}}}]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get affiliations from " \
+                                                    + "orcid collection"),
+                               message=error_message(err))
+    tag = {}
+    for row in rows:
+        if isinstance(row['_id'], dict):
+            continue
+        tag[row['_id']] = row['count']
+    html = "<table id='orgs' class='tablesorter numbers'><thead><tr><th>Name</th><th>Code</th>" \
+           + "<th>Authors</th><th>DOI tags</th></tr></thead><tbody>"
+    for key, val in sorted(orgs.items()):
+        alink = f"<a href='/affiliation/{escape(key)}'>{aff[key]}</a>" if key in aff else ''
+        tlink = ""
+        if key in tag:
+            onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + key + "\")'"
+            tlink = f"<a href='#' {onclick}>{tag[key]}</a>"
+        html += f"<tr><td>{key}</td><td>{val}</td><td>{alink}</td><td>{tlink}</td></tr>"
+    html += "</tbody></table>"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title=f"Supervisory organizations ({len(orgs):,})",
+                                         html=html, navbar=generate_navbar('ORCID')))
+
 
 # ******************************************************************************
 # * UI endpoints (People)                                                      *

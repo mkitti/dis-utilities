@@ -7,7 +7,7 @@
            to DIS MongoDB.
 """
 
-__version__ = '6.2.0'
+__version__ = '7.0.0'
 
 import argparse
 import configparser
@@ -51,6 +51,7 @@ TO_BE_PROCESSED = []
 MAX_CROSSREF_TRIES = 3
 # General
 PROJECT = {}
+SUPORG = {}
 DEFAULT_TAGS = ['Janelia Experimental Technology (jET)', 'Scientific Computing Software']
 COUNT = {'crossref': 0, 'datacite': 0, 'duplicate': 0, 'found': 0, 'foundc': 0, 'foundd': 0,
          'notfound': 0, 'noupdate': 0, 'noauthor': 0,
@@ -120,6 +121,12 @@ def initialize_program():
         terminate_program(err)
     for row in rows:
         PROJECT[row['name']] = row['project']
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        terminate_program(err)
+    for key, val in orgs.items():
+        SUPORG[key] = val
 
 
 def get_dis_dois_from_mongo():
@@ -639,6 +646,18 @@ def persist_author(key, authors, persist):
         LOGGER.warning(f"No Janelia authors for {key}")
 
 
+def get_suporg_code(name):
+    ''' Get the code for a supervisory organization
+        Keyword arguments:
+          name: name of the organization
+        Returns:
+          Code for the organization
+    '''
+    if name in SUPORG:
+        return SUPORG[name]
+    return None
+
+
 def add_tags(persist):
     ''' Add tags to DOI records that will be persisted (jrc_author, jrc_tag)
         Keyword arguments:
@@ -661,14 +680,28 @@ def add_tags(persist):
         # Update jrc_tag
         new_tags = get_tags(authors)
         tags = []
+        tag_names = []
         if 'jrc_tag' in persist:
             tags.extend(persist['jrc_tag'])
+            for etag in tags:
+                if isinstance(etag, str):
+                    tag_names.append(etag)
+                else:
+                    tag_names.append(etag['name'])
         else:
             if rec and 'jrc_tag' in rec:
                 tags.extend(rec['jrc_tag'])
+                for etag in tags:
+                    if isinstance(etag, str):
+                        tag_names.append(etag)
+                    else:
+                        tag_names.append(etag['name'])
+        names = [etag['name'] for etag in tags]
         for tag in new_tags:
-            if tag not in tags:
-                tags.append(tag)
+            if tag not in names:
+                code = get_suporg_code(tag)
+                tagtype = 'suporg' if code else 'affiliation'
+                tags.append({"name": tag, "code": code, "type": tagtype})
         if tags:
             LOGGER.debug(f"Added jrc_tag {tags} to {key}")
             persist[key]['jrc_tag'] = tags
