@@ -1,6 +1,7 @@
 nameparser
 rapidfuzz
 unidecode
+colorama
 termcolor
 inquirer
 openpyxl
