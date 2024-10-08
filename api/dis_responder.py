@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "20.1.0"
+__version__ = "20.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -40,10 +40,8 @@ NAV = {"Home": "",
                 "DOIs by journal": "dois_journal",
                 "DOIs by publisher": "dois_publisher",
                 "DOIs by source": "dois_source",
-                "DOIs by tag": "dois_tag",
                 "DOIs by year": "dois_year",
                 "DOIs by month": "dois_month",
-                "Top tags by year": "dois_top",
                 "DOI yearly report": "dois_report"
             },
        "Authorship": {"DOIs by authorship": "dois_author",
@@ -51,10 +49,13 @@ NAV = {"Home": "",
        "Preprints": {"DOIs by preprint status": "dois_preprint",
                      "DOIs by preprint status by year": "dois_preprint_year"},
        "ORCID": {"Groups": "groups",
-                 "Affiliations": "orcid_tag",
                  "Entries": "orcid_entry",
                  "Duplicates": "orcid_duplicates",
                 },
+       "Tag/affiliation": {"DOIs by tag": "dois_tag",
+                           "Top DOI tags by year": "dois_top",
+                           "Author affiliations": "orcid_tag",
+                          },
        "Stats" : {"Database": "stats_database"
                  },
        "External systems": {"Search People system": "people",
@@ -486,7 +487,7 @@ def generate_works_table(rows, name=None):
         html = f"<br>Authors found: {', '.join(sorted(authors.keys()))}<br>" \
                + f"This may include non-Janelia authors<br>{html}"
     html = create_downloadable('works', ['Published', 'DOI', 'Title'], fileoutput) + html
-    html = f"Publications: {len(works)}<br>" + html
+    html = f"DOIs: {len(works)}<br>" + html
     return html, dois
 
 
@@ -2255,7 +2256,7 @@ def dois_author(year='All'):
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title=title, html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
-                                         navbar=generate_navbar('DOIs')))
+                                         navbar=generate_navbar('Authorship')))
 
 
 @app.route('/doiui_group/<string:year>')
@@ -2333,7 +2334,7 @@ def doiui_group(year='All'):
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title=title, html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
-                                         navbar=generate_navbar('DOIs')))
+                                         navbar=generate_navbar('Authorship')))
 
 
 @app.route('/dois_journal/<string:year>/<int:top>')
@@ -2520,7 +2521,7 @@ def dois_preprint(year='All'):
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title=title, html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
-                                         navbar=generate_navbar('DOIs')))
+                                         navbar=generate_navbar('Preprints')))
 
 
 @app.route('/dois_preprint_year')
@@ -2572,7 +2573,7 @@ def dois_preprint_year():
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOIs preprint status by year", html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
-                                         navbar=generate_navbar('DOIs')))
+                                         navbar=generate_navbar('Preprints')))
 
 
 @app.route('/dois_month/<string:year>')
@@ -2735,8 +2736,7 @@ def dois_tag():
         if row['_id']['source'] not in tags[row['_id']['tag']]:
             tags[row['_id']['tag']][row['_id']['source']] = row['count']
     for tag, val in tags.items():
-        onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag + "\")'"
-        link = f"<a href='#' {onclick}>{tag}</a>"
+        link = f"<a href='tag/{tag}'>{tag}</a>"
         if tag in orgs:
             if orgs[tag]:
                 org = "<span style='color: lime;'>Yes</span>"
@@ -2757,7 +2757,7 @@ def dois_tag():
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"DOI tags ({len(tags):,})", html=html,
-                                         navbar=generate_navbar('DOIs')))
+                                         navbar=generate_navbar('Tag/affiliation')))
 
 
 @app.route('/dois_top', defaults={'num': 10})
@@ -2811,7 +2811,7 @@ def dois_top(num):
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOI tags by year/tag", html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
-                                         navbar=generate_navbar('DOIs')))
+                                         navbar=generate_navbar('Tag/affiliation')))
 
 
 @app.route('/dois_report/<string:year>')
@@ -3115,7 +3115,7 @@ def show_doiui_custom():
         fileoutput += dloop(row, ['published', 'doi', 'title']) + "\n"
     html += '</tbody></table>'
     html = create_downloadable(ipd['field'], header, fileoutput) + html
-    html = f"Publications: {len(works)}<br>" + html
+    html = f"DOIs: {len(works)}<br>" + html
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=ptitle, html=html,
                                          navbar=generate_navbar('DOIs')))
@@ -3261,7 +3261,8 @@ def orcid_tag():
     count = 0
     for row in rows:
         count += 1
-        link = f"<a href='/affiliation/{escape(row['_id'])}'>{row['count']:,}</a>"
+        link = f"<a href='tag/{escape(row['_id'])}'>{row['_id']}</a>"
+        link2 = f"<a href='/affiliation/{escape(row['_id'])}'>{row['count']:,}</a>"
         if row['_id'] in orgs:
             if orgs[row['_id']]:
                 org = "<span style='color: lime;'>Yes</span>"
@@ -3269,11 +3270,11 @@ def orcid_tag():
                 org = "<span style='color: yellow;'>No code</span>"
         else:
             org = "<span style='color: red;'>No</span>"
-        html += f"<tr><td>{row['_id']}</td><td>{org}</td><td>{link}</td></tr>"
+        html += f"<tr><td>{link}</td><td>{org}</td><td>{link2}</td></tr>"
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"Author affiliations ({count:,})", html=html,
-                                         navbar=generate_navbar('ORCID')))
+                                         navbar=generate_navbar('Tag/affiliation')))
 
 
 @app.route('/orcid_entry')
@@ -3329,7 +3330,7 @@ def orcid_entry():
 def orcid_affiliation(aff):
     ''' Show ORCID tags (affiliations) with counts
     '''
-    payload = {"jrc_tag": aff}
+    payload = {"jrc_tag.name": aff}
     try:
         cnt = DB['dis'].dois.count_documents(payload)
     except Exception as err:
@@ -3454,7 +3455,7 @@ def peoporgsle():
     html += "</tbody></table>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"Supervisory organizations ({len(orgs):,})",
-                                         html=html, navbar=generate_navbar('ORCID')))
+                                         html=html, navbar=generate_navbar('External systems')))
 
 
 # ******************************************************************************
@@ -3494,7 +3495,7 @@ def people(name=None):
     html += "</tbody></table>"
     return make_response(render_template('people.html', urlroot=request.url_root,
                                          title="Search People system", content=html,
-                                         navbar=generate_navbar('ORCID')))
+                                         navbar=generate_navbar('External systems')))
 
 
 @app.route('/peoplerec/<string:eid>')
@@ -3521,7 +3522,7 @@ def peoplerec(eid):
     html = f"<div class='scroll' style='height:750px'><pre>{json.dumps(rec, indent=2)}</pre></div>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=title, html=html,
-                                         navbar=generate_navbar('ORCID')))
+                                         navbar=generate_navbar('External systems')))
 
 # ******************************************************************************
 # * UI endpoints (stats)                                                       *
@@ -3574,6 +3575,66 @@ def stats_database():
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title="Database statistics", html=html,
                                          navbar=generate_navbar('Stats')))
+
+# ******************************************************************************
+# * UI endpoints (tags)                                                        *
+# ******************************************************************************
+@app.route('/tag/<string:tag>')
+def tagrec(tag):
+    ''' Show a single tag
+    '''
+    payload = {"affiliations": tag}
+    try:
+        acnt = DB['dis'].orcid.count_documents(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get users for tag"),
+                               message=error_message(err))
+    tagtype = "Affiliation" if acnt else ""
+    try:
+        orgs = DL.get_supervisory_orgs()
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get supervisory orgs"),
+                               message=error_message(err))
+    payload = [{"$match": {"jrc_tag.name": tag}},
+               {"$unwind": "$jrc_tag"},
+               {"$match": {"jrc_tag.name": tag}},
+               {"$group": {"_id": "$jrc_tag.type", "count": {"$sum": 1}}},
+               {"$sort": {"_id": 1}}
+              ]
+    try:
+        rows = DB['dis'].dois.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs for tag"),
+                               message=error_message(err))
+    html = "<table id='tagprops' class='proplist'><thead></thead><tbody>"
+    pdict = {}
+    for row in rows:
+        pdict[row['_id']] = row['count']
+    if not pdict and not acnt:
+        return render_template('warning.html', urlroot=request.url_root,
+                               title=render_warning(f"Could not find tag {tag}", 'warning'),
+                               message="No DOI tags or user affiliations found")
+    parr = []
+    for key, val in pdict.items():
+        parr.append(f"{key}: {val}")
+    html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
+    if tag in orgs:
+        tagtype = 'Supervisory org'
+        html += f"<tr><td>Code</td><td>{orgs[tag]}</td></tr>"
+    if pdict:
+        onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag + "\")'"
+        link = f"<a href='#' {onclick}>Show DOIs</a>"
+        html += f"<tr><td>Appears in DOI tags</td><td>{'<br>'.join(parr)}<br>{link}</td></tr>"
+    if acnt:
+        link = f"<a href='/affiliation/{escape(tag)}'>Show authors</a>"
+        html += f"<tr><td>Authors with affiliation</td><td>{acnt}<br>{link}</td></tr>"
+    html += "</tbody></table>"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                         title=f"Tag {tag}", html=html,
+                                         navbar=generate_navbar('Tag/affiliation')))
 
 # ******************************************************************************
 # * Multi-role endpoints (ORCID)                                               *
