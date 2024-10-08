@@ -205,7 +205,7 @@ def update_single_doi(rec):
     tagd, current = get_tag_choices(tags, tagauth, rec)
     print(f"DOI: {rec['doi']}")
     print(f"{DL.get_title(rec)}")
-    print(', '.join(janelians))
+    print('Janelia authors:', ', '.join(janelians))
     if 'jrc_newsletter' in rec and rec['jrc_newsletter']:
         print(f"{Fore.LIGHTYELLOW_EX}{Back.BLACK}DOI has newsletter date of " \
               + f"{rec['jrc_newsletter']}{Style.RESET_ALL}")
