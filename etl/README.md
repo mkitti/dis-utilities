@@ -11,7 +11,7 @@
 
 First, create a Python virtual environment:
 
-    cd etl/bin
+    cd sync/bin
     python3 -m venv my_venv
 
 Enter the virtual environment and install necessary libraries:
@@ -21,6 +21,7 @@ Enter the virtual environment and install necessary libraries:
 
 Programs can now be run in the virtual environment:
 
+    cd ../../etl/bin
     my_venv/bin/python3 fix_middle_names.py --verbose
 
 ### Dependencies
