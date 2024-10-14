@@ -50,7 +50,7 @@ the "sandbox-220614" project space.
     - releases
     - rest_services
 3. The following keys must be present in the run environment:
-    - CONFIG_SERVER_URL: abase URL for Configuration system
+    - CONFIG_SERVER_URL: base URL for Configuration system
     - PEOPLE_API_KEY: API key for HHMI People system
 4. The *config.ini* file must have the latest URL bases and suffixes for Crossref, DataCite, FigShare, and ORCID.
 
