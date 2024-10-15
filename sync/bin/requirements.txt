@@ -4,5 +4,7 @@ pandas
 rapidfuzz
 tqdm
 unidecode
+mysqlclient==2.1.1
+pymongo==4.4.0
 git+https://github.com/JaneliaSciComp/jrc_common.git
 git+https://github.com/JaneliaSciComp/doi_common.git
