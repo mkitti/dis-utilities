@@ -9,7 +9,7 @@ import sys
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as DL
 
-# pylint: disable=broad-exception-caught,logging-fstring-interpolation
+# pylint: disable=broad-exception-caught,logging-fstring-interpolation,logging-not-lazy
 
 # Database
 DB = {}
@@ -88,6 +88,19 @@ def create_doilists(row):
     AUTHORLIST[row['doi']] = ", ".join(names)
 
 
+def valid_author(authid):
+    ''' Check if an author is valid
+        Keyword arguments:
+          authid: author ID
+        Returns:
+          True if valid, False otherwise
+    '''
+    orc = DL.single_orcid_lookup(authid, DB['dis'].orcid, 'employeeId')
+    if not orc or 'alumni' in orc:
+        return False
+    return True
+
+
 def process_authors(authors, publications, cnt):
     ''' Create and send emails to each author with their resources
         Keyword arguments:
@@ -101,7 +114,13 @@ def process_authors(authors, publications, cnt):
     summary = ""
     for auth, val in authors.items():
         resp = JRC.call_people_by_id(auth)
+        if not resp:
+            LOGGER.warning(f"Skipping author {auth}")
+            continue
         name = ' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']])
+        if not valid_author(auth):
+            LOGGER.warning(f"Skipping author {name}")
+            continue
         email = DISCONFIG['developer'] if ARG.TEST else resp['email']
         subject = "Your recent publication" if len(val['citations']) == 1 \
                   else "Your recent publications"
