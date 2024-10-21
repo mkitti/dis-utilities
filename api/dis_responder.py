@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "20.2.0"
+__version__ = "20.3.0"
 # Database
 DB = {}
 # Custom queries
@@ -1255,14 +1255,13 @@ def show_doi_authors(doi):
     tagname = []
     tags = []
     try:
-        orgs = DL.get_supervisory_orgs()
+        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
     except Exception as err:
         raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     if 'jrc_tag' in row:
         for atag in row['jrc_tag']:
             if atag['name'] not in tagname:
                 if atag['name'] in orgs:
-                    print(orgs[atag['name']]) #PLUG
                     code = atag['code']
                     tagtype = atag['type']
                 else:
@@ -2559,7 +2558,6 @@ def dois_preprint_year():
     for row in rows:
         year = row['jrc_publishing_date'][:4]
         data['Preprint'][data['years'].index(year)] += 1
-    print(data)
     html = '<table id="years" class="tablesorter numbers"><thead><tr>' \
            + '<th>Year</th><th>Journal articles</th><th>Preprints</th></thead><tbody>'
     for idx in range(len(data['years'])):
@@ -2715,7 +2713,7 @@ def dois_tag():
                {"$sort": {"_id.tag": 1}}
               ]
     try:
-        orgs = DL.get_supervisory_orgs()
+        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get supervisory orgs"),
@@ -2738,10 +2736,10 @@ def dois_tag():
     for tag, val in tags.items():
         link = f"<a href='tag/{tag}'>{tag}</a>"
         if tag in orgs:
-            if orgs[tag]:
+            if 'active' in orgs[tag]:
                 org = "<span style='color: lime;'>Yes</span>"
             else:
-                org = "<span style='color: yellow;'>No code</span>"
+                org = "<span style='color: yellow;'>Inactive</span>"
         else:
             org = "<span style='color: red;'>No</span>"
         html += f"<tr><td>{link}</td><td>{org}</td>"
@@ -2806,8 +2804,16 @@ def dois_top(num):
     height = 600
     if num > 23:
         height += 22 * (num - 23)
+    from bokeh.palettes import all_palettes, plasma
+    colors = plasma(len(top))
+    print(len(top))
+    if len(top) <= 10:
+        colors = all_palettes['Category10'][len(top)]
+    elif len(top) <= 20:
+        colors = all_palettes['Category20'][len(top)]
     chartscript, chartdiv = DP.stacked_bar_chart(data, f"DOIs published by year for top {num} tags",
-                                                 xaxis="years", yaxis=top, width=900, height=height)
+                                                 xaxis="years", yaxis=top, width=900, height=height,
+                                                 colors=colors)
     return make_response(render_template('bokeh.html', urlroot=request.url_root,
                                          title="DOI tags by year/tag", html=html,
                                          chartscript=chartscript, chartdiv=chartdiv,
@@ -3243,7 +3249,7 @@ def orcid_tag():
                {"$sort": {"_id": 1}}
               ]
     try:
-        orgs = DL.get_supervisory_orgs()
+        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get supervisory orgs"),
@@ -3265,7 +3271,10 @@ def orcid_tag():
         link2 = f"<a href='/affiliation/{escape(row['_id'])}'>{row['count']:,}</a>"
         if row['_id'] in orgs:
             if orgs[row['_id']]:
-                org = "<span style='color: lime;'>Yes</span>"
+                if 'active' in orgs[row['_id']]:
+                    org = "<span style='color: lime;'>Yes</span>"
+                else:
+                    org = "<span style='color: yellow;'>Inactive</span>"
             else:
                 org = "<span style='color: yellow;'>No code</span>"
         else:
@@ -3592,7 +3601,7 @@ def tagrec(tag):
                                message=error_message(err))
     tagtype = "Affiliation" if acnt else ""
     try:
-        orgs = DL.get_supervisory_orgs()
+        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get supervisory orgs"),
@@ -3623,7 +3632,12 @@ def tagrec(tag):
     html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
     if tag in orgs:
         tagtype = 'Supervisory org'
-        html += f"<tr><td>Code</td><td>{orgs[tag]}</td></tr>"
+        html += f"<tr><td>Code</td><td>{orgs[tag]['code']}</td></tr>"
+        html += f"<tr><td>Status</td><td>"
+        if 'active' in orgs[tag]:
+            html += f"<span style='color: lime;'>Active</span></td></tr>"
+        else:
+            html += f"<span style='color: yellow;'>Inactive</span></td></tr>"
     if pdict:
         onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag + "\")'"
         link = f"<a href='#' {onclick}>Show DOIs</a>"
