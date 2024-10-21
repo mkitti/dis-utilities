@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "20.3.0"
+__version__ = "20.4.0"
 # Database
 DB = {}
 # Custom queries
@@ -2051,6 +2051,7 @@ def show_doi_ui(doi):
                                 message=f"Could not find journal for {doi}")
     link = f"<a href='https://dx.doi.org/{doi}' target='_blank'>{doi}</a>"
     rlink = f"/doi/{doi}"
+    mlink = f"/doi/migration/{doi}"
     oresp = JRC.call_oa(doi)
     obutton = ""
     if oresp:
@@ -2065,7 +2066,7 @@ def show_doi_ui(doi):
         chead += f" for {data['types']['resourceTypeGeneral']}"
     html += f"<h4>{chead}</h4><span class='citation'>{citation} {journal}.</span><br><br>"
     html += f"<span class='paperdata'>DOI: {link} {tiny_badge('primary', 'Raw data', rlink)}" \
-            + f"{obutton}</span><br>"
+            + f" {tiny_badge('primary', 'HQ migration', mlink)} {obutton}</span><br>"
     if row:
         citations = s2_citation_count(doi, fmt='html')
         if citations:
