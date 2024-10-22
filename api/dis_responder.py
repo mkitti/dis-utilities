@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "20.4.0"
+__version__ = "20.5.0"
 # Database
 DB = {}
 # Custom queries
@@ -2081,7 +2081,7 @@ def show_doi_ui(doi):
         if authors:
             alist, count = show_tagged_authors(authors)
             if alist:
-                html += f"<br><h4>Janelia authors ({count})</h4>" \
+                html += f"<br><h4>Potential Janelia authors ({count})</h4>" \
                         + f"<div class='scroll'>{''.join(alist)}</div>"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=doi, html=html,
@@ -2736,14 +2736,16 @@ def dois_tag():
             tags[row['_id']['tag']][row['_id']['source']] = row['count']
     for tag, val in tags.items():
         link = f"<a href='tag/{tag}'>{tag}</a>"
+        rclass = 'other'
         if tag in orgs:
             if 'active' in orgs[tag]:
                 org = "<span style='color: lime;'>Yes</span>"
+                rclass = 'active'
             else:
                 org = "<span style='color: yellow;'>Inactive</span>"
         else:
             org = "<span style='color: red;'>No</span>"
-        html += f"<tr><td>{link}</td><td>{org}</td>"
+        html += f"<tr class={rclass}><td>{link}</td><td>{org}</td>"
         for source in app.config['SOURCES']:
             if source in val:
                 onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag \
@@ -2754,6 +2756,9 @@ def dois_tag():
             html += f"<td>{link}</td>"
         html += "</tr>"
     html += '</tbody></table>'
+    cbutton = "<button class=\"btn btn-outline-warning\" " \
+              + "onclick=\"$('.other').toggle();\">Filter for active SupOrgs</button>"
+    html = cbutton + html
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"DOI tags ({len(tags):,})", html=html,
                                          navbar=generate_navbar('Tag/affiliation')))
@@ -3046,7 +3051,6 @@ def show_insert(idate):
     html += '</tbody></table>'
     cbutton = "<button class=\"btn btn-outline-warning\" " \
               + "onclick=\"$('.other').toggle();\">Filter for candidate DOIs</button>"
-
     html = create_downloadable("jrc_inserted", None, fileoutput) + f" &nbsp;{cbutton}{html}"
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"DOIs inserted on or after {idate}", html=html,
@@ -3630,15 +3634,17 @@ def tagrec(tag):
     parr = []
     for key, val in pdict.items():
         parr.append(f"{key}: {val}")
-    html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
     if tag in orgs:
         tagtype = 'Supervisory org'
+        html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
         html += f"<tr><td>Code</td><td>{orgs[tag]['code']}</td></tr>"
         html += f"<tr><td>Status</td><td>"
         if 'active' in orgs[tag]:
             html += f"<span style='color: lime;'>Active</span></td></tr>"
         else:
             html += f"<span style='color: yellow;'>Inactive</span></td></tr>"
+    else:
+        html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
     if pdict:
         onclick = "onclick='nav_post(\"jrc_tag.name\",\"" + tag + "\")'"
         link = f"<a href='#' {onclick}>Show DOIs</a>"
