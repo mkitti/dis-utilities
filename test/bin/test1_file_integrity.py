@@ -9,6 +9,9 @@
 # etc. 
 # For '_id', doi_common returns a bson object that gets flattened out into an invalid string in my file. Ditto for the datetime objects for the other two.
 
+# ALSO: for the single author case, I think we will need to add brackets to the file mimicking HHMI People results from name search, basically enclosing it in a list?
+# The people system will return a list or a dict, depending on the number of search results.
+# In my name match script, I immediately put all the dicts in a list.
 
 # TODO:
 # evaluate_candidates
@@ -23,42 +26,22 @@
 # fuzzy_match?
 
 import db_connect
+import tc_common
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
-class TestCase():
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value)
+# class TestCase():
+#     def __init__(self, **kwargs):
+#         for key, value in kwargs.items():
+#             setattr(self, key, value)
 
 
-class DummyArg():
-    def __init__(self):
-        self.VERBOSE = False
-        self.DEBUG = False
-
-
-
-# def mimic_jrc_call_people(filename):
+# def evaluate_file(filename):
 #     """
-#     Read a file and return a dict or list of dicts that is just what you would get from searching the people system via JRC.call_people_by_id.
+#     Read a file and return a data structure that is just what you would get from a particular doi_common or jrc_common command.
 #     """
 #     with open(filename, 'r') as inF:
 #         return(eval(inF.readlines()[0].rstrip('\n')))
-
-def mimic_doi_common_get_doi_record(filename):
-    """
-    Read a file and return a dict that is just what you would get from doi_common.get_doi_record().
-    """
-    with open(filename, 'r') as inF:
-        return(eval(inF.readlines()[0].rstrip('\n')))
-
-def mimic_doi_common_get_author_details(filename):
-    """
-    Read a file and return a list that is just what you would get from doi_common.get_author_details().
-    """
-    with open(filename, 'r') as inF:
-        return(eval(inF.readlines()[0].rstrip('\n')))
 
 
 def check_match(message):
@@ -79,32 +62,34 @@ def compare_doi_records(file_record, db_record):
 def compare_author_records(file_record, db_record):
     return file_record == db_record
 
+@check_match("People system search by ID")
+def compare_id_results(file_record, db_record):
+    return file_record == db_record
 
-# def parse_out_mongo_key(doi_rec_str):
-#     p=re.compile("'_id':\\ ObjectId\\('\w*'\\),\\ ") #  I'm just removing this key:value pair.
-#     re.sub(p, "", doi_rec_str[0])
-#     return(doi_rec_str)
-    
 
 
 db_connect.initialize_program()
-LOGGER = JRC.setup_logging(DummyArg()) 
+LOGGER = JRC.setup_logging(db_connect.DummyArg()) 
 orcid_collection = db_connect.DB['dis'].orcid
 doi_collection = db_connect.DB['dis'].dois
 
-config_file_obj = open('single_author/config.txt', 'r')
-config_dict = {line.split(':')[0]: line.split(':')[1].rstrip('\n') for line in config_file_obj.readlines()}
-config_file_obj.close()
-config = TestCase(**config_dict)
+config_dict = tc_common.read_config('single_author')
+config = tc_common.TestCase(**config_dict)
 
-doi_record = mimic_doi_common_get_doi_record(f'{config.dirname}/doi_record.txt')
-doic_doi_rec = doi_common.get_doi_record(f'{config.doi}', doi_collection)    
-doic_doi_rec.pop('_id') # key definitely exists
-doic_doi_rec.pop('jrc_updated', None) # key may not exist
-doic_doi_rec.pop('jrc_inserted', None) # key may not exist
+doi_rec_from_file = tc_common.evaluate_file(f'{config.dirname}/doi_record.txt')
+doi_rec_real = doi_common.get_doi_record(f'{config.doi}', doi_collection)    
+doi_rec_real.pop('_id') # key definitely exists
+doi_rec_real.pop('jrc_updated', None) # key may not exist
+doi_rec_real.pop('jrc_inserted', None) # key may not exist
 
-author_list = mimic_doi_common_get_author_details(f'{config.dirname}/author_details.txt')
-doic_auth_rec = doi_common.get_author_details(doi_record, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
+author_list_from_file = tc_common.evaluate_file(f'{config.dirname}/author_details.txt')
+author_list_real = doi_common.get_author_details(doi_rec_from_file, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
 
-compare_doi_records(doi_record, doic_doi_rec)
-compare_author_records(author_list, doic_auth_rec)
+id_results_from_file = [] 
+for id in eval(config.initial_candidate_employee_ids):
+    id_results_from_file.append( tc_common.evaluate_file(f'{config.dirname}/id_result_{id}.txt') )
+id_results_real = [JRC.call_people_by_id(r) for r in eval(config.initial_candidate_employee_ids)]
+
+compare_doi_records(doi_rec_from_file, doi_rec_real)
+compare_author_records(author_list_from_file, author_list_real)
+compare_id_results(id_results_from_file, id_results_real)
