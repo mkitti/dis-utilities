@@ -1,7 +1,7 @@
-# before running, put utility/bin in path like so:
-# export PYTHONPATH="${PYTHONPATH}:/groups/scicompsoft/home/scarlettv/dis-utilities/utility/bin"
+# Test that the data structures constructed from file snippets for all following unit tests match what you would get from database queries.
 
-#If you are creating a new doi_record.txt file, you need to manually remove certain key:value pairs. These are '_id', 'jrc_updated', and 'jrc_inserted'.
+# IMPORTANT! These files have been manually curated!
+# If you are creating a new doi_record.txt file, you need to manually remove certain key:value pairs. These are '_id', 'jrc_updated', and 'jrc_inserted'.
 # So this:
 # "{'_id': ObjectId('669fca86ca18f636c3b03ea2'), 'doi': '10.1007/s12264-024-01253-8', ...
 # Becomes this:
@@ -25,7 +25,6 @@
 import db_connect
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
-import re
 
 class TestCase():
     def __init__(self, **kwargs):
@@ -96,16 +95,16 @@ doi_collection = db_connect.DB['dis'].dois
 config_file_obj = open('single_author/config.txt', 'r')
 config_dict = {line.split(':')[0]: line.split(':')[1].rstrip('\n') for line in config_file_obj.readlines()}
 config_file_obj.close()
-testcase = TestCase(**config_dict)
+config = TestCase(**config_dict)
 
-doi_record = mimic_doi_common_get_doi_record(f'{testcase.dirname}/doi_record.txt')
-doic_doi_rec = doi_common.get_doi_record(f'{testcase.doi}', doi_collection)
+doi_record = mimic_doi_common_get_doi_record(f'{config.dirname}/doi_record.txt')
+doic_doi_rec = doi_common.get_doi_record(f'{config.doi}', doi_collection)    
 doic_doi_rec.pop('_id') # key definitely exists
 doic_doi_rec.pop('jrc_updated', None) # key may not exist
 doic_doi_rec.pop('jrc_inserted', None) # key may not exist
 
-author_record = mimic_doi_common_get_author_details(f'{testcase.dirname}/author_details.txt')
-doic_auth_rec = doi_common.get_author_details(doi_record)
+author_list = mimic_doi_common_get_author_details(f'{config.dirname}/author_details.txt')
+doic_auth_rec = doi_common.get_author_details(doi_record, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
 
 compare_doi_records(doi_record, doic_doi_rec)
-compare_author_records(author_record, doic_auth_rec)
+compare_author_records(author_list, doic_auth_rec)
