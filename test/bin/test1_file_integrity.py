@@ -9,9 +9,7 @@
 # etc. 
 # For '_id', doi_common returns a bson object that gets flattened out into an invalid string in my file. Ditto for the datetime objects for the other two.
 
-# ALSO: for the single author case, I think we will need to add brackets to the file mimicking HHMI People results from name search, basically enclosing it in a list?
-# The people system will return a list or a dict, depending on the number of search results.
-# In my name match script, I immediately put all the dicts in a list.
+
 
 # TODO:
 # evaluate_candidates

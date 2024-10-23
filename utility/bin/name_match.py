@@ -60,6 +60,10 @@ class Guess(Employee):
         self.name = name
         self.score = score
         self.approved = approved
+    def __repr__(self):
+        attrs = {k:v for k, v in self.__dict__.items() if v}
+        return f"Guess({', '.join(f'{k}={v}' for k, v in attrs.items())})"
+        #return '"Guess(' + ', '.join(f'{k}={v}' for k, v in attrs.items()) + ')"'
 
 class MongoOrcidRecord:
     def __init__(self, orcid=None, employeeId=None, exists=False):
@@ -388,7 +392,7 @@ def is_janelian(author, orcid_collection):
     if author.orcid:
         if doi_common.single_orcid_lookup(author.orcid, orcid_collection, 'orcid'):
             result = True
-    if bool(re.search(r'\bJanelia\b', " ".join(author.affiliations))):
+    if bool(re.search(r'Janelia', " ".join(author.affiliations))):
         result = True
     return(result)
 
