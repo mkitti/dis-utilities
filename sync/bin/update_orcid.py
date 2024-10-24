@@ -316,6 +316,8 @@ def add_janelia_info(oids):
     for oid in tqdm(oids, desc='Janelians from orcid collection'):
         if oid in PRESENT:
             preserve_mongo_names(PRESENT[oid], oids)
+            if 'alumni' in PRESENT[oid]:
+                continue
         if oid in PRESENT and 'employeeId' in PRESENT[oid] and not ARG.FORCE:
             continue
         correlate_person(oid, oids)
