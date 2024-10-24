@@ -25,7 +25,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "20.5.0"
+__version__ = "21.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -781,14 +781,20 @@ def counts_by_type(rows):
           Dictionary of type counts
     '''
     typed = {}
+    preprints = 0
     for row in rows:
         typ = row['_id']['type'] if 'type' in row['_id'] else "DataCite"
         sub = row['_id']['subtype'] if 'subtype' in row['_id'] else ""
         if sub == 'preprint':
+            preprints += row['count']
             typ = 'posted-content'
+        elif (typ == 'DataCite' and row['_id']['DataCite'] == 'Preprint'):
+            print(row)
+            preprints += row['count']
         if typ not in typed:
             typed[typ] = 0
         typed[typ] += row['count']
+    typed['preprints'] = preprints
     return typed
 
 
@@ -803,7 +809,8 @@ def get_first_last_authors(year):
     for which in ("first", "last"):
         payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
                                f"jrc_{which}_author": {"$exists": True}}},
-                   {"$group": {"_id": {"type": "$type", "subtype": "$subtype"},
+                   {"$group": {"_id": {"type": "$type", "subtype": "$subtype",
+                                       "DataCite": "$types.resourceTypeGeneral"},
                                "count": {"$sum": 1}}}
                   ]
         try:
@@ -821,13 +828,17 @@ def get_first_last_authors(year):
             if typ not in stat[which]:
                 stat[which][typ] = 0
             stat[which][typ] += row['count']
+            if sub == 'preprint' or (type == 'DataCite' and row['_id']['DataCite'] == 'Preprint'):
+                if 'preprints' not in stat[which]:
+                    stat[which]['preprints'] = 0
+                stat[which]['preprints'] += row['count']
     return stat['first'], stat['last']
 
 
-def get_no_relation():
+def get_no_relation(year=None):
     ''' Get DOIs with no relation
         Keyword arguments:
-          None
+          year: year (optional)
         Returns:
           Dictionary of types/subtypes with no relation
     '''
@@ -841,6 +852,9 @@ def get_no_relation():
                "DataCite_preprint": {"types.resourceTypeGeneral": "Preprint",
                                      "jrc_preprint": {"$exists": False}}
               }
+    if year:
+        for pay in payload:
+            payload[pay]["jrc_publishing_date"] = {"$regex": "^"+ year}
     for key, val in payload.items():
         try:
             cnt = DB['dis'].dois.count_documents(val)
@@ -2337,13 +2351,9 @@ def doiui_group(year='All'):
                                          navbar=generate_navbar('Authorship')))
 
 
-@app.route('/dois_journal/<string:year>/<int:top>')
-@app.route('/dois_journal/<string:year>')
-@app.route('/dois_journal')
-def dois_journal(year='All', top=10):
-    ''' Show journals
+def get_top_journals(year):
+    ''' Get top journals
     '''
-    top = min(top, 20)
     match = {"container-title": {"$exists": True, "$ne" : ""}}
     if year != 'All':
         match["jrc_publishing_date"] = {"$regex": "^"+ year}
@@ -2354,9 +2364,7 @@ def dois_journal(year='All', top=10):
     try:
         rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
-        return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get Crossref journals"),
-                               message=error_message(err))
+        raise err
     journal = {}
     for row in rows:
         journal[row['_id']] = row['count']
@@ -2367,13 +2375,27 @@ def dois_journal(year='All', top=10):
     try:
         rows = DB['dis'].dois.aggregate(payload)
     except Exception as err:
+        raise err
+    for row in rows:
+        journal[row['_id']] = row['count']
+    return journal
+
+
+@app.route('/dois_journal/<string:year>/<int:top>')
+@app.route('/dois_journal/<string:year>')
+@app.route('/dois_journal')
+def dois_journal(year='All', top=10):
+    ''' Show journals
+    '''
+    top = min(top, 20)
+    try:
+        journal = get_top_journals(year)
+    except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get Crossref journals"),
+                               title=render_warning("Could not get journal data from dois"),
                                message=error_message(err))
     html = '<table id="journals" class="tablesorter numberlast"><thead><tr>' \
            + '<th>Journal</th><th>Count</th></tr></thead><tbody>'
-    for row in rows:
-        journal[row['_id']] = row['count']
     data = {}
     for key in sorted(journal, key=journal.get, reverse=True):
         val = journal[key]
@@ -2831,15 +2853,17 @@ def dois_top(num):
 def dois_report(year=str(datetime.now().year)):
     ''' Show year in review
     '''
-    pmap = {"journal-article": "Journal articles", "posted-content": "Preprints",
-            "proceedings-article": "Proceedings articles", "book-chapter": "Book chapters",
-            "datasets": "Datasets", "peer-review": "Peer reviews", "grant": "Grants",
-            "other": "Other"}
+    pmap = {"journal-article": "Journal articles", "posted-content": "Posted content",
+            "preprints": "Preprints", "proceedings-article": "Proceedings articles",
+            "book-chapter": "Book chapters", "datasets": "Datasets",
+            "peer-review": "Peer reviews", "grant": "Grants", "other": "Other"}
     payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}},
-               {"$group": {"_id": {"type": "$type", "subtype": "$subtype"}, "count": {"$sum": 1}}}
+               {"$group": {"_id": {"type": "$type", "subtype": "$subtype",
+                                   "DataCite": "$types.resourceTypeGeneral"}, "count": {"$sum": 1}}}
               ]
+    coll = DB['dis'].dois
     try:
-        rows = DB['dis'].dois.aggregate(payload)
+        rows = coll.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get yearly metrics " \
@@ -2847,17 +2871,6 @@ def dois_report(year=str(datetime.now().year)):
                                message=error_message(err))
     typed = counts_by_type(rows)
     first, last = get_first_last_authors(year)
-    # arXiv count
-    try:
-        cnt = DB['dis'].dois.count_documents({"doi": {"$regex": "arxiv", "$options": "i"},
-                                              "jrc_publishing_date": {"$regex": "^"+ year}})
-    except Exception as err:
-        return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get arXiv metrics " \
-                                                    + "from dois collection"),
-                               message=error_message(err))
-    if cnt:
-        typed['posted-content'] += cnt
     stat = {}
     # Journal count
     payload = [{"$unwind" : "$container-title"},
@@ -2866,7 +2879,7 @@ def dois_report(year=str(datetime.now().year)):
                {"$group": {"_id": "$container-title", "count":{"$sum": 1}}}
               ]
     try:
-        rows = DB['dis'].dois.aggregate(payload)
+        rows = coll.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get journal metrics " \
@@ -2876,8 +2889,12 @@ def dois_report(year=str(datetime.now().year)):
     for row in rows:
         if row['_id']:
             cnt += 1
+    typed['Crossref'] = 0
+    print(typed)
     for key, val in pmap.items():
         if key in typed:
+            if key not in ('DataCite', 'preprints'):
+                typed['Crossref'] += typed[key]
             additional = []
             if key in first:
                 additional.append(f"{first[key]:,} with Janelian first author")
@@ -2888,36 +2905,69 @@ def dois_report(year=str(datetime.now().year)):
             if val == 'Journal articles':
                 stat[val] += f" in {cnt:,} journals"
             stat[val] += additional
-    if 'DataCite' in typed:
-        stat['DataCite'] = f"<span style='font-weight: bold'>{typed['DataCite']:,}" \
-                           + "</span> DataCite entries"
+            stat[val] += "<br>"
+    if 'DataCite' not in typed:
+        typed['DataCite'] = 0
+    print(stat)
+    stat['Entries'] = f"<span style='font-weight: bold'>{typed['Crossref']}" \
+                      + f"</span> Crossref entries<br>" \
+                      + f"<span style='font-weight: bold'>{typed['DataCite']:,}" \
+                      + "</span> DataCite entries"
     if 'Journal articles' not in stat:
-        stat['Journal articles'] = "<span style='font-weight: bold'>0</span> journal articles"
+        stat['Journal articles'] = "<span style='font-weight: bold'>0</span> journal articles<br>"
     if 'Preprints' not in stat:
-        stat['Preprints'] = "<span style='font-weight: bold'>0</span> preprints"
-    if 'DataCite' not in stat:
-        stat['DataCite'] = "<span style='font-weight: bold'>0</span> DataCite entries"
+        stat['Preprints'] = "<span style='font-weight: bold'>0</span> preprints<br>"
+    # Preprints
+    no_relation = get_no_relation(year)
+    cnt = {'journal': 0, 'preprint': 0}
+    for atype in ['journal', 'preprint']:
+        for src in ['Crossref', 'DataCite']:
+            if src in no_relation and atype in no_relation[src]:
+                cnt[atype] += no_relation[src][atype]
+    stat['Preprints'] += f"<span style='font-weight: bold'>{cnt['journal']:,}" \
+                         + "</span> journal articles without preprints<br>"
+    stat['Preprints'] += f"<span style='font-weight: bold'>{cnt['preprint']:,}" \
+                         + "</span> preprints without journal articles<br>"
+    # Journals
+    journal = get_top_journals(year)
+    cnt = 0
+    stat['Topjournals'] = ""
+    for key in sorted(journal, key=journal.get, reverse=True):
+        stat['Topjournals'] += f"&nbsp;&nbsp;&nbsp;&nbsp;{key}: {journal[key]}<br>"
+        cnt += 1
+        if cnt >= 10:
+            break
+    # figshare
+    payload = [{"$match": {"doi": {"$regex": "janelia"},
+                          "jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$unwind": "$jrc_author"},
+               {"$group": {"_id": "$jrc_author", "count": {"$sum": 1}}}]
+    try:
+        cnt = coll.count_documents(payload[0]['$match'])
+        stat['figshare'] = f"<span style='font-weight: bold'>{cnt:,}</span> figshare articles"
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get journal figshare stats"),
+                               message=error_message(err))
+    if cnt:
+        cnt = 0
+        for row in rows:
+            cnt += 1
+        stat['figshare'] += f" with <span style='font-weight: bold'>{cnt:,}</span> Janelia authors<br>"
     # Citations
     try:
-        rows = DB['dis'].dois.find({"jrc_publishing_date": {"$regex": "^"+ year}})
+        rows = coll.find({"jrc_publishing_date": {"$regex": "^"+ year}})
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get journal metrics " \
                                                     + "from dois collection"),
                                message=error_message(err))
-    html = f"{stat['Journal articles']}<br>{stat['Preprints']}<br>{stat['DataCite']}<br>"
-    #cnt = 0
-    #for row in rows:
-    #    if row['jrc_obtained_from'] != 'Crossref':
-    #        continue
-    #    try:
-    #        cnt += s2_citation_count(row['doi'])
-    #    except Exception as err:
-    #        return render_template('error.html', urlroot=request.url_root,
-    #                               title=render_warning("Could not get citation count"),
-    #                               message=error_message(err))
-    #    sleep(.1)
-    # html += f"Citations: {cnt:,}"
+    html = f"<h2 class='dark'>Entries</h2>{stat['Entries']}<br>" \
+           + f"<h2 class='dark'>Articles</h2>{stat['Journal articles']}" \
+           + f"{stat['figshare']}<h2 class='dark'>Preprints</h2>{stat['Preprints']}" \
+           + f"<h2 class='dark'>Top journals</h2>" \
+           + f"<p style='font-size: 14pt;line-height:90%;'>{stat['Topjournals']}</p>"
     html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
     html += '<br>' + year_pulldown('dois_report', all_years=False)
     return make_response(render_template('general.html', urlroot=request.url_root,
