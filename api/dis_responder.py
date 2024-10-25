@@ -14,6 +14,7 @@ import re
 import string
 import sys
 from time import time
+from bokeh.palettes import all_palettes, plasma
 import bson
 from flask import (Flask, make_response, render_template, request, jsonify, send_file)
 from flask_cors import CORS
@@ -25,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "21.0.0"
+__version__ = "22.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -601,9 +602,13 @@ def generate_user_table(rows):
             link = f"<a href='/unvaluserui/{row['_id']}'>No ORCID found</a>"
         auth = DL.get_single_author_details(row, DB['dis'].orcid)
         badges = get_badges(auth)
-        html += f"<tr><td>{link}</td><td>{', '.join(row['given'])}</td>" \
+        rclass = 'other' if (auth and auth['alumni']) else 'active'
+        html += f"<tr class={rclass}><td>{link}</td><td>{', '.join(row['given'])}</td>" \
                 + f"<td>{', '.join(row['family'])}</td><td>{' '.join(badges)}</td></tr>"
     html += '</tbody></table>'
+    cbutton = "<button class=\"btn btn-outline-warning\" " \
+              + "onclick=\"$('.other').toggle();\">Filter for current authors</button>"
+    html = cbutton + html
     return html, count
 
 # ******************************************************************************
@@ -700,15 +705,22 @@ def add_relations(row):
           HTML
     '''
     html = ""
-    if ("relation" not in row) or (not row['relation']):
-        return html
-    for rel in row['relation']:
-        used = []
-        for itm in row['relation'][rel]:
-            if itm['id'] in used:
-                continue
-            html += f"This DOI {rel.replace('-', ' ')} {doi_link(itm['id'])}<br>"
-            used.append(itm['id'])
+    if "relation" in row and row['relation']:
+        # Crossref relations
+        for rel in row['relation']:
+            used = []
+            for itm in row['relation'][rel]:
+                if itm['id'] in used:
+                    continue
+                html += f"This DOI {rel.replace('-', ' ')} {doi_link(itm['id'])}<br>"
+                used.append(itm['id'])
+    elif 'relatedIdentifiers' in row and row['relatedIdentifiers']:
+        # DataCite relations
+        for rel in row['relatedIdentifiers']:
+            if 'relatedIdentifierType' in rel and rel['relatedIdentifierType'] == 'DOI':
+                words = re.split('(?<=.)(?=[A-Z])', rel['relationType'])
+                html += f"This DOI {' '.join(wrd.lower() for wrd in words)} " \
+                        + f"{doi_link(rel['relatedIdentifier'])}<br>"
     return html
 
 
@@ -789,7 +801,6 @@ def counts_by_type(rows):
             preprints += row['count']
             typ = 'posted-content'
         elif (typ == 'DataCite' and row['_id']['DataCite'] == 'Preprint'):
-            print(row)
             preprints += row['count']
         if typ not in typed:
             typed[typ] = 0
@@ -805,14 +816,22 @@ def get_first_last_authors(year):
         Returns:
           First and last author counts
     '''
-    stat = {'first': {}, 'last': {}}
-    for which in ("first", "last"):
-        payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
-                               f"jrc_{which}_author": {"$exists": True}}},
-                   {"$group": {"_id": {"type": "$type", "subtype": "$subtype",
-                                       "DataCite": "$types.resourceTypeGeneral"},
-                               "count": {"$sum": 1}}}
-                  ]
+    stat = {'first': {}, 'last': {}, 'any': {}}
+    for which in ("first", "last", "any"):
+        if which == 'any':
+            payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
+                                   "jrc_author": {"$exists": True}}},
+                       {"$group": {"_id": {"type": "$type", "subtype": "$subtype",
+                                           "DataCite": "$types.resourceTypeGeneral"},
+                                   "count": {"$sum": 1}}}
+                      ]
+        else:
+            payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year},
+                                   f"jrc_{which}_author": {"$exists": True}}},
+                       {"$group": {"_id": {"type": "$type", "subtype": "$subtype",
+                                           "DataCite": "$types.resourceTypeGeneral"},
+                                   "count": {"$sum": 1}}}
+                      ]
         try:
             rows = DB['dis'].dois.aggregate(payload)
         except Exception as err:
@@ -832,7 +851,7 @@ def get_first_last_authors(year):
                 if 'preprints' not in stat[which]:
                     stat[which]['preprints'] = 0
                 stat[which]['preprints'] += row['count']
-    return stat['first'], stat['last']
+    return stat['first'], stat['last'], stat['any']
 
 
 def get_no_relation(year=None):
@@ -853,8 +872,8 @@ def get_no_relation(year=None):
                                      "jrc_preprint": {"$exists": False}}
               }
     if year:
-        for pay in payload:
-            payload[pay]["jrc_publishing_date"] = {"$regex": "^"+ year}
+        for pay in payload.values():
+            pay["jrc_publishing_date"] = {"$regex": "^"+ year}
     for key, val in payload.items():
         try:
             cnt = DB['dis'].dois.count_documents(val)
@@ -1269,7 +1288,7 @@ def show_doi_authors(doi):
     tagname = []
     tags = []
     try:
-        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
+        orgs = DL.get_supervisory_orgs(DB['dis'].suporg)
     except Exception as err:
         raise InvalidUsage("Could not get supervisory orgs: " + str(err), 500) from err
     if 'jrc_tag' in row:
@@ -2736,7 +2755,7 @@ def dois_tag():
                {"$sort": {"_id.tag": 1}}
               ]
     try:
-        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
+        orgs = DL.get_supervisory_orgs(DB['dis'].suporg)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get supervisory orgs"),
@@ -2832,9 +2851,7 @@ def dois_top(num):
     height = 600
     if num > 23:
         height += 22 * (num - 23)
-    from bokeh.palettes import all_palettes, plasma
     colors = plasma(len(top))
-    print(len(top))
     if len(top) <= 10:
         colors = all_palettes['Category10'][len(top)]
     elif len(top) <= 20:
@@ -2870,7 +2887,7 @@ def dois_report(year=str(datetime.now().year)):
                                                     + "from dois collection"),
                                message=error_message(err))
     typed = counts_by_type(rows)
-    first, last = get_first_last_authors(year)
+    first, last, anyauth = get_first_last_authors(year)
     stat = {}
     # Journal count
     payload = [{"$unwind" : "$container-title"},
@@ -2890,7 +2907,6 @@ def dois_report(year=str(datetime.now().year)):
         if row['_id']:
             cnt += 1
     typed['Crossref'] = 0
-    print(typed)
     for key, val in pmap.items():
         if key in typed:
             if key not in ('DataCite', 'preprints'):
@@ -2900,23 +2916,40 @@ def dois_report(year=str(datetime.now().year)):
                 additional.append(f"{first[key]:,} with Janelian first author")
             if key in last:
                 additional.append(f"{last[key]:,} with Janelian last author")
+            if key in anyauth:
+                additional.append(f"{anyauth[key]:,} with any Janelian author")
             additional = f" ({', '.join(additional)})" if additional else ""
             stat[val] = f"<span style='font-weight: bold'>{typed[key]:,}</span> {val.lower()}"
             if val == 'Journal articles':
-                stat[val] += f" in {cnt:,} journals"
+                stat[val] += f" in <span style='font-weight: bold'>{cnt:,}</span> journals"
             stat[val] += additional
             stat[val] += "<br>"
     if 'DataCite' not in typed:
         typed['DataCite'] = 0
-    print(stat)
     stat['Entries'] = f"<span style='font-weight: bold'>{typed['Crossref']}" \
-                      + f"</span> Crossref entries<br>" \
+                      + "</span> Crossref entries<br>" \
                       + f"<span style='font-weight: bold'>{typed['DataCite']:,}" \
                       + "</span> DataCite entries"
     if 'Journal articles' not in stat:
         stat['Journal articles'] = "<span style='font-weight: bold'>0</span> journal articles<br>"
     if 'Preprints' not in stat:
         stat['Preprints'] = "<span style='font-weight: bold'>0</span> preprints<br>"
+    # Authors
+    try:
+        rows = coll.find({"jrc_publishing_date": {"$regex": "^"+ year}})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get frc_author metrics " \
+                                                    + "from dois collection"),
+                               message=error_message(err))
+    total = cnt = 0
+    for row in rows:
+        total += 1
+        field = 'creators' if 'creators' in row else 'author'
+        if 'jrc_author' in row and len(row['jrc_author']) == len(row[field]):
+            cnt += 1
+    stat['Author'] = f"<span style='font-weight: bold'>{cnt:,}</span> entries with all Janelia authors<br>"
+    stat['Author'] += f"<span style='font-weight: bold'>{total-cnt:,}</span> entries with at least one external collaborator"
     # Preprints
     no_relation = get_no_relation(year)
     cnt = {'journal': 0, 'preprint': 0}
@@ -2937,14 +2970,15 @@ def dois_report(year=str(datetime.now().year)):
         cnt += 1
         if cnt >= 10:
             break
-    # figshare
-    payload = [{"$match": {"doi": {"$regex": "janelia"},
+    # figshare (unversioned only)
+    payload = [{"$match": {"doi": {"$regex": "janelia.[0-9]+$"},
                           "jrc_publishing_date": {"$regex": "^"+ year}}},
                {"$unwind": "$jrc_author"},
                {"$group": {"_id": "$jrc_author", "count": {"$sum": 1}}}]
     try:
         cnt = coll.count_documents(payload[0]['$match'])
-        stat['figshare'] = f"<span style='font-weight: bold'>{cnt:,}</span> figshare articles"
+        stat['figshare'] = f"<span style='font-weight: bold'>{cnt:,}</span> " \
+                           + "figshare (unversioned) articles"
         rows = coll.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
@@ -2954,7 +2988,8 @@ def dois_report(year=str(datetime.now().year)):
         cnt = 0
         for row in rows:
             cnt += 1
-        stat['figshare'] += f" with <span style='font-weight: bold'>{cnt:,}</span> Janelia authors<br>"
+        stat['figshare'] += f" with <span style='font-weight: bold'>{cnt:,}</span> " \
+                            + "Janelia authors<br>"
     # Citations
     try:
         rows = coll.find({"jrc_publishing_date": {"$regex": "^"+ year}})
@@ -2966,7 +3001,8 @@ def dois_report(year=str(datetime.now().year)):
     html = f"<h2 class='dark'>Entries</h2>{stat['Entries']}<br>" \
            + f"<h2 class='dark'>Articles</h2>{stat['Journal articles']}" \
            + f"{stat['figshare']}<h2 class='dark'>Preprints</h2>{stat['Preprints']}" \
-           + f"<h2 class='dark'>Top journals</h2>" \
+           + f"<h2 class='dark'>Authors</h2>{stat['Author']}" \
+           + "<h2 class='dark'>Top journals</h2>" \
            + f"<p style='font-size: 14pt;line-height:90%;'>{stat['Topjournals']}</p>"
     html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
     html += '<br>' + year_pulldown('dois_report', all_years=False)
@@ -3290,7 +3326,7 @@ def show_names_ui(name):
     html, count = generate_user_table(rows)
     html = f"Search term: {name}<br>" + html
     return make_response(render_template('general.html', urlroot=request.url_root,
-                                         title=f"Users: {count:,}", html=html,
+                                         title=f"Authors: {count:,}", html=html,
                                          navbar=generate_navbar('ORCID')))
 
 
@@ -3304,7 +3340,7 @@ def orcid_tag():
                {"$sort": {"_id": 1}}
               ]
     try:
-        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
+        orgs = DL.get_supervisory_orgs(DB['dis'].suporg)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get supervisory orgs"),
@@ -3316,25 +3352,29 @@ def orcid_tag():
                                title=render_warning("Could not get affiliations " \
                                                     + "from orcid collection"),
                                message=error_message(err))
-    html = '<table id="types" class="tablesorter numbers"><thead><tr>' \
-           + '<th>Affiliation</th><th>SupOrg</th><th>Authors</th>' \
-           + '</tr></thead><tbody>'
+    html = "<button class=\"btn btn-outline-warning\" " \
+              + "onclick=\"$('.other').toggle();\">Filter for active SupOrgs</button>"
+    html += '<table id="types" class="tablesorter numbers"><thead><tr>' \
+            + '<th>Affiliation</th><th>SupOrg</th><th>Authors</th>' \
+            + '</tr></thead><tbody>'
     count = 0
     for row in rows:
         count += 1
         link = f"<a href='tag/{escape(row['_id'])}'>{row['_id']}</a>"
         link2 = f"<a href='/affiliation/{escape(row['_id'])}'>{row['count']:,}</a>"
+        rclass = 'other'
         if row['_id'] in orgs:
             if orgs[row['_id']]:
                 if 'active' in orgs[row['_id']]:
                     org = "<span style='color: lime;'>Yes</span>"
+                    rclass = 'active'
                 else:
                     org = "<span style='color: yellow;'>Inactive</span>"
             else:
                 org = "<span style='color: yellow;'>No code</span>"
         else:
             org = "<span style='color: red;'>No</span>"
-        html += f"<tr><td>{link}</td><td>{org}</td><td>{link2}</td></tr>"
+        html += f"<tr class={rclass}><td>{link}</td><td>{org}</td><td>{link2}</td></tr>"
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"Author affiliations ({count:,})", html=html,
@@ -3656,7 +3696,7 @@ def tagrec(tag):
                                message=error_message(err))
     tagtype = "Affiliation" if acnt else ""
     try:
-        orgs = DL.get_supervisory_orgs(coll=DB['dis'].suporg)
+        orgs = DL.get_supervisory_orgs(DB['dis'].suporg)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get supervisory orgs"),
@@ -3688,11 +3728,11 @@ def tagrec(tag):
         tagtype = 'Supervisory org'
         html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
         html += f"<tr><td>Code</td><td>{orgs[tag]['code']}</td></tr>"
-        html += f"<tr><td>Status</td><td>"
+        html += "<tr><td>Status</td><td>"
         if 'active' in orgs[tag]:
-            html += f"<span style='color: lime;'>Active</span></td></tr>"
+            html += "<span style='color: lime;'>Active</span></td></tr>"
         else:
-            html += f"<span style='color: yellow;'>Inactive</span></td></tr>"
+            html += "<span style='color: yellow;'>Inactive</span></td></tr>"
     else:
         html += f"<tr><td>Tag type</td><td>{tagtype}</td></tr>"
     if pdict:
