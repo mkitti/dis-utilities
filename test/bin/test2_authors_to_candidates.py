@@ -11,8 +11,13 @@
 import db_connect
 import tc_common
 import jrc_common.jrc_common as JRC
-import name_match as nm
 import sys
+
+try:
+    import name_match as nm
+except:
+    print('ERROR: Could not import name_match.py. Is it in your PYTHONPATH?')
+    sys.exit(0)
 
 
 

@@ -1,6 +1,6 @@
 # Test that the data structures constructed from file snippets for all following unit tests match what you would get from database queries.
 
-# IMPORTANT! These files have been manually curated!
+# VERY IMPORTANT! 
 # If you are creating a new doi_record.txt file, you need to manually remove certain key:value pairs. These are '_id', 'jrc_updated', and 'jrc_inserted'.
 # So this:
 # "{'_id': ObjectId('669fca86ca18f636c3b03ea2'), 'doi': '10.1007/s12264-024-01253-8', ...
