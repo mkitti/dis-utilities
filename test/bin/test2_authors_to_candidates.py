@@ -20,19 +20,20 @@ except:
     sys.exit(0)
 
 
-
+# Boilerplate: initialize DB connection
 db_connect.initialize_program()
 LOGGER = JRC.setup_logging(db_connect.DummyArg()) 
 orcid_collection = db_connect.DB['dis'].orcid
 doi_collection = db_connect.DB['dis'].dois
 
+#Boilerplate: create a TestCase object (attributes come from config file)
 config_dict = tc_common.read_config('single_author')
 config = tc_common.TestCase(**config_dict)
 
 
-doi_record = tc_common.evaluate_file(f'{config.dirname}/doi_record.txt')
-author_list = tc_common.evaluate_file(f'{config.dirname}/author_details.txt')
-all_authors = [ nm.create_author(author_record) for author_record in author_list]
+doi_rec_from_file = config.doi_record()
+author_list_from_file = config.author_details()
+all_authors = [ nm.create_author(author_record) for author_record in author_list_from_file]
 
 ids = []
 for a in all_authors:
@@ -40,20 +41,17 @@ for a in all_authors:
     ids = nm.name_search(name.first, name.last)
 
 
-if ids == eval(config.initial_candidate_employee_ids):
+if ids == config.candidate_ids():
     print('Pass: initial candidate employee IDs')
 else:
-    print(f'Fail: initial candidate employee IDs\nExpected:{eval(config.initial_candidate_employee_ids)}\nReturned:{ids}')
+    print(f'Fail: initial candidate employee IDs\nExpected:{config.candidate_ids()}\nReturned:{ids}')
 
-# nm_employees = []
-# for id in ids:
-#     nm.create_employee(id) # For now I am choosing to not test whether create_employee() works; I'm just using it to create employees.
 
 guess_lists = []
 for a in all_authors:
     guess_lists.append(nm.propose_candidates(a))
 
-target = [s.split('|') for s in config.proposed_guesses.split(';')]
+target = config.parse_proposed_guesses() # Guess objects from file
 
 for i in range(len(guess_lists)):
     for i2 in range(len(guess_lists[i])):

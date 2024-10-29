@@ -28,19 +28,6 @@ import tc_common
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
 
-# class TestCase():
-#     def __init__(self, **kwargs):
-#         for key, value in kwargs.items():
-#             setattr(self, key, value)
-
-
-# def evaluate_file(filename):
-#     """
-#     Read a file and return a data structure that is just what you would get from a particular doi_common or jrc_common command.
-#     """
-#     with open(filename, 'r') as inF:
-#         return(eval(inF.readlines()[0].rstrip('\n')))
-
 
 def check_match(message):
     def decorator(func):
@@ -74,18 +61,16 @@ doi_collection = db_connect.DB['dis'].dois
 config_dict = tc_common.read_config('single_author')
 config = tc_common.TestCase(**config_dict)
 
-doi_rec_from_file = tc_common.evaluate_file(f'{config.dirname}/doi_record.txt')
+doi_rec_from_file = config.doi_record()
 doi_rec_real = doi_common.get_doi_record(f'{config.doi}', doi_collection)    
 doi_rec_real.pop('_id') # key definitely exists
 doi_rec_real.pop('jrc_updated', None) # key may not exist
 doi_rec_real.pop('jrc_inserted', None) # key may not exist
 
-author_list_from_file = tc_common.evaluate_file(f'{config.dirname}/author_details.txt')
+author_list_from_file = config.author_details()
 author_list_real = doi_common.get_author_details(doi_rec_from_file, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
 
-id_results_from_file = [] 
-for id in eval(config.initial_candidate_employee_ids):
-    id_results_from_file.append( tc_common.evaluate_file(f'{config.dirname}/id_result_{id}.txt') )
+id_results_from_file = config.id_result()
 id_results_real = [JRC.call_people_by_id(r) for r in eval(config.initial_candidate_employee_ids)]
 
 compare_doi_records(doi_rec_from_file, doi_rec_real)

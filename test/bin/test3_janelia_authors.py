@@ -12,7 +12,7 @@ except:
 
 
 
-# Boilerplate: initiate DB connection
+# Boilerplate: initialize DB connection
 db_connect.initialize_program()
 LOGGER = JRC.setup_logging(db_connect.DummyArg()) 
 orcid_collection = db_connect.DB['dis'].orcid
