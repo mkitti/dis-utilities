@@ -1,25 +1,23 @@
-"""
-Some handy objects that appear in multiple test scripts.
-"""
-
-def read_config(filename):
-    config_file_obj = open(f'{filename}/config.txt', 'r')
-    config_dict = {line.split(':')[0]: line.split(':')[1].rstrip('\n') for line in config_file_obj.readlines()}
-    config_file_obj.close()
-    return(config_dict)
-
-
 class TestCase():
-    def __init__(self, **kwargs):
-        for key, value in kwargs.items():
+    # def __init__(self, **kwargs):
+    #     for key, value in kwargs.items():
+    #         setattr(self, key, value)
+    def read_config(self, filename):
+        with open(f'{filename}/config.txt', 'r') as config_file_obj:
+            config_dict = {line.split(':')[0]: line.split(':')[1].rstrip('\n') for line in config_file_obj.readlines()}
+        for key, value in config_dict.items():
             setattr(self, key, value)
 
     def doi_record(self):
         return self.evaluate_file(f"{self.dirname}/doi_record.txt")
     def author_details(self):
         return self.evaluate_file(f"{self.dirname}/author_details.txt")
+    def author_objects(self):
+        return self.evaluate_file(f"{self.dirname}/author_objects.txt")
     def candidate_ids(self):
         return eval(self.initial_candidate_employee_ids)
+    def janelians_bool(self):
+        return(eval(self.janelians))
     def id_result(self):
         id_results_from_file = []
         for id in eval(self.initial_candidate_employee_ids):

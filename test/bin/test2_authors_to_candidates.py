@@ -27,13 +27,13 @@ orcid_collection = db_connect.DB['dis'].orcid
 doi_collection = db_connect.DB['dis'].dois
 
 #Boilerplate: create a TestCase object (attributes come from config file)
-config_dict = tc_common.read_config('single_author')
-config = tc_common.TestCase(**config_dict)
+config = tc_common.TestCase()
+config.read_config('single_author')
 
 
 doi_rec_from_file = config.doi_record()
-author_list_from_file = config.author_details()
-all_authors = [ nm.create_author(author_record) for author_record in author_list_from_file]
+author_details_from_file = config.author_details()
+all_authors = [ nm.create_author(author_record) for author_record in author_details_from_file]
 
 ids = []
 for a in all_authors:
@@ -54,8 +54,8 @@ for a in all_authors:
 target = config.parse_proposed_guesses() # Guess objects from file
 
 for i in range(len(guess_lists)):
-    for i2 in range(len(guess_lists[i])):
-        if target[i][i2] != str(repr(guess_lists[i][i2])):
+    for j in range(len(guess_lists[i])):
+        if target[i][j] != str(repr(guess_lists[i][j])):
             print(f'Fail: initial proposed guesses\nExpected:{target}\nReturned:{guess_lists}') #guess_lists items won't have double-quotes when you print them because they're reprs
             sys.exit(0)
 

@@ -52,14 +52,15 @@ def compare_id_results(file_record, db_record):
     return file_record == db_record
 
 
-
+# Boilerplate: initialize DB connection
 db_connect.initialize_program()
 LOGGER = JRC.setup_logging(db_connect.DummyArg()) 
 orcid_collection = db_connect.DB['dis'].orcid
 doi_collection = db_connect.DB['dis'].dois
 
-config_dict = tc_common.read_config('single_author')
-config = tc_common.TestCase(**config_dict)
+#Boilerplate: create a TestCase object (attributes come from config file)
+config = tc_common.TestCase()
+config.read_config('single_author')
 
 doi_rec_from_file = config.doi_record()
 doi_rec_real = doi_common.get_doi_record(f'{config.doi}', doi_collection)    
@@ -71,7 +72,7 @@ author_list_from_file = config.author_details()
 author_list_real = doi_common.get_author_details(doi_rec_from_file, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
 
 id_results_from_file = config.id_result()
-id_results_real = [JRC.call_people_by_id(r) for r in eval(config.initial_candidate_employee_ids)]
+id_results_real = [JRC.call_people_by_id(r) for r in config.candidate_ids()]
 
 compare_doi_records(doi_rec_from_file, doi_rec_real)
 compare_author_records(author_list_from_file, author_list_real)
