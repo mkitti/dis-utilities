@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "22.0.0"
+__version__ = "23.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -2907,6 +2907,7 @@ def dois_report(year=str(datetime.now().year)):
         if row['_id']:
             cnt += 1
     typed['Crossref'] = 0
+    sheet = []
     for key, val in pmap.items():
         if key in typed:
             if key not in ('DataCite', 'preprints'):
@@ -2920,13 +2921,47 @@ def dois_report(year=str(datetime.now().year)):
                 additional.append(f"{anyauth[key]:,} with any Janelian author")
             additional = f" ({', '.join(additional)})" if additional else ""
             stat[val] = f"<span style='font-weight: bold'>{typed[key]:,}</span> {val.lower()}"
-            if val == 'Journal articles':
-                stat[val] += f" in <span style='font-weight: bold'>{cnt:,}</span> journals"
+            if val in ('Journal articles', 'Preprints'):
+                sheet.append(f"{val}\t{typed[key]}")
+                if val == 'Journal articles':
+                    stat[val] += f" in <span style='font-weight: bold'>{cnt:,}</span> journals"
+                    sheet.append(f"\tJournals\t{cnt}")
+                if key in first:
+                    sheet.append(f"\tFirst authors\t{first[key]}")
+                if key in last:
+                    sheet.append(f"\tLast authors\t{last[key]}")
+                if key in anyauth:
+                    sheet.append(f"\tAny Janelian author\t{anyauth[key]:}")
             stat[val] += additional
             stat[val] += "<br>"
+    # figshare (unversioned only)
+    payload = [{"$match": {"doi": {"$regex": "janelia.[0-9]+$"},
+                          "jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$unwind": "$jrc_author"},
+               {"$group": {"_id": "$jrc_author", "count": {"$sum": 1}}}]
+    try:
+        cnt = coll.count_documents(payload[0]['$match'])
+        stat['figshare'] = f"<span style='font-weight: bold'>{cnt:,}</span> " \
+                           + "figshare (unversioned) articles"
+        sheet.append(f"figshare (unversioned) articles\t{cnt}")
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get journal figshare stats"),
+                               message=error_message(err))
+    if cnt:
+        cnt = 0
+        for row in rows:
+            cnt += 1
+        stat['figshare'] += f" with <span style='font-weight: bold'>{cnt:,}</span> " \
+                            + "Janelia authors<br>"
+        sheet.append(f"\tJanelia authors\t{cnt}")
+    # Entries
     if 'DataCite' not in typed:
         typed['DataCite'] = 0
-    stat['Entries'] = f"<span style='font-weight: bold'>{typed['Crossref']}" \
+    for key in ('DataCite', 'Crossref'):
+        sheet.insert(0, f"{key} entries\t{typed[key]}")
+    stat['Entries'] = f"<span style='font-weight: bold'>{typed['Crossref']:,}" \
                       + "</span> Crossref entries<br>" \
                       + f"<span style='font-weight: bold'>{typed['DataCite']:,}" \
                       + "</span> DataCite entries"
@@ -2942,14 +2977,23 @@ def dois_report(year=str(datetime.now().year)):
                                title=render_warning("Could not get frc_author metrics " \
                                                     + "from dois collection"),
                                message=error_message(err))
-    total = cnt = 0
+    total = cnt = middle = 0
     for row in rows:
         total += 1
         field = 'creators' if 'creators' in row else 'author'
         if 'jrc_author' in row and len(row['jrc_author']) == len(row[field]):
             cnt += 1
-    stat['Author'] = f"<span style='font-weight: bold'>{cnt:,}</span> entries with all Janelia authors<br>"
-    stat['Author'] += f"<span style='font-weight: bold'>{total-cnt:,}</span> entries with at least one external collaborator"
+        elif 'jrc_author' not in row:
+            middle += 1
+    stat['Author'] = f"<span style='font-weight: bold'>{cnt:,}</span> " \
+                     + "entries with all Janelia authors<br>"
+    stat['Author'] += f"<span style='font-weight: bold'>{total-cnt:,}</span> " \
+                      + "entries with at least one external collaborator<br>"
+    stat['Author'] += f"<span style='font-weight: bold'>{middle:,}</span> " \
+                      + "entries with no Janelia  first or last authors<br>"
+    sheet.append(f"Entries with all Janelia authors\t{cnt}")
+    sheet.append(f"Entries with external collaborators\t{total-cnt}")
+    sheet.append(f"Entries with no Janelia first or last authors\t{middle}")
     # Preprints
     no_relation = get_no_relation(year)
     cnt = {'journal': 0, 'preprint': 0}
@@ -2965,46 +3009,42 @@ def dois_report(year=str(datetime.now().year)):
     journal = get_top_journals(year)
     cnt = 0
     stat['Topjournals'] = ""
+    sheet.append("Top journals")
     for key in sorted(journal, key=journal.get, reverse=True):
         stat['Topjournals'] += f"&nbsp;&nbsp;&nbsp;&nbsp;{key}: {journal[key]}<br>"
+        sheet.append(f"\t{key}\t{journal[key]}")
         cnt += 1
         if cnt >= 10:
             break
-    # figshare (unversioned only)
-    payload = [{"$match": {"doi": {"$regex": "janelia.[0-9]+$"},
-                          "jrc_publishing_date": {"$regex": "^"+ year}}},
-               {"$unwind": "$jrc_author"},
-               {"$group": {"_id": "$jrc_author", "count": {"$sum": 1}}}]
+    # Tags
+    payload = [{"$match": {"jrc_tag": {"$exists": True},
+                           "jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$project": {"doi": 1, "numtags": {"$size": "$jrc_tag"}}}
+              ]
     try:
-        cnt = coll.count_documents(payload[0]['$match'])
-        stat['figshare'] = f"<span style='font-weight: bold'>{cnt:,}</span> " \
-                           + "figshare (unversioned) articles"
         rows = coll.aggregate(payload)
     except Exception as err:
         return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get journal figshare stats"),
-                               message=error_message(err))
-    if cnt:
-        cnt = 0
-        for row in rows:
-            cnt += 1
-        stat['figshare'] += f" with <span style='font-weight: bold'>{cnt:,}</span> " \
-                            + "Janelia authors<br>"
-    # Citations
-    try:
-        rows = coll.find({"jrc_publishing_date": {"$regex": "^"+ year}})
-    except Exception as err:
-        return render_template('error.html', urlroot=request.url_root,
-                               title=render_warning("Could not get journal metrics " \
+                               title=render_warning("Could not get frc_author metrics " \
                                                     + "from dois collection"),
                                message=error_message(err))
+    cnt = total = 0
+    for row in rows:
+        cnt += 1
+        total += row['numtags']
+    stat['Tags'] = f"<span style='font-weight: bold'>{total/cnt:.1f}</span> " \
+                   + "average tags per tagged entry"
+    sheet.append(f"Average tags per tagged entry\t{total/cnt:.1f}")
+    sheet = create_downloadable(f"{year}_in_review", None, "\n".join(sheet))
     html = f"<h2 class='dark'>Entries</h2>{stat['Entries']}<br>" \
            + f"<h2 class='dark'>Articles</h2>{stat['Journal articles']}" \
            + f"{stat['figshare']}<h2 class='dark'>Preprints</h2>{stat['Preprints']}" \
            + f"<h2 class='dark'>Authors</h2>{stat['Author']}" \
+           + f"{stat['figshare']}<h2 class='dark'>Tags</h2>{stat['Tags']}" \
            + "<h2 class='dark'>Top journals</h2>" \
            + f"<p style='font-size: 14pt;line-height:90%;'>{stat['Topjournals']}</p>"
-    html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div><div class='yearstat'>{html}</div>"
+    html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div>{sheet}<br>" \
+           + f"<div class='yearstat'>{html}</div>"
     html += '<br>' + year_pulldown('dois_report', all_years=False)
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"{year}", html=html,
