@@ -370,7 +370,7 @@ def evaluate_candidates(author, candidates, inform_message, verbose=False):
 ### Functions to search and write to database
 
 def get_author_objects(doi, doi_record, doi_collection):
-    print_title(doi_record)
+    print_title(doi, doi_record)
     all_authors = [ create_author(author_record) for author_record in doi_common.get_author_details(doi_record, doi_collection)]
     all_authors = set_author_check_attr(all_authors)
     # If the paper has affiliations, we will only check those authors with janelia affiliations. Otherwise, we will check all authors.
@@ -527,7 +527,7 @@ def get_dois_from_commandline(doi_arg, file_arg):
             exit()
     return(dois)
 
-def print_title(doi_record):
+def print_title(doi, doi_record):
     if 'titles' in doi_record: # DataCite
         print(f"{doi}: {doi_record['titles'][0]['title']}")
     else: # Crossref
@@ -671,9 +671,9 @@ if __name__ == '__main__':
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
 # doi_collection = nm.DB['dis'].dois
-# doi = '10.1101/2023.10.12.562058'
+# doi = '10.1101/2024.09.16.613338'
 # doi_record = nm.doi_common.get_doi_record(doi, doi_collection)
-# all_authors = [ nm.create_author(author_record) for author_record in nm.doi_common.get_author_details(doi_record, doi_collection)]
+# all_authors = nm.get_author_objects(doi, doi_record, doi_collection)
 # authors_to_check = nm.determine_authors_to_check(all_authors)
 
 #doi='10.1038/s41587-022-01524-7'

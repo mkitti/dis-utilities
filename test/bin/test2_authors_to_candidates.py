@@ -33,7 +33,7 @@ config.read_config('single_author')
 
 doi_rec_from_file = config.doi_record()
 author_details_from_file = config.author_details()
-all_authors = [ nm.create_author(author_record) for author_record in author_details_from_file]
+all_authors = [ nm.create_author(author_record) for author_record in eval(author_details_from_file)]
 
 ids = []
 for a in all_authors:
@@ -46,20 +46,29 @@ if ids == config.candidate_ids():
 else:
     print(f'Fail: initial candidate employee IDs\nExpected:{config.candidate_ids()}\nReturned:{ids}')
 
+# target = ''
+# with open('single_author/guesses.txt', 'r') as inF:
+#     target = inF.readlines()[0].rstrip('\n')
 
-guess_lists = []
-for a in all_authors:
-    guess_lists.append(nm.propose_candidates(a))
 
-target = config.parse_proposed_guesses() # Guess objects from file
 
-for i in range(len(guess_lists)):
-    for j in range(len(guess_lists[i])):
-        if target[i][j] != str(repr(guess_lists[i][j])):
-            print(f'Fail: initial proposed guesses\nExpected:{target}\nReturned:{guess_lists}') #guess_lists items won't have double-quotes when you print them because they're reprs
-            sys.exit(0)
 
+guess_lists = [nm.propose_candidates(a) for a in all_authors]
+
+target = config.guesses() # Guess lists from file, represented as one string
+
+if str(guess_lists) == target:
     print('Pass: initial proposed guesses')
+else:
+    print(f'Fail: initial proposed guesses\nExpected:{target}\nReturned:{str(guess_lists)}')
+
+# for i in range(len(guess_lists)):
+#     for j in range(len(guess_lists[i])):
+#         if target[i][j] != str(repr(guess_lists[i][j])):
+#             print(f'Fail: initial proposed guesses\nExpected:{target}\nReturned:{guess_lists}') #guess_lists items won't have double-quotes when you print them because they're reprs
+#             sys.exit(0)
+
+    
 
 
 

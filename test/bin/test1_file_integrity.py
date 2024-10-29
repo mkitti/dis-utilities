@@ -62,18 +62,21 @@ doi_collection = db_connect.DB['dis'].dois
 config = tc_common.TestCase()
 config.read_config('single_author')
 
+#doi_rec_from_file = config.doi_record()
 doi_rec_from_file = config.doi_record()
-doi_rec_real = doi_common.get_doi_record(f'{config.doi}', doi_collection)    
-doi_rec_real.pop('_id') # key definitely exists
-doi_rec_real.pop('jrc_updated', None) # key may not exist
-doi_rec_real.pop('jrc_inserted', None) # key may not exist
+doi_rec_real = doi_common.get_doi_record(f'{config.doi}', doi_collection)
+
+
+# doi_rec_real.pop('_id') # key definitely exists
+# doi_rec_real.pop('jrc_updated', None) # key may not exist
+# doi_rec_real.pop('jrc_inserted', None) # key may not exist
 
 author_list_from_file = config.author_details()
-author_list_real = doi_common.get_author_details(doi_rec_from_file, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
+author_list_real = doi_common.get_author_details(doi_rec_real, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON
 
 id_results_from_file = config.id_result()
 id_results_real = [JRC.call_people_by_id(r) for r in config.candidate_ids()]
 
-compare_doi_records(doi_rec_from_file, doi_rec_real)
-compare_author_records(author_list_from_file, author_list_real)
-compare_id_results(id_results_from_file, id_results_real)
+compare_doi_records(doi_rec_from_file, str(doi_rec_real))
+compare_author_records(author_list_from_file, str(author_list_real))
+compare_id_results(id_results_from_file, [str(r) for r in id_results_real])
