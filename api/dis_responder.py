@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "23.0.0"
+__version__ = "23.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -2956,6 +2956,38 @@ def dois_report(year=str(datetime.now().year)):
         stat['figshare'] += f" with <span style='font-weight: bold'>{cnt:,}</span> " \
                             + "Janelia authors<br>"
         sheet.append(f"\tJanelia authors\t{cnt}")
+    # ORCID stats
+    orcs = {}
+    try:
+        ocoll = DB['dis'].orcid
+        rows = ocoll.find({})
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get orcid collection entries"),
+                               message=error_message(err))
+    for row in rows:
+        if 'employeeId' in row and 'orcid' in row:
+            orcs[row['employeeId']] = True
+    payload = [{"$match": {"jrc_publishing_date": {"$regex": "^"+ year}}},
+               {"$unwind": "$jrc_author"},
+               {"$group": {"_id": "$jrc_author", "count": {"$sum": 1}}}
+              ]
+    try:
+        rows = coll.aggregate(payload)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get jrc_authors"),
+                               message=error_message(err))
+    cnt = orc = 0
+    for row in rows:
+        cnt += 1
+        if row['_id'] in orcs:
+            orc += 1
+    stat['ORCID'] = f"<span style='font-weight: bold'>{cnt:,}</span> " \
+                    + "distinct Janelia authors for all entries, " \
+                    + f"<span style='font-weight: bold'>{orc:,}</span> " \
+                    + f"({orc/cnt*100:.2f}%) with ORCIDs"
+    sheet.extend([f"Distinct Janelia authors\t{cnt}", f"Janelia authors with ORCIDs\t{orc}"])
     # Entries
     if 'DataCite' not in typed:
         typed['DataCite'] = 0
@@ -3017,9 +3049,9 @@ def dois_report(year=str(datetime.now().year)):
         if cnt >= 10:
             break
     # Tags
-    payload = [{"$match": {"jrc_tag": {"$exists": True},
+    payload = [{"$match": {"jrc_tag": {"$exists": True}, "jrc_obtained_from": "Crossref",
                            "jrc_publishing_date": {"$regex": "^"+ year}}},
-               {"$project": {"doi": 1, "numtags": {"$size": "$jrc_tag"}}}
+               {"$project": {"doi": 1, "type": "$type", "numtags": {"$size": "$jrc_tag"}}}
               ]
     try:
         rows = coll.aggregate(payload)
@@ -3030,6 +3062,8 @@ def dois_report(year=str(datetime.now().year)):
                                message=error_message(err))
     cnt = total = 0
     for row in rows:
+        if 'type' not in row or row['type'] not in ('journal-article', 'posted-content'):
+            continue
         cnt += 1
         total += row['numtags']
     stat['Tags'] = f"<span style='font-weight: bold'>{total/cnt:.1f}</span> " \
@@ -3038,9 +3072,11 @@ def dois_report(year=str(datetime.now().year)):
     sheet = create_downloadable(f"{year}_in_review", None, "\n".join(sheet))
     html = f"<h2 class='dark'>Entries</h2>{stat['Entries']}<br>" \
            + f"<h2 class='dark'>Articles</h2>{stat['Journal articles']}" \
-           + f"{stat['figshare']}<h2 class='dark'>Preprints</h2>{stat['Preprints']}" \
+           + f"{stat['figshare']}" \
+           + f"<h2 class='dark'>Preprints</h2>{stat['Preprints']}" \
            + f"<h2 class='dark'>Authors</h2>{stat['Author']}" \
-           + f"{stat['figshare']}<h2 class='dark'>Tags</h2>{stat['Tags']}" \
+           + f"{stat['figshare']}{stat['ORCID']}" \
+           + f"<h2 class='dark'>Tags</h2>{stat['Tags']}" \
            + "<h2 class='dark'>Top journals</h2>" \
            + f"<p style='font-size: 14pt;line-height:90%;'>{stat['Topjournals']}</p>"
     html = f"<div class='titlestat'>{year} YEAR IN REVIEW</div>{sheet}<br>" \
