@@ -4,6 +4,7 @@
 
 import argparse
 import collections
+import json
 from operator import attrgetter
 import re
 import sys
@@ -98,7 +99,14 @@ def get_dois_from_arxiv():
                 offset += batch_size
             for item in entry:
                 COUNT['read'] += 1
-                doi = item['id'].split('/')[-1]
+                if not isinstance(item, dict):
+                    LOGGER.error(f"Item is not a dictionary: {item}")
+                    continue
+                try:
+                    doi = item['id'].split('/')[-1]
+                except Exception as err:
+                    print(json.dumps(item, indent=2))
+                    terminate_program(err)
                 doi = re.sub(r"v\d+$", "", doi)  # Remove version
                 doi = f"10.48550/arxiv.{doi}"
                 if doi_exists(doi.lower()):

@@ -98,7 +98,7 @@ def valid_author(authid):
     orc = DL.single_orcid_lookup(authid, DB['dis'].orcid, 'employeeId')
     if not orc or 'alumni' in orc:
         return False
-    return True
+    return orc['orcid'] if 'orcid' in orc else True
 
 
 def process_authors(authors, publications, cnt):
@@ -118,7 +118,8 @@ def process_authors(authors, publications, cnt):
             LOGGER.warning(f"Skipping author {auth}")
             continue
         name = ' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']])
-        if not valid_author(auth):
+        author_valid = valid_author(auth)
+        if not author_valid:
             LOGGER.warning(f"Skipping author {name}")
             continue
         email = DISCONFIG['developer'] if ARG.TEST else resp['email']
@@ -140,6 +141,11 @@ def process_authors(authors, publications, cnt):
                 + "listed below may not correspond perfectly to the author names on the paper " \
                 + "(e.g., Jane Doe / Janet P. Doe). This is fine. Just let us know if we’ve " \
                 + "missed anyone, or if we’ve included someone we shouldn’t have."
+        if isinstance(author_valid, bool):
+            LOGGER.warning(f"Author {name} has no ORCID")
+            text += "<br><br><span style='font-weight: bold'>Note:</span> We could not find " \
+                    + "an ORCID for you. To create one, please visit " \
+                    + "<a href='https://orcid.org/register'>ORCID</a>."
         text += "<br><br>Thank you!<br><br>"
         for res in val['citations']:
             text += f"{res}"

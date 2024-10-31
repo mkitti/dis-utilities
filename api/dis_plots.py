@@ -45,7 +45,7 @@ def _preprint_type_piechart(coll, year):
     if year != 'All':
         title += f" ({year})"
     return pie_chart(dict(sorted(data.items())), title,
-                     "source", width=500)
+                     "source", width=600, height=400, location='bottom_right')
 
 
 def _preprint_capture_piechart(coll, year):
@@ -76,8 +76,7 @@ def _preprint_capture_piechart(coll, year):
     title = "Preprint capture method"
     if year != 'All':
         title += f" ({year})"
-    return pie_chart(data, title, "source",
-                     width=500, colors=SOURCE_PALETTE)
+    return pie_chart(data, title, "source", colors=SOURCE_PALETTE, width=600, height=400)
 
 
 def preprint_pie_charts(data, year, coll):
@@ -93,7 +92,7 @@ def preprint_pie_charts(data, year, coll):
     if year != 'All':
         title += f" ({year})"
     chartscript, chartdiv = pie_chart(data, title, "source",
-                                      colors=SOURCE_PALETTE, width=500)
+                                      colors=SOURCE_PALETTE, width=600, height=400)
     # Preprint types
     try:
         script2, div2 = _preprint_type_piechart(coll, year)
