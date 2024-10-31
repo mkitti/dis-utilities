@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "23.1.0"
+__version__ = "23.2.0"
 # Database
 DB = {}
 # Custom queries
@@ -213,7 +213,7 @@ def render_warning(msg, severity='error', size='lg'):
     ''' Render warning HTML
         Keyword arguments:
           msg: message
-          severity: severity (warning, error, or success)
+          severity: severity (warning, error, info, or success)
           size: glyph size
         Returns:
           HTML rendered warning
@@ -225,6 +225,9 @@ def render_warning(msg, severity='error', size='lg'):
     elif severity == 'success':
         icon = 'check-circle'
         color = 'lime'
+    elif severity == 'info':
+        icon = 'circle-info'
+        color = 'blue'
     elif severity == 'na':
         icon = 'minus-circle'
         color = 'gray'
@@ -2683,8 +2686,10 @@ def dois_pending():
            + '</tr></thead><tbody>'
     if not cnt:
         return render_template('warning.html', urlroot=request.url_root,
-                               title=render_warning("No DOIs found", 'warning'),
-                               message="No DOIs are awaiting processing")
+                               title=render_warning("No DOIs found", 'info'),
+                               message="No DOIs are awaiting processing. This isn't an error," \
+                                       + " it just means that we're all caught up on " \
+                                       + "DOI processing.")
     for row in rows:
         elapsed = datetime. now() - row['inserted']
         if elapsed.days:
