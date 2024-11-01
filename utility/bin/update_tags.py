@@ -2,7 +2,7 @@
     Update tags for selected DOIs
 """
 
-__version__ = '2.1.0'
+__version__ = '3.0.0'
 
 import argparse
 import collections
@@ -191,6 +191,58 @@ def get_suporg_code(name):
     return None
 
 
+def add_non_author_tags(payload):
+    """ Add suporg tags to a DOI's payload
+        Keyword arguments:
+          payload: DOI payload
+        Returns:
+          None
+    """
+    orgs = DL.get_supervisory_orgs()
+    if 'jrc_tag' in payload:
+        tags = [tag['name'] for tag in payload['jrc_tag']]
+        for tag in tags:
+            if tag in orgs:
+                del orgs[tag]
+    quest = [(inquirer.Checkbox('checklist', carousel=True,
+                                message='Select tags',
+                                choices=sorted(orgs.keys())))]
+    ans = inquirer.prompt(quest, theme=BlueComposure())
+    tags = []
+    for tag in ans['checklist']:
+        code = orgs[tag]
+        tagtype = 'suporg'
+        tags.append({"name": tag, "code": code, "type": tagtype})
+    if not tags:
+        return
+    if 'jrc_tag' not in payload:
+        payload['jrc_tag'] = []
+    payload['jrc_tag'].extend(tags)
+
+
+def process_tags(ans, tagd):
+    """ Process the tags from the prompt
+        Keyword arguments:
+          ans: prompt answers
+          tagd: dict of tags by tag name
+        Returns:
+          payload: DOI payload
+    """
+    payload = {}
+    if 'checklist' in ans:
+        tags = []
+        for tag in ans['checklist']:
+            code = get_suporg_code(tagd[tag])
+            tagtype = 'suporg' if code else 'affiliation'
+            tags.append({"name": tagd[tag], "code": code, "type": tagtype})
+        if tags:
+            payload["jrc_tag"] = tags
+    # Additional tags
+    if 'additional' in ans and ans['additional'] == 'Yes':
+        add_non_author_tags(payload)
+    return payload
+
+
 def update_single_doi(rec):
     """ Update tags for a single DOI
         Keyword arguments:
@@ -215,21 +267,18 @@ def update_single_doi(rec):
         quest.append(inquirer.Checkbox('checklist', carousel=True,
                                        message='Select tags',
                                        choices=tagd, default=current))
+    quest.append(inquirer.List('additional',
+                               message="Do you want to add tags that are not associated " \
+                                       + "with authors?",
+                               choices=['Yes', 'No'], default='No'))
     quest.append(inquirer.List('newsletter',
                                message=f"Set jrc_newsletter to {today}",
                                choices=['Yes', 'No']))
     ans = inquirer.prompt(quest, theme=BlueComposure())
     if not ans:
         return
-    payload = {}
-    if 'checklist' in ans:
-        tags = []
-        for tag in ans['checklist']:
-            code = get_suporg_code(tagd[tag])
-            tagtype = 'suporg' if code else 'affiliation'
-            tags.append({"name": tagd[tag], "code": code, "type": tagtype})
-        if tags:
-            payload["jrc_tag"] = tags
+    payload = process_tags(ans, tagd)
+    # Newsletter
     if 'newsletter' in ans and ans['newsletter'] == 'Yes':
         payload['jrc_newsletter'] = today
     COUNT['selected'] += 1
