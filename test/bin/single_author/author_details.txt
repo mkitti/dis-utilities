@@ -1,1 +1,0 @@
-[{'paper_orcid': '0000-0002-3457-4462', 'family': 'Ahrens', 'given': 'Misha B.', 'is_first': True, 'is_last': True, 'orcid': '0000-0002-3457-4462', 'in_database': False, 'janelian': False, 'asserted': False, 'alumni': False, 'validated': False, 'match': 'None'}]
