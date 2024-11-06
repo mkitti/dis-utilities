@@ -1,33 +1,13 @@
 # Test that the data structures constructed from file snippets for all following unit tests match what you would get from database queries.
-
-# VERY IMPORTANT! 
-# If you are creating a new doi_record.txt file, you need to manually remove certain key:value pairs. These are '_id', 'jrc_updated', and 'jrc_inserted'.
-# So this:
-# "{'_id': ObjectId('669fca86ca18f636c3b03ea2'), 'doi': '10.1007/s12264-024-01253-8', ...
-# Becomes this:
-# "{'doi': '10.1007/s12264-024-01253-8',  ...
-# etc. 
-# For '_id', doi_common returns a bson object that gets flattened out into an invalid string in my file. Ditto for the datetime objects for the other two.
-
-
-
-# TODO:
-# evaluate_candidates
-# propose_candidates
-# generate_name_permutations
-
-# is_janelian
-# set_author_check_attr
-# create_author
-# create_employee
-# create_guess?
-# fuzzy_match?
+# Run like so:
+# python3 test1_file_integrity.py <dir_name>
+# python3 test1_file_integrity.py single_author
 
 import db_connect
 import tc_common
 import jrc_common.jrc_common as JRC
 import doi_common.doi_common as doi_common
-
+import sys
 
 def check_match(message):
     def decorator(func):
@@ -60,16 +40,13 @@ doi_collection = db_connect.DB['dis'].dois
 
 #Boilerplate: create a TestCase object (attributes come from config file)
 config = tc_common.TestCase()
-config.read_config('single_author')
+config.read_config(sys.argv[1])
+
 
 #doi_rec_from_file = config.doi_record()
 doi_rec_from_file = config.doi_record()
 doi_rec_real = doi_common.get_doi_record(f'{config.doi}', doi_collection)
 
-
-# doi_rec_real.pop('_id') # key definitely exists
-# doi_rec_real.pop('jrc_updated', None) # key may not exist
-# doi_rec_real.pop('jrc_inserted', None) # key may not exist
 
 author_list_from_file = config.author_details()
 author_list_real = doi_common.get_author_details(doi_rec_real, doi_collection)  #IMPORTANT: NEED TO UPDATE THE SECOND ARG HERE... SOON

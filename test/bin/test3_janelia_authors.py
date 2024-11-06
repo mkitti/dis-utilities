@@ -1,6 +1,10 @@
 # before running, put utility/bin in path like so:
 # export PYTHONPATH="${PYTHONPATH}:/groups/scicompsoft/home/scarlettv/dis-utilities/utility/bin"
 
+# Run like so:
+# python3 test3_janelia_authors.py <dir_name>
+# python3 test3_janelia_authors.py single_author
+
 import db_connect
 import tc_common
 import jrc_common.jrc_common as JRC
@@ -23,7 +27,7 @@ doi_collection = db_connect.DB['dis'].dois
 
 #Boilerplate: create a TestCase object (attributes come from config file)
 config = tc_common.TestCase()
-config.read_config('single_author')
+config.read_config(sys.argv[1])
 
 
 author_details_from_file = config.author_details()

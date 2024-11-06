@@ -1,12 +1,18 @@
 # before running, put utility/bin in path like so:
 # export PYTHONPATH="${PYTHONPATH}:/groups/scicompsoft/home/scarlettv/dis-utilities/utility/bin"
 
+# Run like so:
+# python3 test2_authors_to_candidates.py <dir_name>
+# python3 test2_authors_to_candidates.py single_author
+
+
 # VERY IMPORTANT: Expects the list of lists of guesses in your config file to use unusual separators, because brackets are not eval-safe.
 # sublists should be separated with ';', and strings should be separated with '|'
 # so:
 # [ ['hats', 'scarves'], ['boots', 'gloves'], ['earmuffs'] ]
 # must be written in the config file like this:
 # hats|scarves;boots|gloves;earmuffs
+
 
 import db_connect
 import tc_common
@@ -28,7 +34,7 @@ doi_collection = db_connect.DB['dis'].dois
 
 #Boilerplate: create a TestCase object (attributes come from config file)
 config = tc_common.TestCase()
-config.read_config('single_author')
+config.read_config(sys.argv[1])
 
 
 doi_rec_from_file = config.doi_record()
