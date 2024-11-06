@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "23.3.0"
+__version__ = "24.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -38,7 +38,6 @@ CUSTOM_REGEX = {"publishing_year": {"field": "jrc_publishing_date",
 NAV = {"Home": "",
        "DOIs": {"DOIs by insertion date": "dois_insertpicker",
                 "DOIs awaiting processing": "dois_pending",
-                "DOIs by journal": "dois_journal",
                 "DOIs by publisher": "dois_publisher",
                 "DOIs by source": "dois_source",
                 "DOIs by year": "dois_year",
@@ -49,6 +48,7 @@ NAV = {"Home": "",
                       "DOIs with lab head first/last authors": "doiui_group"},
        "Preprints": {"DOIs by preprint status": "dois_preprint",
                      "DOIs by preprint status by year": "dois_preprint_year"},
+       "Journals": {"Top journals": "dois_journal"},
        "ORCID": {"Groups": "groups",
                  "Entries": "orcid_entry",
                  "Duplicates": "orcid_duplicates",
@@ -2042,7 +2042,12 @@ def download(fname):
 def show_home():
     ''' Home
     '''
+    jlist = get_top_journals('All').keys()
+    journals = ''
+    for jname in sorted(jlist):
+        journals += f"<option>{jname}</option>"
     return make_response(render_template('home.html', urlroot=request.url_root,
+                                         journals=journals,
                                          navbar=generate_navbar('Home')))
 
 # ******************************************************************************
@@ -2424,7 +2429,7 @@ def dois_journal(year='All', top=10):
         if len(data) >= top:
             continue
         data[key] = val
-        html += f"<tr><td>{key}</td><td>{val:,}</td></tr>"
+        html += f"<tr><td><a href='/journal/{key}/{year}'>{key}</a></td><td>{val:,}</td></tr>"
     html += '</tbody></table><br>' + year_pulldown('dois_journal')
     title = "DOIs by journal"
     if year != 'All':
@@ -3298,6 +3303,40 @@ def show_doiui_custom():
                                          title=ptitle, html=html,
                                          navbar=generate_navbar('DOIs')))
 
+
+# ******************************************************************************
+# * UI endpoints (journals)                                                    *
+# ******************************************************************************
+@app.route('/journal/<string:jname>/<string:year>')
+@app.route('/journal/<string:jname>')
+def show_journal_ui(jname, year='All'):
+    ''' Show journal DOIs
+    '''
+    try:
+        payload = {"container-title": jname}
+        if year != 'All':
+            payload['jrc_publishing_date'] = {"$regex": "^"+ year}
+        rows = DB['dis'].dois.find(payload,
+                                   {"jrc_publishing_date": 1, "doi": 1,
+                                    "title": 1}).sort("jrc_publishing_date", -1)
+    except Exception as err:
+        return render_template('error.html', urlroot=request.url_root,
+                               title=render_warning("Could not get DOIs"),
+                               message=error_message(err))
+    html = "<table id='dois' class='tablesorter standard'><thead><tr>" \
+           + "<th>Published</th><th>DOI</th><th>Title</th></tr></thead><tbody>"
+    cnt = 0
+    for row in rows:
+        cnt += 1
+        html += f"<tr><td>{row['jrc_publishing_date']}</td><td>{doi_link(row['doi'])}</td>" \
+                + f"<td>{row['title'][0]}</td></tr>"
+    html += '</tbody></table>'
+    title = f"DOIs for {jname} ({cnt})"
+    if year != 'All':
+        title += f" (year={year})"
+    return make_response(render_template('general.html', urlroot=request.url_root,
+                                            title=title, html=html,
+                                            navbar=generate_navbar('Journals')))
 
 # ******************************************************************************
 # * UI endpoints (ORCID)                                                       *
