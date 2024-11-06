@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "24.0.0"
+__version__ = "24.1.0"
 # Database
 DB = {}
 # Custom queries
@@ -2043,9 +2043,9 @@ def show_home():
     ''' Home
     '''
     jlist = get_top_journals('All').keys()
-    journals = ''
-    for jname in sorted(jlist):
-        journals += f"<option>{jname}</option>"
+    journals = '<option>'
+    journals += '</option><option>'.join(sorted(jlist))
+    journals += '</option>'
     return make_response(render_template('home.html', urlroot=request.url_root,
                                          journals=journals,
                                          navbar=generate_navbar('Home')))
@@ -3313,7 +3313,8 @@ def show_journal_ui(jname, year='All'):
     ''' Show journal DOIs
     '''
     try:
-        payload = {"container-title": jname}
+        payload = {"$or": [{"container-title": jname},
+                           {"institution.name": jname}]}
         if year != 'All':
             payload['jrc_publishing_date'] = {"$regex": "^"+ year}
         rows = DB['dis'].dois.find(payload,
@@ -3323,14 +3324,24 @@ def show_journal_ui(jname, year='All'):
         return render_template('error.html', urlroot=request.url_root,
                                title=render_warning("Could not get DOIs"),
                                message=error_message(err))
-    html = "<table id='dois' class='tablesorter standard'><thead><tr>" \
-           + "<th>Published</th><th>DOI</th><th>Title</th></tr></thead><tbody>"
+    header = ['Published', 'DOI', 'Title']
+    html = "<table id='dois' class='tablesorter standard'><thead><tr><th>"
+    html += "</th><th>".join(header)
+    html += "</th></tr></thead><tbody>"
     cnt = 0
+    fileoutput = ""
     for row in rows:
         cnt += 1
         html += f"<tr><td>{row['jrc_publishing_date']}</td><td>{doi_link(row['doi'])}</td>" \
                 + f"<td>{row['title'][0]}</td></tr>"
+        #fileoutput += "%s\t%s\t%s\n" % (row['jrc_publishing_date'], row['doi'], row['title'][0])
+        fileoutput += f"{row['jrc_publishing_date']}\t{row['doi']}\t{row['title'][0]}\n"
     html += '</tbody></table>'
+    fname = 'journals'
+    if year != 'All':
+        fname += f"_{year}"
+    print(fname)
+    html = create_downloadable(fname, header, fileoutput) + html
     title = f"DOIs for {jname} ({cnt})"
     if year != 'All':
         title += f" (year={year})"
@@ -3502,7 +3513,8 @@ def orcid_tag():
             perc = f"<span style='color: yellow;'>{perc}%</span>"
         else:
             perc = f"<span style='color: red;'>{perc}%</span>"
-        html += f"<tr class={rclass}><td>{link}</td><td>{org}</td><td>{link2}</td><td>{perc}</td></tr>"
+        html += f"<tr class={rclass}><td>{link}</td><td>{org}</td><td>{link2}</td>" \
+                + f"<td>{perc}</td></tr>"
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"Author affiliations ({count:,})", html=html,
