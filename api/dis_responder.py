@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "23.1.0"
+__version__ = "23.3.0"
 # Database
 DB = {}
 # Custom queries
@@ -213,7 +213,7 @@ def render_warning(msg, severity='error', size='lg'):
     ''' Render warning HTML
         Keyword arguments:
           msg: message
-          severity: severity (warning, error, or success)
+          severity: severity (warning, error, info, or success)
           size: glyph size
         Returns:
           HTML rendered warning
@@ -225,6 +225,9 @@ def render_warning(msg, severity='error', size='lg'):
     elif severity == 'success':
         icon = 'check-circle'
         color = 'lime'
+    elif severity == 'info':
+        icon = 'circle-info'
+        color = 'blue'
     elif severity == 'na':
         icon = 'minus-circle'
         color = 'gray'
@@ -2683,8 +2686,10 @@ def dois_pending():
            + '</tr></thead><tbody>'
     if not cnt:
         return render_template('warning.html', urlroot=request.url_root,
-                               title=render_warning("No DOIs found", 'warning'),
-                               message="No DOIs are awaiting processing")
+                               title=render_warning("No DOIs found", 'info'),
+                               message="No DOIs are awaiting processing. This isn't an error," \
+                                       + " it just means that we're all caught up on " \
+                                       + "DOI processing.")
     for row in rows:
         elapsed = datetime. now() - row['inserted']
         if elapsed.days:
@@ -3411,8 +3416,9 @@ def orcid_tag():
     ''' Show ORCID tags (affiliations) with counts
     '''
     payload = [{"$unwind" : "$affiliations"},
-               {"$project": {"_id": 0, "affiliations": 1}},
-               {"$group": {"_id": "$affiliations", "count":{"$sum": 1}}},
+               {"$project": {"_id": 0, "affiliations": 1, "orcid": 1}},
+               {"$group": {"_id": "$affiliations", "count":{"$sum": 1},
+                           "orcid": {"$push": "$orcid"}}},
                {"$sort": {"_id": 1}}
               ]
     try:
@@ -3431,7 +3437,7 @@ def orcid_tag():
     html = "<button class=\"btn btn-outline-warning\" " \
               + "onclick=\"$('.other').toggle();\">Filter for active SupOrgs</button>"
     html += '<table id="types" class="tablesorter numbers"><thead><tr>' \
-            + '<th>Affiliation</th><th>SupOrg</th><th>Authors</th>' \
+            + '<th>Affiliation</th><th>SupOrg</th><th>Authors</th><th>ORCID %</th>' \
             + '</tr></thead><tbody>'
     count = 0
     for row in rows:
@@ -3450,7 +3456,14 @@ def orcid_tag():
                 org = "<span style='color: yellow;'>No code</span>"
         else:
             org = "<span style='color: red;'>No</span>"
-        html += f"<tr class={rclass}><td>{link}</td><td>{org}</td><td>{link2}</td></tr>"
+        perc = float(f"{len(row['orcid'])/row['count']*100:.2f}")
+        if perc == 100.0:
+            perc = "<span style='color: lime;'>100.00%</span>"
+        elif perc >= 50.0:
+            perc = f"<span style='color: yellow;'>{perc}%</span>"
+        else:
+            perc = f"<span style='color: red;'>{perc}%</span>"
+        html += f"<tr class={rclass}><td>{link}</td><td>{org}</td><td>{link2}</td><td>{perc}</td></tr>"
     html += '</tbody></table>'
     return make_response(render_template('general.html', urlroot=request.url_root,
                                          title=f"Author affiliations ({count:,})", html=html,
