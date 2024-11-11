@@ -11,7 +11,10 @@ One of the authors is 'COSEM Project Team'.
 O'Shea lab.
 
 10.1101/2024.09.16.613338
-One author is Miguel Angel Núñez-Ochoa,a compound name with tricky characters.
+One author is Miguel Angel Núñez-Ochoa, a compound name with tricky characters.
 
 10.1073/pnas.2221175120
 This is actually not a Janelia paper, but Xuhong Cao is a tricky case because her middle name is a None object.
+
+10.1093/bioinformatics/bts543
+Affiliations look like this: "1 Max Planck Institute of Molecular Cell Biology and Genetics, 01307 Dresden, Germany and 2Janelia Farm Research Campus, Howard Hughes Medical Institute, Ashburn, VA 20147". Note the '2Janelia'.
