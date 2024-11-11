@@ -17,4 +17,4 @@ One author is Miguel Angel Núñez-Ochoa, a compound name with tricky characters
 This is actually not a Janelia paper, but Xuhong Cao is a tricky case because her middle name is a None object.
 
 10.1093/bioinformatics/bts543
-Affiliations look like this: "1 Max Planck Institute of Molecular Cell Biology and Genetics, 01307 Dresden, Germany and 2Janelia Farm Research Campus, Howard Hughes Medical Institute, Ashburn, VA 20147". Note the '2Janelia'.
+Affiliations look like this: "1 Max Planck Institute of Molecular Cell Biology and Genetics, 01307 Dresden, Germany and 2Janelia Farm Research Campus, Howard Hughes Medical Institute, Ashburn, VA 20147". Note the '2Janelia'. Also, one author (Pavel Tomančák) has a Janelia affiliation but is not in the People system.

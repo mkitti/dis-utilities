@@ -383,16 +383,21 @@ def set_author_check_attr(all_authors):
         for i in range(len(new_author_list)):
             setattr(new_author_list[i], 'check', True)
     else:
+        pattern = re.compile(
+        r'(?i)(janelia|'  # (?i) means case-insensitive; pattern matches "Janelia" in any form, e.g., "Janelia", "thejaneliafarm", etc.
+        r'(ashburn.*(hhmi|howard\s*hughes))|'  # "Ashburn" with "HHMI" or "Howard Hughes"
+        r'(hhmi|howard\s*hughes).*ashburn)'  # "HHMI" or "Howard Hughes" with "Ashburn" 
+        )
         for i in range(len(new_author_list)):
-            setattr(new_author_list[i], 'check', is_janelian(new_author_list[i], orcid_collection))
+            setattr(new_author_list[i], 'check', is_janelian(new_author_list[i], pattern, orcid_collection))
     return(new_author_list)
 
-def is_janelian(author, orcid_collection):
+def is_janelian(author, pattern, orcid_collection):
     result = False
     if author.orcid:
         if doi_common.single_orcid_lookup(author.orcid, orcid_collection, 'orcid'):
             result = True
-    if bool(re.search(r'Janelia', " ".join(author.affiliations))):
+    if bool(re.search(pattern, " ".join(author.affiliations))):
         result = True
     return(result)
 
