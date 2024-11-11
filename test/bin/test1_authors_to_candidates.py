@@ -36,10 +36,10 @@ all_authors = [ nm.create_author(author_record) for author_record in author_deta
 ids = []
 for a in all_authors:
     name = nm.HumanName(a.name)
-    ids = nm.name_search(name.first, name.last)
+    ids.append(nm.name_search(name.first, name.last))
 
 
-if set(ids) == set(config.candidate_ids()): # use a set because order doesn't matter
+if set(nm.flatten(ids)) == set(config.candidate_ids()): # use a set because order doesn't matter
     print('Pass: initial candidate employee IDs')
 else:
     print(f'Fail: initial candidate employee IDs\nExpected:{config.candidate_ids()}\nReturned:{ids}')
@@ -50,10 +50,15 @@ else:
 guess_lists = [nm.propose_candidates(a) for a in all_authors]
 target = config.guesses() # Guess lists from file, represented as one string
 
+# for i in range(min(len(str(guess_lists)), len(target))):
+#     if str(guess_lists)[i] != target[i]:
+#         print(f"Difference at position {i}: {str(guess_lists)[i]} vs {target[i]}")
+#         break
+
 if str(guess_lists) == target:
     print('Pass: initial proposed guesses')
 else:
-    print(f'Fail: initial proposed guesses\nExpected:{target}\nReturned:{str(guess_lists)}')
+    print(f'Fail: initial proposed guesses\nExpected:{[e for e in target]}\nReturned:{[str(e)for e in guess_lists]}')
 
 
 
