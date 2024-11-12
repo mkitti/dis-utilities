@@ -81,10 +81,20 @@ def create_doilists(row):
         return
     names = []
     for auth in row['jrc_author']:
-        resp = JRC.call_people_by_id(auth)
-        if not resp:
+        try:
+            resp = JRC.call_people_by_id(auth)
+        except Exception as err:
+            print(type(err).__name__)
+            LOGGER.warning(f"Error calling people by ID: {err}")
+            terminate_program(err)
+        if not resp or 'employeeId' not in resp or not resp['employeeId']:
+            LOGGER.warning(f"No People information found for {auth}")
             continue
-        names.append(' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']]))
+        try:
+            names.append(' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']]))
+        except Exception as err:
+            LOGGER.warning(f"Error getting author name: {err}")
+            terminate_program(err)
     AUTHORLIST[row['doi']] = ", ".join(names)
 
 
@@ -114,8 +124,8 @@ def process_authors(authors, publications, cnt):
     summary = ""
     for auth, val in authors.items():
         resp = JRC.call_people_by_id(auth)
-        if not resp:
-            LOGGER.warning(f"Skipping author {auth}")
+        if not resp or 'employeeId' not in resp or not resp['employeeId']:
+            LOGGER.warning(f"No People information found for {auth}")
             continue
         name = ' '.join([resp['nameFirstPreferred'], resp['nameLastPreferred']])
         author_valid = valid_author(auth)

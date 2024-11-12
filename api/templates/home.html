@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block script %}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery-cookie/1.4.1/jquery.cookie.min.js"></script>
+<script src="/static/bootstrap-autocomplete/autocomplete.js"></script>
 <script>
   function find_doi() {
     if (!$('#doi').val()) {
@@ -42,6 +43,15 @@
     url = "/namesui/" + $("#name").val();
     window.location = url;
   }
+  function find_journals() {
+    if (!$('#input-datalist').val()) {
+      alert("You must enter a journal");
+      return;
+    }
+    url = "/journal/" + $("#input-datalist").val();
+    window.location = url;
+  }
+
 </script>
 {% endblock %}
 {% block onload %}
@@ -87,6 +97,31 @@ onload="tableInitialize();"
   </div>
 </div>
 <br><br>
+
+<div class="flexcontainer">
+  <div class="flexitem">
+  <span class="form-control-lg">Find DOIs by journal:</span>
+  </div>
+  <div class="flexitem">
+    <div class="form-group">
+      <input type="text" class="form-control" placeholder="Select a journal" list="list-timezone" id="input-datalist">
+      <datalist id="list-timezone">
+        {{ journals | safe }}
+      </datalist>
+  </div>
+  
+  <script>
+      document.addEventListener('DOMContentLoaded', e => {
+          $('#input-datalist').autocomplete()
+      }, false);
+  </script>
+  </div>
+  <div class="flexitem">
+    <button type="submit" id="doij" class="btn btn-primary btn-md" onclick="find_journals(); return false;" href="#">Look up</button>
+  </div>
+</div>
+<br><br>
+
 <div class="flexcontainer">
   <div class="flexitem">
   <span class="form-control-lg">Find an ORCID:</span>
