@@ -26,7 +26,7 @@ import dis_plots as DP
 
 # pylint: disable=broad-exception-caught,broad-exception-raised,too-many-lines
 
-__version__ = "24.1.0"
+__version__ = "25.0.0"
 # Database
 DB = {}
 # Custom queries
@@ -3193,11 +3193,12 @@ def show_insert(idate):
     limit = weeks_ago(2)
     for row in rows:
         source = row['jrc_load_source'] if row['jrc_load_source'] else ""
-        typ = ""
+        typ = subtype = ""
         if 'type' in row:
             typ = row['type']
             if 'subtype' in row:
-                typ += f" {row['subtype']}"
+                subtype = row['subtype']
+                typ += f" {subtype}"
         elif 'types' in row and 'resourceTypeGeneral' in row['types']:
             typ = row['types']['resourceTypeGeneral']
         version = []
@@ -3208,7 +3209,8 @@ def show_insert(idate):
         version = doi_link(version) if version else ""
         news = row['jrc_newsletter'] if 'jrc_newsletter' in row else ""
         if (not news) and (row['jrc_obtained_from'] == 'Crossref') and \
-           (row['jrc_publishing_date'] >= str(limit)):
+           (row['jrc_publishing_date'] >= str(limit)) \
+           and (typ == 'journal-article' or subtype == 'preprint'):
             rclass = 'candidate'
         else:
             rclass = 'other'
@@ -3334,7 +3336,6 @@ def show_journal_ui(jname, year='All'):
         cnt += 1
         html += f"<tr><td>{row['jrc_publishing_date']}</td><td>{doi_link(row['doi'])}</td>" \
                 + f"<td>{row['title'][0]}</td></tr>"
-        #fileoutput += "%s\t%s\t%s\n" % (row['jrc_publishing_date'], row['doi'], row['title'][0])
         fileoutput += f"{row['jrc_publishing_date']}\t{row['doi']}\t{row['title'][0]}\n"
     html += '</tbody></table>'
     fname = 'journals'
