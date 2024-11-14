@@ -593,12 +593,6 @@ def terminate_program(msg=None):
             sys.exit(-1 if msg else 0)
 
 
-# Old code that should really be added to our documentation instead of lingering here
-# api_key = os.environ.get('PEOPLE_API_KEY')
-# if not api_key:
-#     print("Error: Please set the environment variable PEOPLE_API_KEY.")
-#     sys.exit(1)
-
 
 
 
@@ -671,7 +665,7 @@ if __name__ == '__main__':
 
 
 
-#For bug testing, do not run!!!
+#For bug testing
 # import name_match as nm
 # nm.initialize_program()
 # orcid_collection = nm.DB['dis'].orcid
@@ -679,18 +673,4 @@ if __name__ == '__main__':
 # doi = '10.1101/2024.09.16.613338'
 # doi_record = nm.doi_common.get_doi_record(doi, doi_collection)
 # all_authors = nm.get_author_objects(doi, doi_record, doi_collection)
-# authors_to_check = nm.determine_authors_to_check(all_authors)
-
-#doi='10.1038/s41587-022-01524-7'
-#doi='10.7554/elife.80660'
-#doi='10.1101/2024.05.09.593460'
-#doi = '10.1101/2023.10.16.562634'
-# Has David Clapham, who has 2 records:
-#doi='10.1021/jacs.4c03092'
-
-#doi='10.1038/s41556-023-01154-4'
-#doi='10.7554/eLife.80622'
-#doi = '10.1038/s41593-024-01738-9'
-
-#A tricky employee Id: 42651 Middle name is a None object
 
